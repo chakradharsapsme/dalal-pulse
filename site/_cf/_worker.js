@@ -9,7 +9,7 @@ const VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const DISCLAIMER = "Information only, not investment advice. Dalal Pulse is not SEBI-registered.";
 
 const GUIDE = `DALAL PULSE — HOW TO USE THE WEBSITE (${SITE})
-Top of every page: live index ticker; 2nd strip = Nifty 200 stocks at 52-week highs/lows; the band shows market-moving news for top stocks. Bottom bar = only high-priority breaking news (auto-advances every 9 s, pause by hovering). Bell icon = news pop-ups for stocks.
+Top of every page: live index ticker; the band shows market-moving news for top stocks. Bottom bar = only high-priority breaking news (auto-advances every 9 s, pause by hovering). Bell icon = news pop-ups for stocks.
 Tabs:
 - News by stock: every tracked stock (Nifty 200 + F&O) with its news, tone, rule-based view (label + score), chart (price, 50/200-day averages, Bollinger, MACD, RSI, volume) and support/resistance "watch" levels. ⚡ = the source that published first; 🏛 = official NSE filing.
 - Markets: market mood score, breadth, FII/DII flows, bubble map of stocks by market cap and move (HDFC-style), sector heatmap, relative-strength (RS) ranking.
@@ -18,7 +18,6 @@ Tabs:
 - Options: index/stock option chain read (PCR, max pain, call/put walls, IV, expected move), defined-risk spread ideas, lottery list (cheap far options, mostly expire worthless), and the Options Expert planner (careful/balanced/bold risk sizing: 1/2/3% of capital per trade). "Buy on Kite" buttons open a Kite basket — the order is only placed after YOU confirm inside Kite.
 - Circuits: large & mid caps hitting 2/5/10/20% price bands today (small caps hidden on purpose).
 - Screener: ready-made screens (leaders, breakouts, pullbacks, oversold...) as cards or table.
-- 52W high/low: quality stocks at yearly highs/lows.
 - Portfolio: your holdings/watchlist kept in your browser only.
 - Calendar: results, dividends, bonus, splits for tracked stocks.
 Data refresh: every 5 min in market hours (09:15–15:30 IST, Mon–Fri), every 30 min otherwise. Signals are rule-based (no AI), with a 5-year backtest showing which signals actually had an edge.`;
@@ -35,6 +34,9 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { symbol: { type: "string", description: "NSE symbol, e.g. TATAMOTORS or M&M (company names also work)" } }, required: ["symbol"] } },
   { name: "all_stocks", title: "All tracked stocks", file: "stocks.txt",
     description: "One line per tracked stock (Nifty 200 + F&O, ~225 stocks): price, day %, trend, RSI, relative-strength rating, 1-month return, distance from 52-week high, site view and F&O build-up. Use to scan or compare many stocks." },
+  { name: "live_quote", title: "Live prices",
+    description: "Live NSE prices right now (exchange feed, ~15 s cache): last price, % change vs previous close, day high/low and quote time in IST. Accepts up to 8 NSE symbols, plus NIFTY, BANKNIFTY, SENSEX, VIX. Call this first for any question about current prices or 'right now'.",
+    inputSchema: { type: "object", properties: { symbols: { type: "string", description: "Comma-separated NSE symbols, e.g. RELIANCE,HDFCBANK,NIFTY" } }, required: ["symbols"] } },
   { name: "site_guide", title: "How to use Dalal Pulse",
     description: "Explains every section of the Dalal Pulse website and how to read it (tabs, icons, F&O build-up terms, options section, Kite buttons, refresh timing). Use when the user asks how to use the site or where to find something." },
 ].map(t => ({ ...t, inputSchema: t.inputSchema || { type: "object", properties: {} }, annotations: { readOnlyHint: true, openWorldHint: false } }));
@@ -50,6 +52,13 @@ async function callTool(name, args = {}) {
   const t = TOOLS.find(x => x.name === name);
   if (!t) throw Object.assign(new Error(`Unknown tool: ${name}`), { code: -32602 });
   if (name === "site_guide") return GUIDE;
+  if (name === "live_quote") {
+    const syms = [...new Set(String(args.symbols || "NIFTY").toUpperCase().split(/[,\s]+/).map(x => x.replace(/\.NS$/, "")).filter(x => /^[A-Z0-9&^_-]{1,24}$/.test(x)))].slice(0, 8);
+    const rows = await Promise.all(syms.map(async s => [s, await quote1(s)]));
+    const ist = t => t ? new Date(Date.parse(t) + 5.5 * 3600e3).toISOString().slice(0, 16).replace("T", " ") + " IST" : "?";
+    const now = new Date(Date.now() + 5.5 * 3600e3), hm = now.getUTCHours() * 60 + now.getUTCMinutes(), open = now.getUTCDay() >= 1 && now.getUTCDay() <= 5 && hm >= 555 && hm <= 930;
+    return `LIVE QUOTES (NSE via exchange feed) · now ${ist(new Date().toISOString())} · market ${open ? "OPEN" : "CLOSED"}\n` + rows.map(([s, q]) => q ? `${s}: ₹${q.price} (${q.change_pct > 0 ? "+" : ""}${q.change_pct}% vs prev close ₹${q.prev}) · day ${q.low}–${q.high} · as of ${ist(q.time)}` : `${s}: no quote (check the symbol)`).join("\n");
+  }
   if (t.file) return (await getText(t.file)) || "Data is temporarily unavailable. Try again in a minute.";
   // stock_details
   const raw = String(args.symbol || "").trim();
@@ -250,7 +259,7 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/mcp" || url.pathname === "/mcp/") return mcp(request);
     if (url.pathname === "/quote") return quotes(request);
-    if (url.pathname === "/agent") return agent(request, env);
+    // /agent (Workers AI) is switched off: questions are handed to Claude instead (no cost).
     if (url.pathname.startsWith("/_cf")) return new Response("Not found", { status: 404 });
     const target = ORIGIN + (url.pathname === "/" ? "/" : url.pathname) + url.search;
     const isData = url.pathname.startsWith("/data/");

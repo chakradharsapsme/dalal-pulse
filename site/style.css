@@ -640,3 +640,9 @@ body.bt-on .toast{bottom:calc(60px + env(safe-area-inset-bottom,0px))}
 .pa-ai code{font-family:var(--mono);font-size:12px;background:var(--paper2);padding:1px 4px;border-radius:4px}
 .pa-work,.pa-data{margin:6px 0 0;font-size:12px;color:var(--muted)}.pa-work summary,.pa-data summary{cursor:pointer;font-weight:700;padding:2px 0}
 .pa-work ol{margin:4px 0;padding-left:18px}.pa-data>.pa-card,.pa-data>p,.pa-data>div{font-size:12.5px}
+.pa-send{width:auto!important;padding:0 14px;border-radius:999px!important;font-weight:800;font-size:13px!important;white-space:nowrap;background:linear-gradient(120deg,#0b6e72,#b8700e)!important}
+.pa-in.ready .pa-send{animation:paping2 1.2s infinite}
+.pa-handoff{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--peacock);border-radius:12px;padding:10px 13px}
+.pa-handoff p{margin:4px 0 8px;font-size:12.5px}
+.pa-claudebtn{display:inline-block;padding:6px 14px;border-radius:999px;background:var(--peacock);color:#fff;font-weight:800;font-size:13px;text-decoration:none}
+.pa-claudebtn:hover{filter:brightness(1.1)}
