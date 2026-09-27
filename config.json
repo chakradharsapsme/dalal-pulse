@@ -1,0 +1,6 @@
+{
+  "site_title": "Dalal Pulse",
+  "universe_file": "ind_nifty200list.csv",
+  "extra_symbols": [],
+  "keep_news_hours": 72
+}

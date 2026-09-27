@@ -1,0 +1,70 @@
+name: Update site data
+
+on:
+  schedule:
+    - cron: "*/15 3-10 * * 1-5"   # every 15 min, 08:30-16:15 IST, Mon-Fri (market hours)
+    - cron: "7 * * * *"           # hourly otherwise (news keeps coming)
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Restore news history
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache
+          key: news-${{ github.run_id }}
+          restore-keys: news-
+
+      - name: Build data
+        run: node scripts/build-data.js
+
+      - name: Save news history
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .cache
+          key: news-${{ github.run_id }}
+
+      - name: Keep the schedule alive (GitHub pauses schedules after 60 idle days)
+        run: |
+          last=$(git log -1 --format=%ct)
+          if [ $(( $(date +%s) - last )) -gt 2592000 ]; then
+            date -u > .keepalive
+            git config user.name "stock-pulse-bot"
+            git config user.email "stock-pulse-bot@users.noreply.github.com"
+            git add .keepalive && git commit -m "keepalive" && git push
+          fi
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

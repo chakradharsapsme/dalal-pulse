@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dalal Pulse</title>
+<meta name="description" content="Moneycontrol news grouped by stock, with live-updating technicals, 52-week highs and lows, sector heatmap and automated insights for Nifty 200 stocks.">
+<meta name="theme-color" content="#0c1718">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script>try{const t=localStorage.getItem("dp-theme");if(t)document.documentElement.dataset.theme=t}catch{}</script>
+</head>
+<body>
+<!--BODY-->
+<div class="snap" id="snap" hidden></div>
+<header class="mast"><div class="in">
+  <button class="brand" data-nav="news" aria-label="Dalal Pulse home">
+    <span class="mk"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f2a541" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13h4l2.5-6 4 12 3-9 2 3h4.5"/></svg></span>
+    <span><b>Dalal Pulse</b><small>NSE news · signals · insights</small></span>
+  </button>
+  <nav class="tabs" id="tabs" aria-label="Sections">
+    <button data-nav="news">News by stock</button>
+    <button data-nav="markets">Markets</button>
+    <button data-nav="screener">Screener</button>
+    <button data-nav="w52">52W high/low</button>
+    <button data-nav="portfolio">My portfolio</button>
+    <button data-nav="calendar">Calendar</button>
+  </nav>
+  <div class="search">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input id="gsearch" placeholder="Search stock…" autocomplete="off" aria-label="Search stocks">
+    <div class="sugg" id="gsugg" hidden></div>
+  </div>
+  <div class="clock" id="clock"><span class="t" id="clockT">--:--:-- IST</span><span class="status" id="mstat"><i></i><span>…</span></span></div>
+  <button class="iconbtn" id="theme" title="Switch light / dark" aria-label="Switch light or dark theme"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+</div></header>
+<div class="tape" id="tape" aria-label="Nifty 50 ticker"><div class="track" id="track"><span class="it">Loading prices…</span></div></div>
+<div class="band"><div class="in" id="band"><div class="skeleton" style="width:100%;height:52px"></div></div></div>
+<main class="wrap" id="view"><div class="skeleton" style="height:320px"></div></main>
+<footer class="foot">
+  <p id="footUpd"></p>
+  <p>Data from Moneycontrol headlines (via RSS and Google News), NSE and Yahoo Finance. Insights come from transparent rules (headline tone words plus trend, moving averages, RSI, volume and the 52-week range), not from an AI model. This is for information only, not investment advice.</p>
+</footer>
+<!--/BODY-->
+<script src="app.js"></script>
+</body>
+</html>
