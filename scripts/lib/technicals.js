@@ -10,13 +10,14 @@ async function history(yahooSymbol, range = RANGE) {
     const url = `https://query${a % 2 ? 2 : 1}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?range=${range}&interval=1d`;
     try {
       const r = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" }, signal: AbortSignal.timeout(20000) });
+      if (r.status === 404) { const e = new Error("HTTP 404"); e.final = true; throw e; }
       if (!r.ok) throw new Error("HTTP " + r.status);
       const res = (await r.json())?.chart?.result?.[0];
       if (!res?.timestamp) throw new Error("no data");
       const q = res.indicators.quote[0];
       const rows = res.timestamp.map((t, i) => ({ t: t * 1000, c: q.close[i], v: q.volume[i] || 0, h: q.high[i] ?? q.close[i], l: q.low[i] ?? q.close[i] })).filter(r => r.c != null);
       return { rows, meta: res.meta };
-    } catch (e) { lastErr = e; await new Promise(r => setTimeout(r, 900 * (a + 1))); }
+    } catch (e) { lastErr = e; if (e.final) break; await new Promise(r => setTimeout(r, 900 * (a + 1))); }
   }
   throw lastErr;
 }

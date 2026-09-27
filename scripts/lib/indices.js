@@ -3,6 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const { history, compute, indicators } = require("./technicals");
+const { nseGet } = require("./nse");
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36";
 const r2 = x => x == null || !isFinite(x) ? null : Math.round(x * 100) / 100;
@@ -13,7 +14,7 @@ const INDICES = [
   { id: "sensex", name: "Sensex", group: "Broad market", yahoo: ["^BSESN"], nse: null, csv: null,
     list: ["ADANIPORTS", "ASIANPAINT", "AXISBANK", "BAJFINANCE", "BAJAJFINSV", "BEL", "BHARTIARTL", "ETERNAL", "HCLTECH", "HDFCBANK", "HINDUNILVR", "ICICIBANK", "INFY", "ITC", "KOTAKBANK", "LT", "M&M", "MARUTI", "NTPC", "POWERGRID", "RELIANCE", "SBIN", "SUNPHARMA", "TMPV", "TATAMOTORS", "TATASTEEL", "TCS", "TECHM", "TITAN", "TRENT", "ULTRACEMCO"] },
   { id: "next50", name: "Nifty Next 50", group: "Broad market", yahoo: ["^NSMIDCP"], nse: "NIFTY NEXT 50", csv: "ind_niftynext50list.csv", fb: null },
-  { id: "midcap", name: "Nifty Midcap 100", group: "Broad market", yahoo: ["NIFTY_MIDCAP_100.NS", "^CNXMIDCAP", "^NSEMDCP50"], nse: "NIFTY MIDCAP 100", csv: "ind_niftymidcap100list.csv", fb: null },
+  { id: "midcap", name: "Nifty Midcap 100", group: "Broad market", yahoo: ["NIFTY_MIDCAP_100.NS", "^CNXMIDCAP"], nse: "NIFTY MIDCAP 100", csv: "ind_niftymidcap100list.csv", fb: null },
   { id: "smallcap", name: "Nifty Smallcap 100", group: "Broad market", yahoo: ["^CNXSC", "NIFTY_SMLCAP_100.NS", "^CNXSMALLCAP"], nse: "NIFTY SMALLCAP 100", csv: "ind_niftysmallcap100list.csv", fb: null },
   { id: "bank", name: "Nifty Bank", group: "Sectors", yahoo: ["^NSEBANK"], nse: "NIFTY BANK", csv: "ind_niftybanklist.csv", fb: (i, n) => /Financial/i.test(i) && /bank/i.test(n) },
   { id: "fin", name: "Nifty Financial Services", group: "Sectors", yahoo: ["NIFTY_FIN_SERVICE.NS", "^CNXFIN"], nse: "NIFTY FINANCIAL SERVICES", csv: "ind_niftyfinancelist.csv", fb: (i) => /Financial/i.test(i) },
@@ -40,6 +41,46 @@ async function intraday1(sym, a) {
   const q = res.indicators.quote[0], m = res.meta;
   const pts = (res.timestamp || []).map((t, i) => [t, r2(q.close[i])]).filter(p => p[1] != null);
   return { prev: r2(m.chartPreviousClose ?? m.previousClose), last: r2(m.regularMarketPrice), time: m.regularMarketTime, pts };
+}
+
+// ---- NSE official index history (used when Yahoo has no data for an index) ----
+// NSE returns at most ~70 sessions per request, so history is fetched in 85-day windows and cached between runs.
+const MON = { JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5, JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11 };
+const dmy = d => `${String(d.getUTCDate()).padStart(2, "0")}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${d.getUTCFullYear()}`;
+async function nseWindow(name, from, to) {
+  const j = await nseGet(`/api/historicalOR/indicesHistory?indexType=${encodeURIComponent(name)}&from=${dmy(from)}&to=${dmy(to)}`, "/reports-indices-historical-index-data");
+  return (j.data || []).map(x => { const [dd, mm, yy] = String(x.EOD_TIMESTAMP).split("-"); const t = Date.UTC(+yy, MON[mm.toUpperCase()], +dd, 10, 0);
+    return { t, c: +x.EOD_CLOSE_INDEX_VAL, h: +x.EOD_HIGH_INDEX_VAL || +x.EOD_CLOSE_INDEX_VAL, l: +x.EOD_LOW_INDEX_VAL || +x.EOD_CLOSE_INDEX_VAL, v: 0 }; })
+    .filter(r => isFinite(r.t) && r.c > 0);
+}
+async function nseHistory(def, cacheDir) {
+  const f = path.join(cacheDir, "hist-" + def.id + ".json");
+  let rows = []; try { rows = JSON.parse(fs.readFileSync(f, "utf8")); } catch {}
+  const DAY = 86400e3, WIN = 85 * DAY, now = Date.now(), target = now - 5 * 365 * DAY;
+  const map = new Map(rows.map(r => [new Date(r.t).toISOString().slice(0, 10), r]));
+  const add = list => { for (const r of list) map.set(new Date(r.t).toISOString().slice(0, 10), r); };
+  // 1) refresh the most recent window
+  const lastT = rows.length ? rows[rows.length - 1].t : now - WIN;
+  add(await nseWindow(def.nse, new Date(Math.max(lastT - 7 * DAY, now - WIN)), new Date(now)));
+  if (!rows.length) { let to = now - WIN; add(await nseWindow(def.nse, new Date(to - WIN), new Date(to - DAY))); }
+  // 2) back-fill older history a few windows per run until 5 years are covered
+  let sorted = [...map.values()].sort((a, b) => a.t - b.t);
+  for (let k = 0; k < 8 && sorted.length && sorted[0].t > target; k++) {
+    const to = sorted[0].t - DAY, from = to - WIN;
+    const got = await nseWindow(def.nse, new Date(from), new Date(to));
+    if (!got.length) break;
+    add(got); sorted = [...map.values()].sort((a, b) => a.t - b.t);
+    await new Promise(r => setTimeout(r, 150));
+  }
+  fs.mkdirSync(cacheDir, { recursive: true }); fs.writeFileSync(f, JSON.stringify(sorted));
+  return { rows: sorted, meta: { regularMarketPrice: sorted.length ? sorted[sorted.length - 1].c : null } };
+}
+async function nseIntraday(def) {
+  const j = await nseGet(`/api/NextApi/apiClient/indexTrackerApi?functionName=getIndexChart&&index=${encodeURIComponent(def.nse)}&flag=1D`, "/market-data/live-market-indices");
+  const g = j?.data?.grapthData || []; if (g.length < 2) throw new Error("no intraday");
+  const pts = []; let lastT = 0;
+  for (const p of g) { const t = Math.round(p[0] / 1000 - 19800); if (t > lastT + 240 || p === g[g.length - 1]) { pts.push([t, r2(p[1])]); lastT = t; } } // NSE times are IST written as UTC; ~5-min steps
+  return { prev: r2(j.data.closePrice), last: r2(g[g.length - 1][1]), pts };
 }
 
 async function constituents(def, universe, cacheDir, log) {
@@ -73,8 +114,13 @@ async function loadIndices({ universe, nseIndices, outDir, cacheDir, log }) {
     let hist = null, used = null;
     const errs = [];
     outer: for (const y of def.yahoo) for (const rg of ["5y", "2y", "1y"]) {
-      try { const h = await history(y, rg); if (h.rows.length >= 30) { hist = h; used = `${y} ${rg} (${h.rows.length} days)`; break outer; } errs.push(`${y} ${rg}: ${h.rows.length} rows`); }
-      catch (e) { errs.push(`${y} ${rg}: ${String(e.message).slice(0, 30)}`); }
+      try { const h = await history(y, rg); if (h.rows.length >= 30) { hist = h; used = `${y} ${rg} (${h.rows.length} days)`; break outer; } errs.push(`${y} ${rg}: ${h.rows.length} rows`); if (h.rows.length <= 1) break; }
+      catch (e) { errs.push(`${y} ${rg}: ${String(e.message).slice(0, 30)}`); break; }
+    }
+    let src = "Yahoo";
+    if (!hist && def.nse) {
+      try { const h = await nseHistory(def, cacheDir); if (h.rows.length >= 30) { hist = h; used = `NSE (${h.rows.length} days)`; src = "NSE"; } else errs.push(`NSE: ${h.rows.length} rows`); }
+      catch (e) { errs.push(`NSE: ${String(e.message).slice(0, 40)}`); }
     }
     report[def.id] = used ? "ok " + used : "failed (" + errs.join("; ") + ")";
     if (!hist || hist.rows.length < 30) {
@@ -87,7 +133,9 @@ async function loadIndices({ universe, nseIndices, outDir, cacheDir, log }) {
         members: cons.syms, members_total: cons.total, members_source: cons.source });
       return;
     }
-    let intra = null; try { intra = await intraday(used.split(" ")[0]); } catch {}
+    let intra = null;
+    if (src === "Yahoo") { try { intra = await intraday(used.split(" ")[0]); } catch {} }
+    if ((!intra || intra.pts.length < 3) && def.nse) { try { intra = await nseIntraday(def); } catch {} }
     const rows = hist.rows, ind = indicators(rows);
     const tech = compute(rows, hist.meta.regularMarketPrice);
     // daily for 1 year: [t, close, 50dma, 200dma]; weekly for 5 years: [t, close]
