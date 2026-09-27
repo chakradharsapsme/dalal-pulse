@@ -39,7 +39,7 @@ async function load(first) {
   if (D) prevPrice = Object.fromEntries(D.stocks.map(s => [s.symbol, s.price]));
   D = d; S = Object.fromEntries(D.stocks.map(s => [s.symbol, s])); NEWS = Object.fromEntries(D.news.map(n => [n.id, n]));
   if (!changed) { footer(); return; }
-  renderTape(); renderTape2(); renderBand(); render(); footer(); checkAlerts(first); newsFlash(first);
+  renderTape(); renderTape2(); renderBand(); renderTicker(); render(); footer(); checkAlerts(first); newsFlash(first);
   if (!first) { flashChanges(); toast("New prices and headlines just arrived"); }
 }
 function footer() {
@@ -248,6 +248,36 @@ function moversCard() {
       <div class="fh"><span class="tdot ${m.n.tone}"></span>${esc(m.n.title)}</div>
       <div class="imp"><span class="ib"><i style="width:0" data-w="${m.impact}%"></i></span><span class="muted">${esc(m.why.join(" · "))}</span></div></div></button>`).join("")}</div>
     <div class="muted" style="font-size:12px;margin-top:6px">Ranked by rule: how big the stock is in the Nifty, today's move, headline tone, event words (results, orders, deals, ratings, regulators) and how recent it is. "Nifty pts" is a rough estimate from approximate index weights.</div></div>`;
+}
+
+// ---------- BOTTOM BREAKING-NEWS TICKER ----------
+// major stock-moving headlines from the last 24 hours, any tracked stock: strong tone, big-event words, big price move, freshness
+function impactNews() {
+  const out = [], per = {};
+  for (const n of D.news) {
+    const sym = n.symbols.find(x => S[x]); if (!sym) continue;
+    const s = S[sym], ageH = (Date.now() - Date.parse(n.published)) / 3600e3; if (ageH > 24) continue;
+    const big = BIGWORDS.test(n.title), move = Math.min(8, Math.abs(s.change_pct || 0));
+    if (!big && Math.abs(n.tone_score || 0) < 0.2 && move < 2) continue; // only headlines that matter
+    const score = (0.4 + Math.abs(n.tone_score || 0) * 1.5 + (big ? 0.7 : 0)) * (1 + move / 2.5) * (s.nifty50 || HEAVY[sym] ? 1.25 : 1) * Math.exp(-ageH / 10);
+    if ((per[sym] = (per[sym] || 0) + 1) > 2) continue;
+    out.push({ n, sym, s, score });
+  }
+  return out.sort((a, b) => b.score - a.score).slice(0, 24);
+}
+let tickSig = "";
+function renderTicker() {
+  const bar = $("#bticker"); if (!bar || !D) return;
+  const collapsed = store.get("dp-bt-min", false);
+  document.body.classList.toggle("bt-on", !collapsed); bar.classList.toggle("min", collapsed);
+  const list = impactNews();
+  const sig = list.map(m => m.n.id).join(",") + collapsed; if (sig === tickSig) return; tickSig = sig;
+  const item = m => { const fresh = Date.now() - Date.parse(m.n.published) < 45 * 60e3;
+    return `<button class="bti ${m.n.tone}" data-go="${esc(m.sym)}"><span class="fsym">${esc(m.sym)}</span><b class="num ${cls(m.s.change_pct)}">${m.s.change_pct >= 0 ? "▲" : "▼"} ${pct(m.s.change_pct)}</b>${fresh ? '<span class="btnew">NEW</span>' : ""}<span class="bth">${esc(m.n.title)}</span><span class="bta">${ago(m.n.published)}</span></button>`; };
+  const h = list.length ? list.map(item).join('<i class="btsep">◆</i>') + '<i class="btsep">◆</i>' : '<span class="bti"><span class="bth">No major stock-moving headlines in the last 24 hours.</span></span>';
+  bar.innerHTML = `<div class="btl"><span class="live"></span><b>BREAKING</b><span>stock news</span></div>
+    <div class="btv"><div class="btt" style="animation-duration:${Math.max(45, list.length * 9)}s">${h}${list.length ? h.replace(/<button class="bti/g, '<button tabindex="-1" aria-hidden="true" class="bti') : ""}</div></div>
+    <button class="btx" data-btmin aria-label="${collapsed ? "Show" : "Hide"} breaking news">${collapsed ? "▲ Breaking news" : "▾"}</button>`;
 }
 
 function glance() {
@@ -1093,6 +1123,7 @@ document.addEventListener("click", async e => {
   const ffb = t.closest("[data-ff]"); if (ffb) { ui.ff = ffb.dataset.ff; render(); return; }
   const bmb = t.closest("[data-bm]"); if (bmb) { ui.bm = bmb.dataset.bm; render(); return; }
   const bsb = t.closest("[data-bsize]"); if (bsb) { ui.bsize = bsb.dataset.bsize; render(); return; }
+  if (t.closest("[data-btmin]")) { store.set("dp-bt-min", !store.get("dp-bt-min", false)); tickSig = ""; renderTicker(); return; }
   const mi = t.closest("[data-mmi]"); if (mi) { mmI = +mi.dataset.mmi; renderMM(); return; }
   const ix = t.closest("[data-idx]"); if (ix) { nav("indices", ix.dataset.idx); return; }
   const is = t.closest("[data-isel]"); if (is) { sel = is.dataset.isel; view = "indices"; if (!SNAPSHOT) history.replaceState(null, "", "#indices/" + sel); render(); if (innerWidth <= 900) window.scrollTo({ top: 0 }); return; }
@@ -1180,5 +1211,5 @@ async function checkVersion() {
 }
 if (!SNAPSHOT) { setInterval(checkVersion, 5 * 60000); setTimeout(checkVersion, 8000); }
 if (!SNAPSHOT) { setInterval(() => load(false), 60000); document.addEventListener("visibilitychange", () => { if (!document.hidden) load(false); }); }
-setInterval(() => { if (D) footer(); }, 30000);
+setInterval(() => { if (D) { footer(); tickSig = ""; renderTicker(); } }, 60000);
 })();

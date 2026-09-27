@@ -433,3 +433,30 @@ button.tile{cursor:pointer;font:inherit;width:100%}
 .ctog{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer}.ctog input{accent-color:var(--peacock);width:16px;height:16px}
 @media(max-width:900px){.cbands{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:600px){.cbands{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* ---- bottom breaking-news ticker ---- */
+body.bt-on{padding-bottom:46px}
+.bticker{position:fixed;left:0;right:0;bottom:0;z-index:65;display:flex;align-items:stretch;height:44px;background:var(--band);color:var(--band-ink);border-top:2px solid var(--down);box-shadow:0 -8px 24px -12px rgba(0,0,0,.5);padding-bottom:env(safe-area-inset-bottom,0px)}
+.bticker.min{left:auto;right:12px;bottom:12px;height:auto;border:0;border-radius:10px;background:transparent;box-shadow:none}
+.bticker.min .btl,.bticker.min .btv{display:none}
+.btl{flex:none;display:flex;align-items:center;gap:6px;padding:0 14px;background:var(--down);color:#fff;font-size:12px;letter-spacing:.06em;clip-path:polygon(0 0,100% 0,calc(100% - 10px) 100%,0 100%);padding-right:22px}
+.btl b{font-family:var(--display);font-size:14px;letter-spacing:.08em}.btl span:last-child{opacity:.85;font-weight:600;text-transform:uppercase;font-size:10.5px}
+.btl .live{background:#fff;box-shadow:none;animation:btblink 1.2s infinite}
+@keyframes btblink{50%{opacity:.25}}
+.btv{flex:1;overflow:hidden;position:relative;mask-image:linear-gradient(90deg,transparent,#000 30px,#000 calc(100% - 30px),transparent)}
+.btt{display:flex;align-items:center;width:max-content;height:100%;animation:tape linear infinite}
+.btv:hover .btt{animation-play-state:paused}
+.bti{display:flex;align-items:center;gap:8px;height:100%;padding:0 6px;border:0;background:none;color:inherit;font:inherit;cursor:pointer;white-space:nowrap}
+.bti .fsym{font-size:12.5px;background:var(--band-ink);color:var(--band)}
+.bti .num{font-size:12.5px}.bti .num.up{color:#3fdc93}.bti .num.down{color:#ff7a6b}
+.bth{font-weight:600;font-size:14px}.bti:hover .bth{color:#f2a541;text-decoration:underline}
+.bti.positive .bth::before{content:"● ";color:#3fdc93}.bti.negative .bth::before{content:"● ";color:#ff7a6b}
+.bta{font-size:11.5px;color:var(--band-muted)}
+.btnew{font-size:9.5px;font-weight:800;letter-spacing:.08em;background:#f2a541;color:#1b1206;border-radius:3px;padding:1px 5px;animation:pulse 1.4s ease-in-out infinite}
+.btsep{font-style:normal;color:#f2a541;opacity:.6;margin:0 14px;font-size:10px}
+.btx{flex:none;border:0;background:rgba(255,255,255,.08);color:var(--band-ink);padding:0 14px;font:inherit;font-weight:700;cursor:pointer}
+.bticker.min .btx{background:var(--down);color:#fff;border-radius:10px;padding:9px 14px;box-shadow:var(--shadow)}
+body.bt-on .flash{bottom:calc(58px + env(safe-area-inset-bottom,0px))}
+body.bt-on .toast{bottom:calc(60px + env(safe-area-inset-bottom,0px))}
+@media(max-width:600px){.btl span:last-child{display:none}.btl{padding:0 16px 0 10px}.bth{font-size:13px}}
+@media(prefers-reduced-motion:reduce){.btt{animation:none}.btv{overflow-x:auto}}
