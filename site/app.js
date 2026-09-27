@@ -253,11 +253,13 @@ function moversCard() {
 
 // ---------- BOTTOM BREAKING-NEWS TICKER ----------
 // major stock-moving headlines from the last 24 hours, any tracked stock: strong tone, big-event words, big price move, freshness
+const TIPLIST = /stocks? to (buy|sell|watch|trade)|top (stocks|picks|gainers|losers)|buy or sell|trading (ideas|strategy|guide)|target,? sl\b|stop[- ]loss|technical picks|stocks in (the )?news|stocks? recommendations?|market (live|wrap|highlights)|live updates|share price today|hot stocks|buzzing stocks|stock picks|brokerages? (recommend|bullish)|\d+ stocks\b/i;
 function impactNews() {
   // high-priority only: last 12 hours, and either an important official filing, or a big-event headline with a strong tone / big price move
   const out = [], per = {};
   for (const n of D.news) {
     const sym = n.symbols.find(x => S[x]); if (!sym) continue;
+    if (TIPLIST.test(n.title) || n.symbols.length > 3) continue; // skip tip lists, roundups and multi-stock round-ups
     const s = S[sym], ageH = (Date.now() - Date.parse(n.published)) / 3600e3; if (ageH > 12) continue;
     const big = BIGWORDS.test(n.title), move = Math.abs(s.change_pct || 0), tone = Math.abs(n.tone_score || 0);
     const important = (n.official && (big || tone >= 0.3)) || (big && (tone >= 0.3 || move >= 2)) || (move >= 4 && tone >= 0.2);
