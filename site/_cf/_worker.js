@@ -62,8 +62,18 @@ async function callTool(name, args = {}) {
   const rows = ((await getText("names.txt")) || "").split("\n").map(l => l.split("|")).filter(r => r[0]);
   const norm = x => String(x).toUpperCase().replace(/\b(LTD|LIMITED|INDIA|CORPORATION|CORP|COMPANY|CO|THE|OF|AND)\b\.?/g, " ").replace(/[^A-Z0-9&]/g, "");
   const q = norm(raw), syms = rows.map(r => r[0]);
-  const hit = (rows.find(r => r[0] === sym) || rows.find(r => norm(r[1]) === q) || rows.find(r => q.length >= 3 && norm(r[1]).startsWith(q)) || rows.find(r => r[0].startsWith(sym)) || rows.find(r => q.length >= 4 && norm(r[1]).includes(q)) || [])[0];
-  if (hit) { const t2 = await getText(`stock/${encodeURIComponent(key(hit))}.txt`); if (t2) return `(Closest match for "${raw}": ${hit})\n\n` + t2; }
+  const score = r => { const n = norm(r[1]);
+    if (r[0] === sym || n === q) return 0;
+    if (r[0].startsWith(sym)) return 1 + r[0].length / 100;
+    if (q.length >= 3 && n.startsWith(q)) return 2 + n.length / 1000;
+    if (q.length >= 3 && n.includes(q)) return 3 + n.length / 1000;
+    return 9; };
+  const cands = rows.map(r => [r, score(r)]).filter(x => x[1] < 9).sort((x, y) => x[1] - y[1]).map(x => x[0]).filter((r, i, a) => a.findIndex(z => z[0] === r[0]) === i);
+  if (cands.length) {
+    const t2 = await getText(`stock/${encodeURIComponent(key(cands[0][0]))}.txt`);
+    const others = cands.slice(1, 6).map(r => `${r[0]} (${r[1]})`).join(", ");
+    if (t2) return `(Best match for "${raw}": ${cands[0][0]}${others ? ` — other matches: ${others}; call stock_details again with the exact symbol if needed` : ""})\n\n` + t2;
+  }
   return `"${raw}" is not in the Dalal Pulse universe (Nifty 200 + F&O stocks). Tracked symbols include: ${syms.slice(0, 60).join(", ")} … Call all_stocks for the full list.`;
 }
 
