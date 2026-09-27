@@ -152,7 +152,7 @@ RULES
 - Quote the live price and its IST time when you discuss a stock (write times like "25 Sep, 15:15 IST", never raw ISO timestamps). Mention if the market is closed.
 - Respect the backtest: signals marked "No real edge" must not be the main reason for a call.
 - Refer to the DESK QUANT MODEL as "our quant model" (never by its internal name). Use stock-specific fields for a stock; never attribute an index or sector figure (e.g. an index P/E) to a single company.
-- Position size: state the rupee risk (1–2% of the user's capital) AND the share quantity = rupee risk ÷ (entry − stop), capped at 25% of capital.
+- Position size: quote the pre-computed "position size" lines from our quant model exactly (rupee risk, share quantity, cost). Never do your own division.
 - When a DESK QUANT MODEL is provided, your rating must match it and your trade plan must use its exact entry/stop/target/reward:risk numbers (you may explain or add context, never change the arithmetic).
 - Give a clear, decisive view with a rating from: Buy on dips / Accumulate / Hold / Reduce / Avoid (for stocks), or Bullish / Neutral / Bearish (for the market/indices).
 - For any trade idea give: entry zone, stop-loss (below support/structure), target (next resistance), reward:risk, and what would invalidate it. Suggest position sizing as a % risk of capital (1–2%), never "all in".
@@ -197,7 +197,7 @@ async function agent(request, env) {
   let syms = (Array.isArray(body.symbols) ? body.symbols : []).map(x => String(x).toUpperCase()).filter(x => /^[A-Z0-9&-]{1,20}$/.test(x)).slice(0, 4);
   const intent = String(body.intent || "").slice(0, 20);
   const desk = (Array.isArray(body.desk) ? body.desk : []).slice(0, 4).map(d => { const n = x => Number.isFinite(+x) ? +x : null; const e = n(d.entry), st = n(d.stop), tg = n(d.target);
-    return /^[A-Z0-9&-]{1,20}$/.test(String(d.sym || "")) ? `${d.sym}: score ${n(d.score)}/100 → rating "${String(d.rating || "").slice(0, 40)}"${e && st && tg && e > st ? `; plan entry ₹${e}, stop ₹${st} (−${((1 - st / e) * 100).toFixed(1)}%), target ₹${tg} (+${((tg / e - 1) * 100).toFixed(1)}%), reward:risk ${((tg - e) / (e - st)).toFixed(1)}` : ""}; for: ${String(d.pros || "").slice(0, 200)}; against: ${String(d.cons || "").slice(0, 200)}` : ""; }).filter(Boolean).join("\n");
+    return /^[A-Z0-9&-]{1,20}$/.test(String(d.sym || "")) ? `${d.sym}: score ${n(d.score)}/100 → rating "${String(d.rating || "").slice(0, 40)}"${e && st && tg && e > st ? `; plan entry ₹${e}, stop ₹${st} (−${((1 - st / e) * 100).toFixed(1)}%), target ₹${tg} (+${((tg / e - 1) * 100).toFixed(1)}%), reward:risk ${((tg - e) / (e - st)).toFixed(1)}` : ""}${d.size ? `; position size: ${String(d.size).slice(0, 300)}` : ""}; for: ${String(d.pros || "").slice(0, 200)}; against: ${String(d.cons || "").slice(0, 200)}` : ""; }).filter(Boolean).join("\n");
   step("understand", syms.length ? `Question is about ${syms.join(", ")}` : "Reading your question");
   // PLAN: if the site's parser found no stock, let a small model resolve names from the conversation
   if (!syms.length && !/^(market|ideas|screen|sector|sectors|options|portfolio|open|help|events)$/.test(intent)) {

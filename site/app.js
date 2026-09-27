@@ -1578,7 +1578,9 @@ async function paAsk(key, text) {
 function paDesk(syms) {
   return syms.filter(x => S[x]).map(x => { const st = S[x], sc = paScore(st), t = st.tech || {}, adv = paItems().find(a => a.sym === x && a.kind === "long" && a.status === "open"), p = adv ? adv.plan : paPlan(st);
     const rating = adv ? "Buy (active setup)" : sc.v >= 72 && t.above_50 ? "Buy on dips" : sc.v >= 58 ? "Accumulate / wait for entry" : sc.v >= 44 ? "Hold / Neutral" : sc.v >= 30 ? "Reduce" : "Avoid";
-    return { sym: x, score: sc.v, rating, entry: p?.entry && Math.round(p.entry * 100) / 100, stop: p?.stop, target: p?.target, pros: sc.parts.filter(y => y[1] > 0).map(y => y[0]).join("; "), cons: sc.parts.filter(y => y[1] < 0).map(y => y[0]).join("; ") }; });
+    const cap = agentCfg?.capital || 200000, per = p && p.entry > p.stop ? p.entry - p.stop : null;
+    const size = per ? [1, 2].map(r => { const q = Math.max(0, Math.min(Math.floor(cap * r / 100 / per), Math.floor(cap * 0.25 / p.entry))); return `${r}% risk (₹${Math.round(cap * r / 100).toLocaleString("en-IN")}) → ${q} shares ≈ ₹${Math.round(q * p.entry).toLocaleString("en-IN")}, loss if stopped ≈ ₹${Math.round(q * per).toLocaleString("en-IN")}`; }).join(" | ") + ` (capital ₹${cap.toLocaleString("en-IN")}, max 25% in one stock)` : "";
+    return { sym: x, score: sc.v, rating, size, entry: p?.entry && Math.round(p.entry * 100) / 100, stop: p?.stop, target: p?.target, pros: sc.parts.filter(y => y[1] > 0).map(y => y[0]).join("; "), cons: sc.parts.filter(y => y[1] < 0).map(y => y[0]).join("; ") }; });
 }
 function paNext(intent, syms) {
   const s = syms[0];
