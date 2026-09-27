@@ -22,7 +22,7 @@ let my = store.get("dp-my", { holdings: [], watch: [], alerts: [] });
 const saveMy = () => store.set("dp-my", my);
 const isMine = s => my.watch.includes(s) || my.holdings.some(h => h.symbol === s);
 const ui = { nf: "withnews", q: "", preset: "all", sort: { k: "change_pct", d: -1 }, w52: "highs", w52s: "all", cal: "tracked", range: 252, sq: "",
-  ov: { ma: true, bb: false, sr: true, sig: true }, sub: "vol", hp: "change_pct", hm: "ind", bh: 20, bdir: "all", irange: "1d", crange: "252", icmp: [], fq: "", ff: "all", fsort: { k: "score", d: -1 }, bm: "fo", bsize: "turnover" };
+  ov: { ma: true, bb: false, sr: true, sig: true }, sub: "vol", hp: "change_pct", hm: "ind", bh: 20, bdir: "all", irange: "1d", crange: "252", icmp: [], fq: "", ff: "all", fsort: { k: "score", d: -1 }, bm: "fo", bsize: "turnover", sgrp: "Popular", suni: "n200", sview: "cards", slimit: 60, smore: false };
 const charts = window.__DP_CHARTS__ || {};
 
 // ---------- data ----------
@@ -132,7 +132,7 @@ function nav(v, s) {
 }
 function readHash() {
   const [v, s] = location.hash.replace(/^#\/?/, "").split("/");
-  if (["news", "markets", "indices", "fno", "screener", "signals", "w52", "portfolio", "calendar"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
+  if (["news", "markets", "indices", "fno", "screener", "w52", "portfolio", "calendar"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
 }
 const go = sym => nav("news", sym);
 
@@ -140,7 +140,7 @@ function render() {
   if (!D) return;
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.nav === view));
   const keep = document.querySelector(".list")?.scrollTop;
-  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "fno" ? fnoView() : view === "screener" ? screener() : view === "signals" ? signals() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : newsView();
+  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "fno" ? fnoView() : view === "screener" ? screener() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : newsView();
   if (keep && document.querySelector(".list")) document.querySelector(".list").scrollTop = keep;
   if (view === "news") { if (sel && S[sel]) drawChart(sel); document.querySelector(".row.on")?.scrollIntoView({ block: "nearest" }); }
   if (view === "indices") { if (sel && sel !== "compare") drawIndexChart(sel); else drawCompare(); document.querySelector(".row.on")?.scrollIntoView({ block: "nearest" }); }
@@ -319,7 +319,7 @@ function stockDetail(sym) {
       <div class="meters">${meter("News tone", ins.news_score)}${meter("Technicals", ins.tech_score)}${meter("Overall", ins.score)}</div>
       <p>${esc(ins.summary)}</p>
       ${ins.watch.length ? `<b style="font-size:14px">Levels and events to watch</b><ul>${ins.watch.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
-      ${activeSignals(t).length ? `<div class="reli"><b style="font-size:14px">How these signals have played out before</b>${activeSignals(t).map(id => `<p>${trackLine(id)}</p>`).join("")}<button class="sy" data-nav="signals">See the full track record →</button></div>` : ""}
+      ${activeSignals(t).length ? `<div class="reli"><b style="font-size:14px">How these signals have played out before</b>${activeSignals(t).map(id => `<p>${trackLine(id)}</p>`).join("")}</div>` : ""}
       <div class="muted" style="font-size:12px;margin-top:10px">Built from rules: headline tone words, trend, moving averages, RSI, MACD, Bollinger Bands, volume, support/resistance and the 52-week range. Not investment advice.</div>
     </div>
     <div class="sect"><h3>News · ${news.length}</h3>${news.length ? news.map(newsItem).join("") : '<div class="muted">No Moneycontrol stories in the last few days.</div>'}</div>
@@ -545,26 +545,68 @@ const PRESETS = {
 };
 // which back-tested signal matches each scan (for the track-record line)
 const PRESET_SIG = { golden: "golden", death: "death", oversold: "rsios", overbought: "rsiob", pullback: "pullback", below200: "below200", brkvol: "brk20v", volup: "volup", voldn: "voldn", macdup: "macdup", macddn: "macddn", squeeze: "bbsq", breakout: "high52", nearlow: "low52" };
+const SGROUPS = [
+  ["Popular", ["all", "breakout", "newsy", "pullback", "rslead", "brkvol"]],
+  ["Momentum", ["volume", "volup", "macdup", "overbought", "oversold"]],
+  ["Breakouts & trend", ["golden", "brk55", "squeeze", "nearres"]],
+  ["Weakness", ["rslag", "death", "below200", "macddn", "voldn", "nearlow", "nearsup"]],
+];
+const SSORT = [["change_pct", "Today's move"], ["ret_1m", "1-month return"], ["ret_1y", "1-year return"], ["rs_rating", "Relative strength"], ["signal", "Signal score"], ["rsi14", "RSI"], ["news", "Most news"], ["symbol", "Name A–Z"]];
+function whyMatch(k, s, t) {
+  const m = { breakout: `${pct(t.from_high_pct)} from 52W high`, pullback: `RSI ${fmt(t.rsi14, 0)} · below 20-day avg`, oversold: `RSI ${fmt(t.rsi14, 0)}`, overbought: `RSI ${fmt(t.rsi14, 0)}`,
+    volume: `Volume ${fmt(t.vol_ratio, 1)}× average`, volup: `Volume ${fmt(t.vol_ratio, 1)}× on an up day`, voldn: `Volume ${fmt(t.vol_ratio, 1)}× on a down day`, golden: "50-day avg just crossed above 200-day",
+    death: "50-day avg just crossed below 200-day", below200: `200-day avg ${px(t.sma200)}`, nearlow: `${pct(t.from_low_pct)} above 52W low`, newsy: `${s.news_ids.length} news, tone +${s.insight.news_score}`,
+    rslead: `RS ${t.rs_rating} · beat Nifty by ${pct(t.rel_3m)} in 3M`, rslag: `RS ${t.rs_rating} · ${pct(t.rel_3m)} vs Nifty in 3M`, brk55: "Closed above its 55-day high", brkvol: `20-day breakout on ${fmt(t.vol_ratio, 1)}× volume`,
+    macdup: "MACD crossed up (last 5 days)", macddn: "MACD crossed down (last 5 days)", squeeze: "Bollinger Bands at 6-month tightest", nearsup: `Support ${px(t.support)} (${pct(t.to_support_pct)})`, nearres: `Resistance ${px(t.resistance)} (+${fmt(t.to_resistance_pct, 1)}%)` };
+  return m[k] || `Trend: ${esc(t.trend || "–")}`;
+}
 function screener() {
-  const rows0 = D.stocks.filter(s => s.tech).map(s => ({ s, t: s.tech }));
+  const uni = ui.suni;
+  const rows0 = D.stocks.filter(s => s.tech && (uni === "all" || (uni === "n50" ? s.nifty50 : uni === "fo" ? s.fo : s.nifty200 !== false))).map(s => ({ s, t: s.tech }));
+  if (!PRESETS[ui.preset]) ui.preset = "all";
   const [label, desc, f] = PRESETS[ui.preset], q = ui.sq.trim().toLowerCase();
+  const ok = (p, r) => { try { return p(r); } catch { return false; } };
   const val = (r, k) => k === "symbol" ? r.s.symbol : k === "industry" ? r.s.industry : k === "change_pct" ? r.s.change_pct : k === "signal" ? r.s.insight.score : k === "news" ? r.s.news_ids.length : k === "macd" ? r.t.macd_hist : r.t[k];
-  const rows = rows0.filter(r => { try { return f(r); } catch { return false; } }).filter(r => (!q || r.s.symbol.toLowerCase().includes(q) || (r.s.name || "").toLowerCase().includes(q) || (r.s.industry || "").toLowerCase().includes(q)))
+  const rows = rows0.filter(r => ok(f, r)).filter(r => !q || r.s.symbol.toLowerCase().includes(q) || (r.s.name || "").toLowerCase().includes(q) || (r.s.industry || "").toLowerCase().includes(q))
     .sort((a, b) => { const x = val(a, ui.sort.k), y = val(b, ui.sort.k); return (typeof x === "string" ? String(x).localeCompare(y || "") : ((x ?? -1e9) - (y ?? -1e9))) * ui.sort.d; });
+  const grp = SGROUPS.find(g => g[0] === ui.sgrp) || SGROUPS[0];
   const th = (k, l, left) => `<th class="${left ? "l" : ""}"><button data-sort="${k}">${l}${ui.sort.k === k ? (ui.sort.d > 0 ? " ▲" : " ▼") : ""}</button></th>`;
-  return `<div class="fade"><h1 class="page">Screener</h1><p class="sub">Scan ${rows0.length} stocks by trend, momentum, volume, breakouts, MACD, Bollinger Bands, support/resistance and relative strength. Tap any row for its news, chart and insight.</p>
-  <div class="presets">${Object.entries(PRESETS).map(([k, p]) => `<button class="chip${k === ui.preset ? " on" : ""}" data-preset="${k}">${p[0]}<span class="n">${rows0.filter(r => { try { return p[2](r); } catch { return false; } }).length}</span></button>`).join("")}</div>
-  <div class="explain"><b>${esc(label)}.</b> ${esc(desc)}${PRESET_SIG[ui.preset] && btSig(PRESET_SIG[ui.preset]) ? `<div style="margin-top:6px">Track record: ${trackLine(PRESET_SIG[ui.preset])}</div>` : ""}</div>
-  <div class="card"><div class="hd"><input class="field" id="sq" placeholder="Filter by name or industry" value="${esc(ui.sq)}" style="flex:1;min-width:180px" aria-label="Filter screener"><span class="muted num">${rows.length} stocks</span></div>
-  <div class="tblwrap"><table class="tbl"><thead><tr>${th("symbol", "Stock", 1)}${th("industry", "Industry", 1)}${th("price", "Price")}${th("change_pct", "Day")}${th("signal", "Signal", 1)}${th("rsi14", "RSI")}${th("from_high_pct", "From 52W high")}${th("vol_ratio", "Volume")}${th("ret_1m", "1M")}${th("ret_1y", "1Y")}${th("rs_rating", "RS")}${th("rel_3m", "vs Nifty 3M")}${th("macd", "MACD")}${th("to_support_pct", "To support")}${th("news", "News")}</tr></thead><tbody>
-  ${rows.map(({ s, t }) => `<tr data-go="${esc(s.symbol)}"><td class="l"><span class="sym">${esc(s.symbol)}</span> ${s.nifty50 ? '<span class="badge n50">N50</span>' : ""}</td><td class="l muted">${esc((s.industry || "").slice(0, 26))}</td>
-    <td class="num">${px(s.price)}</td><td class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</td><td class="l"><span class="badge ${s.insight.signal}">${esc(s.insight.label)}</span></td>
-    <td class="num ${t.rsi14 < 30 ? "down" : t.rsi14 > 70 ? "up" : ""}">${fmt(t.rsi14, 0)}</td><td class="num">${pct(t.from_high_pct)}</td><td class="num ${t.vol_ratio >= 2 ? "up" : ""}">${t.vol_ratio == null ? "–" : fmt(t.vol_ratio, 1) + "×"}</td>
-    <td class="num ${cls(t.ret_1m)}">${pct(t.ret_1m)}</td><td class="num ${cls(t.ret_1y)}">${pct(t.ret_1y)}</td>
-    <td class="num ${t.rs_rating >= 70 ? "up" : t.rs_rating <= 30 ? "down" : ""}">${t.rs_rating ?? "–"}</td><td class="num ${cls(t.rel_3m)}">${pct(t.rel_3m)}</td>
-    <td class="num ${t.macd_state === "bull" ? "up" : t.macd_state === "bear" ? "down" : ""}">${t.macd_state ? (t.macd_state === "bull" ? "▲" : "▼") + (t.macd_cross ? " new" : "") : "–"}</td>
-    <td class="num">${t.to_support_pct == null ? "–" : pct(t.to_support_pct)}</td><td class="num">${s.news_ids.length || ""}</td></tr>`).join("") || `<tr><td colspan="15"><div class="empty">No stocks match this scan right now.</div></td></tr>`}
-  </tbody></table></div></div></div>`;
+  const shown = rows.slice(0, ui.slimit);
+  const card = ({ s, t }) => `<button class="scard" data-go="${esc(s.symbol)}">
+      <div class="sc1"><div><b class="sym">${esc(s.symbol)}</b>${s.nifty50 ? ' <span class="badge n50">N50</span>' : ""}${s.fo ? ' <span class="badge neutral">F&amp;O</span>' : ""}<div class="scn">${esc((s.name || "").replace(/ Limited$| Ltd\.?$/i, ""))}</div></div>
+        <div class="scp"><div class="num">${px(s.price)}</div><b class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</b></div></div>
+      <div class="sc2">${sparkSvg(s.spark, (s.spark?.[s.spark.length - 1] ?? 0) >= (s.spark?.[0] ?? 0))}<span class="badge ${s.insight.signal}">${esc(s.insight.label)}</span></div>
+      <div class="why">✓ ${whyMatch(ui.preset, s, t)}</div>
+      <div class="sc3"><span><em>1M</em><b class="num ${cls(t.ret_1m)}">${pct(t.ret_1m)}</b></span><span><em>1Y</em><b class="num ${cls(t.ret_1y)}">${pct(t.ret_1y)}</b></span><span><em>RSI</em><b class="num">${fmt(t.rsi14, 0)}</b></span><span><em>RS</em><b class="num ${t.rs_rating >= 70 ? "up" : t.rs_rating <= 30 ? "down" : ""}">${t.rs_rating ?? "–"}</b></span><span><em>News</em><b class="num">${s.news_ids.length || "–"}</b></span></div>
+    </button>`;
+  const more = ui.smore;
+  return `<div class="fade"><h1 class="page">Screener</h1><p class="sub">Pick a scan, and the matching stocks appear below. Tap any stock for its news, chart and insight.</p>
+  <div class="card scr-top"><div class="bd">
+    <div class="sgrp">${SGROUPS.map(([g, ks]) => `<button class="${g === grp[0] ? "on" : ""}" data-sgrp="${esc(g)}">${esc(g)}</button>`).join("")}</div>
+    <div class="presets">${grp[1].filter(k => PRESETS[k]).map(k => `<button class="chip big${k === ui.preset ? " on" : ""}" data-preset="${k}">${PRESETS[k][0]}<span class="n">${rows0.filter(r => ok(PRESETS[k][2], r)).length}</span></button>`).join("")}</div>
+    <div class="explain" style="margin:10px 0 0"><b>${esc(label)}:</b> ${esc(desc)}</div>
+  </div></div>
+  <div class="stools">
+    <input class="field" id="sq" placeholder="Search in results" value="${esc(ui.sq)}" aria-label="Search in results">
+    <div class="seg">${[["all", "All"], ["n50", "Nifty 50"], ["n200", "Nifty 200"], ["fo", "F&O"]].map(([k, l]) => `<button data-suni="${k}" class="${uni === k ? "on" : ""}">${l}</button>`).join("")}</div>
+    <label class="ssort"><span class="muted">Sort</span><select id="ssort" aria-label="Sort by">${SSORT.map(([k, l]) => `<option value="${k}"${ui.sort.k === k ? " selected" : ""}>${l}</option>`).join("")}</select>
+      <button class="btn sm" data-sdir title="Reverse order">${ui.sort.d > 0 ? "↑ Low to high" : "↓ High to low"}</button></label>
+    <div class="seg"><button data-sview="cards" class="${ui.sview === "cards" ? "on" : ""}">▦ Cards</button><button data-sview="table" class="${ui.sview === "table" ? "on" : ""}">☰ Table</button></div>
+    <b class="num scount">${rows.length} stock${rows.length === 1 ? "" : "s"}</b>
+  </div>
+  ${!rows.length ? `<div class="card"><div class="empty"><b>No stocks match this scan right now</b>Try another scan or switch to “All”.</div></div>`
+  : ui.sview === "cards" ? `<div class="sgrid">${shown.map(card).join("")}</div>`
+  : `<div class="card"><div class="tblwrap"><table class="tbl stbl"><thead><tr>${th("symbol", "Stock", 1)}${th("price", "Price")}${th("change_pct", "Day")}${th("signal", "Signal", 1)}${th("ret_1m", "1M")}${th("ret_1y", "1Y")}${th("rsi14", "RSI")}${th("rs_rating", "RS")}${th("news", "News")}
+      ${more ? `${th("industry", "Industry", 1)}${th("from_high_pct", "From 52W high")}${th("vol_ratio", "Volume")}${th("rel_3m", "vs Nifty 3M")}${th("macd", "MACD")}${th("to_support_pct", "To support")}` : ""}</tr></thead><tbody>
+    ${shown.map(({ s, t }) => `<tr data-go="${esc(s.symbol)}"><td class="l"><span class="sym">${esc(s.symbol)}</span>${s.nifty50 ? ' <span class="badge n50">N50</span>' : ""}<div class="muted" style="font-size:12px">${esc((s.name || "").replace(/ Limited$| Ltd\.?$/i, "").slice(0, 30))}</div></td>
+      <td class="num">${px(s.price)}</td><td class="num ${cls(s.change_pct)}"><b>${pct(s.change_pct)}</b></td><td class="l"><span class="badge ${s.insight.signal}">${esc(s.insight.label)}</span></td>
+      <td class="num ${cls(t.ret_1m)}">${pct(t.ret_1m)}</td><td class="num ${cls(t.ret_1y)}">${pct(t.ret_1y)}</td><td class="num ${t.rsi14 < 30 ? "down" : t.rsi14 > 70 ? "up" : ""}">${fmt(t.rsi14, 0)}</td>
+      <td class="num ${t.rs_rating >= 70 ? "up" : t.rs_rating <= 30 ? "down" : ""}">${t.rs_rating ?? "–"}</td><td class="num">${s.news_ids.length || "–"}</td>
+      ${more ? `<td class="l muted">${esc((s.industry || "").slice(0, 24))}</td><td class="num">${pct(t.from_high_pct)}</td><td class="num ${t.vol_ratio >= 2 ? "up" : ""}">${t.vol_ratio == null ? "–" : fmt(t.vol_ratio, 1) + "×"}</td><td class="num ${cls(t.rel_3m)}">${pct(t.rel_3m)}</td>
+        <td class="num ${t.macd_state === "bull" ? "up" : t.macd_state === "bear" ? "down" : ""}">${t.macd_state ? (t.macd_state === "bull" ? "▲" : "▼") : "–"}</td><td class="num">${t.to_support_pct == null ? "–" : pct(t.to_support_pct)}</td>` : ""}</tr>`).join("")}
+    </tbody></table></div><div class="bd" style="padding-top:8px"><button class="sy" data-smore>${more ? "− Fewer columns" : "+ More columns (industry, volume, MACD, support…)"}</button></div></div>`}
+  ${rows.length > shown.length ? `<div style="text-align:center;margin-top:14px"><button class="btn" data-slimit>Show ${Math.min(60, rows.length - shown.length)} more of ${rows.length - shown.length}</button></div>` : ""}
+  <div class="muted" style="font-size:12.5px;margin-top:12px">RSI above 70 means a stock has run up fast; below 30 means it has fallen fast. RS (relative strength, 1–99) compares a stock's past year with the other stocks: 80+ is a leader. For information only, not investment advice.</div></div>`;
 }
 
 // ---------- INDICES ----------
@@ -1023,7 +1065,13 @@ document.addEventListener("click", async e => {
   const s = t.closest("[data-sel]"); if (s) { sel = s.dataset.sel; if (!SNAPSHOT) history.replaceState(null, "", "#news/" + encodeURIComponent(sel)); render(); if (innerWidth <= 900) window.scrollTo({ top: 0 }); return; }
   if (t.closest("[data-back]")) { nav("news"); return; }
   const nf = t.closest("[data-nf]"); if (nf) { ui.nf = nf.dataset.nf; render(); return; }
-  const pr = t.closest("[data-preset]"); if (pr) { ui.preset = pr.dataset.preset; render(); return; }
+  const pr = t.closest("[data-preset]"); if (pr) { ui.preset = pr.dataset.preset; ui.slimit = 60; render(); return; }
+  const sg = t.closest("[data-sgrp]"); if (sg) { ui.sgrp = sg.dataset.sgrp; const g = SGROUPS.find(x => x[0] === ui.sgrp); if (g && !g[1].includes(ui.preset)) ui.preset = g[1][0]; ui.slimit = 60; render(); return; }
+  const su = t.closest("[data-suni]"); if (su) { ui.suni = su.dataset.suni; render(); return; }
+  const sv = t.closest("[data-sview]"); if (sv) { ui.sview = sv.dataset.sview; render(); return; }
+  if (t.closest("[data-sdir]")) { ui.sort.d = -ui.sort.d; render(); return; }
+  if (t.closest("[data-smore]")) { ui.smore = !ui.smore; render(); return; }
+  if (t.closest("[data-slimit]")) { ui.slimit += 60; render(); return; }
   const so = t.closest("[data-sort]"); if (so) { const k = so.dataset.sort; ui.sort = { k, d: ui.sort.k === k ? -ui.sort.d : (["symbol", "industry"].includes(k) ? 1 : -1) }; render(); return; }
   const w = t.closest("[data-w52]"); if (w) { ui.w52 = w.dataset.w52; render(); return; }
   const ws = t.closest("[data-w52s]"); if (ws) { ui.w52s = ws.dataset.w52s; render(); return; }
@@ -1034,7 +1082,7 @@ document.addEventListener("click", async e => {
   const hm = t.closest("[data-hm]"); if (hm) { ui.hm = hm.dataset.hm; render(); return; }
   const bh = t.closest("[data-bh]"); if (bh) { ui.bh = +bh.dataset.bh; render(); return; }
   const bd = t.closest("[data-bdir]"); if (bd) { ui.bdir = bd.dataset.bdir; render(); return; }
-  if (t.closest("[data-rs]")) { ui.preset = "rslead"; ui.sort = { k: "rs_rating", d: -1 }; nav("screener"); return; }
+  if (t.closest("[data-rs]")) { ui.preset = "rslead"; ui.sgrp = "Popular"; ui.suni = "all"; ui.sort = { k: "rs_rating", d: -1 }; nav("screener"); return; }
   const rg = t.closest("[data-range]"); if (rg) { ui.range = +rg.dataset.range; document.querySelectorAll("[data-range]").forEach(b => b.classList.toggle("on", b === rg)); drawChart(sel); return; }
   const st = t.closest("[data-star]"); if (st) { const sy = st.dataset.star; my.watch = my.watch.includes(sy) ? my.watch.filter(x => x !== sy) : [...my.watch, sy]; saveMy(); render(); toast(my.watch.includes(sy) ? `${sy} is on your watchlist` : `${sy} removed from your watchlist`); return; }
   const hs = t.closest("[data-hsave]"); if (hs) { const sy = hs.dataset.hsave, q = +$("#hq").value, a = +$("#ha").value; if (!(q > 0 && a > 0)) { toast("Enter the quantity and your average buy price"); return; }
@@ -1048,6 +1096,7 @@ document.addEventListener("click", async e => {
   if (t.id === "doRs") { try { const v = JSON.parse(decodeURIComponent(escape(atob($("#rs").value.trim())))); my = { holdings: v.holdings || [], watch: v.watch || [], alerts: v.alerts || [] }; saveMy(); render(); toast("Portfolio restored"); } catch { toast("That code didn't work. Copy the whole code and try again."); } return; }
   if (!t.closest(".search")) $("#gsugg").hidden = true;
 });
+document.addEventListener("change", e => { if (e.target.id === "ssort") { const k = e.target.value; ui.sort = { k, d: k === "symbol" ? 1 : -1 }; render(); } });
 document.addEventListener("input", e => {
   const id = e.target.id; if (id !== "nq" && id !== "sq" && id !== "fq") return;
   ui[id === "nq" ? "q" : id === "sq" ? "sq" : "fq"] = e.target.value; const pos = e.target.selectionStart; render(); const el = $("#" + id); el.focus(); el.setSelectionRange(pos, pos);
@@ -1072,7 +1121,7 @@ $("#theme").addEventListener("click", () => {
 });
 if (!SNAPSHOT) window.addEventListener("hashchange", () => { readHash(); render(); });
 
-if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "fno", "screener", "signals", "w52", "portfolio", "calendar"].includes(h)) view = h; }
+if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "fno", "screener", "w52", "portfolio", "calendar"].includes(h)) view = h; }
 tickClock(); setInterval(tickClock, 1000);
 document.addEventListener("mouseover", e => { mmPaused = Boolean(e.target.closest("#mm")); });
 load(true);
