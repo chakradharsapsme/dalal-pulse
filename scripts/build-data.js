@@ -7,6 +7,7 @@ const nse = require("./lib/nse");
 const technicals = require("./lib/technicals");
 const { KEYWORDS, compileMatchers, matchSymbols, deriveKeywords } = require("./lib/watchlist");
 const { headlineTone, stockInsight, marketMood, trendingTopics } = require("./lib/insights");
+const backtest = require("./lib/backtest");
 
 const ROOT = path.join(__dirname, "..");
 const OUT = path.join(ROOT, "site", "data");
@@ -110,19 +111,35 @@ async function main() {
   const syms = Object.keys(universe);
   log(`[universe] ${syms.length} stocks`);
 
-  const [techs, pulse, fii, w52nse, calendar, newsList] = await Promise.all([
+  const [techs, pulse, fii, w52nse, calendar, newsList, nifty] = await Promise.all([
     technicals.analyseMany(syms, log, 8),
     loadPulse(),
     attempt("fii_dii", () => nse.fetchFiiDii(), []),
     attempt("nse_52w", () => nse.fetch52Week(log), null),
     attempt("calendar", () => nse.fetchCalendar(), []),
     loadNews(universe),
+    attempt("nifty_history", () => technicals.history("^NSEI"), null),
   ]);
   status.technicals = `${Object.keys(techs).length}/${syms.length}`;
 
-  // charts (one small file per stock, loaded when you open it)
+  // relative strength vs Nifty 50 + RS rating (1-99 percentile of weighted 3/6/9/12-month returns)
+  const nRows = nifty?.rows || [];
+  const nRet = n => nRows.length > n ? (nRows[nRows.length - 1].c / nRows[nRows.length - 1 - n].c - 1) * 100 : null;
+  const nr = { m1: nRet(21), m3: nRet(63), m6: nRet(126), y1: nRet(250) };
+  const perf = [];
   for (const [s, t] of Object.entries(techs)) {
-    fs.writeFileSync(path.join(OUT, "charts", s.replace(/[^A-Z0-9&-]/gi, "_") + ".json"), JSON.stringify(t.series.map(p => [Math.round(p.t / 1000), p.c, p.s50, p.s200])));
+    const x = t.tech, rel = (a, b) => a != null && b != null ? r2(a - b) : null;
+    x.rel_1m = rel(x.ret_1m, nr.m1); x.rel_3m = rel(x.ret_3m, nr.m3); x.rel_6m = rel(x.ret_6m, nr.m6); x.rel_1y = rel(x.ret_1y, nr.y1);
+    if (x.ret_3m != null && x.ret_6m != null) perf.push([s, 0.4 * x.ret_3m + 0.2 * x.ret_6m + 0.2 * (x.ret_9m ?? x.ret_6m) + 0.2 * (x.ret_1y ?? x.ret_6m)]);
+  }
+  perf.sort((a, b) => a[1] - b[1]).forEach(([s], i) => { techs[s].tech.rs_rating = Math.max(1, Math.min(99, Math.round((i + 1) / perf.length * 99))); });
+
+  // signal track record (back-test over ~5 years of prices)
+  const bt = await attempt("backtest", async () => backtest.run(techs, nRows, log), { summary: null, perStock: {} });
+
+  // charts (one small file per stock, loaded when you open it): price rows + this stock's past signals
+  for (const [s, t] of Object.entries(techs)) {
+    fs.writeFileSync(path.join(OUT, "charts", s.replace(/[^A-Z0-9&-]/gi, "_") + ".json"), JSON.stringify({ v: 2, rows: t.series, ev: bt.perStock[s] || [] }));
   }
 
   // news: tone + symbol matching
@@ -143,7 +160,7 @@ async function main() {
     const sn = bySym[s] || [], ev = upcoming.filter(e => e.symbol === s);
     return { symbol: s, name: u.name, industry: u.industry, nifty50: u.nifty50, price: q.price ?? null, change_pct: q.change_pct ?? null,
       tech: t?.tech || null, news_ids: sn.map(n => n.id), events: ev.slice(0, 3),
-      spark: t ? t.series.slice(-30).map(p => p.c) : [],
+      spark: t ? t.series.slice(-30).map(p => p[1]) : [],
       insight: stockInsight(s, u.name, t?.tech, sn, ev, q.change_pct) };
   });
 
@@ -163,12 +180,33 @@ async function main() {
   const topics = trendingTopics(newsOut.slice(0, 600), stocks.flatMap(s => [s.symbol, ...universe[s.symbol].keywords]));
   const industryAvg = {};
   for (const r of stocks) if (r.industry && r.change_pct != null) (industryAvg[r.industry] ||= []).push(r);
+  const avgOf = (rs, k) => { const v = rs.map(r => r.tech?.[k]).filter(x => x != null); return v.length ? r2(v.reduce((a, x) => a + x, 0) / v.length) : null; };
   const industries = Object.entries(industryAvg).map(([name, rs]) => ({ name, change_pct: r2(rs.reduce((a, r) => a + r.change_pct, 0) / rs.length), count: rs.length,
+    ret_1w: avgOf(rs, "ret_1w"), ret_1m: avgOf(rs, "ret_1m"), ret_3m: avgOf(rs, "ret_3m"), ret_1y: avgOf(rs, "ret_1y"), rs_avg: avgOf(rs, "rs_rating"),
     top: rs.sort((a, b) => b.change_pct - a.change_pct).slice(0, 3).map(r => r.symbol), bottom: rs.slice(-2).map(r => r.symbol) })).sort((a, b) => b.change_pct - a.change_pct);
+
+  // live record of this site's own labels: logged once per trading day, scored as days pass
+  const liveRecord = await attempt("live_record", async () => {
+    const f = path.join(CACHE, "signal-log.json");
+    let slog = readJson(f, null);
+    if (!slog && process.env.GITHUB_REPOSITORY) { // cache lost: recover from the published site
+      const [o, r] = process.env.GITHUB_REPOSITORY.split("/");
+      try { const x = await fetch(`https://${o.toLowerCase()}.github.io/${r}/data/signal-log.json`, { signal: AbortSignal.timeout(15000) }); if (x.ok) slog = await x.json(); } catch {}
+    }
+    const today = backtest.dayKey(Date.now());
+    const lastBar = nRows.length ? backtest.dayKey(nRows[nRows.length - 1].t) : null;
+    if (lastBar === today) slog = backtest.updateLog(slog, stocks, today); // only on trading days
+    if (slog) { fs.mkdirSync(CACHE, { recursive: true }); fs.writeFileSync(f, JSON.stringify(slog)); fs.writeFileSync(path.join(OUT, "signal-log.json"), JSON.stringify(slog)); }
+    const closes = {};
+    for (const [s, t] of Object.entries(techs)) closes[s] = { dates: t.rows.map(r => backtest.dayKey(r.t)), closes: t.rows.map(r => r.c) };
+    const nIdx = {}; nRows.forEach((r, i) => { nIdx[backtest.dayKey(r.t)] = i; });
+    return backtest.scoreLog(slog, closes, { idx: nIdx, closes: nRows.map(r => r.c) });
+  }, null);
 
   const out = {
     generated_at: new Date().toISOString(), build_seconds: Math.round((Date.now() - t0) / 1000), status,
     pulse: pulse.items, sectors: pulse.sectors, industries, nifty_pe: pulse.nifty_pe, fii_dii: fii, mood, topics,
+    nifty_returns: Object.fromEntries(Object.entries(nr).map(([k, v]) => [k, r2(v)])), backtest: bt.summary, live_record: liveRecord,
     stocks, news: newsOut, w52, calendar: upcoming.slice(0, 600).map(e => ({ ...e, tracked: Boolean(universe[e.symbol]), nifty50: Boolean(universe[e.symbol]?.nifty50) })),
   };
   fs.writeFileSync(path.join(OUT, "latest.json"), JSON.stringify(out));

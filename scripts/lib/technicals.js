@@ -1,46 +1,114 @@
-// Daily technicals from 1 year of Yahoo Finance prices: moving averages, RSI, volume, returns, trend.
+// Daily technicals from Yahoo Finance prices (5 years, so signals can be back-tested).
+// Moving averages, RSI, MACD, Bollinger Bands, support/resistance, breakouts, volume, returns, trend.
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36";
+const RANGE = "5y";
+const CHART_BARS = 252; // bars kept in each stock's chart file (1 year)
 
-async function history(yahooSymbol, range = "1y") {
+async function history(yahooSymbol, range = RANGE) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?range=${range}&interval=1d`;
-  const r = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" }, signal: AbortSignal.timeout(15000) });
-  if (!r.ok) throw new Error("HTTP " + r.status);
-  const res = (await r.json())?.chart?.result?.[0];
-  if (!res?.timestamp) throw new Error("no data");
-  const q = res.indicators.quote[0];
-  const rows = res.timestamp.map((t, i) => ({ t: t * 1000, c: q.close[i], v: q.volume[i], h: q.high[i], l: q.low[i] })).filter(r => r.c != null);
-  return { rows, meta: res.meta };
+  let lastErr;
+  for (let a = 0; a < 2; a++) {
+    try {
+      const r = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" }, signal: AbortSignal.timeout(20000) });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const res = (await r.json())?.chart?.result?.[0];
+      if (!res?.timestamp) throw new Error("no data");
+      const q = res.indicators.quote[0];
+      const rows = res.timestamp.map((t, i) => ({ t: t * 1000, c: q.close[i], v: q.volume[i] || 0, h: q.high[i] ?? q.close[i], l: q.low[i] ?? q.close[i] })).filter(r => r.c != null);
+      return { rows, meta: res.meta };
+    } catch (e) { lastErr = e; await new Promise(r => setTimeout(r, 800)); }
+  }
+  throw lastErr;
 }
 
-const avg = a => a.reduce((s, x) => s + x, 0) / a.length;
-function smaAt(closes, n, end) { return end + 1 >= n ? avg(closes.slice(end + 1 - n, end + 1)) : null; }
-function rsi(closes, n = 14) {
-  if (closes.length <= n) return null;
-  let g = 0, l = 0;
-  for (let i = 1; i <= n; i++) { const d = closes[i] - closes[i - 1]; if (d > 0) g += d; else l -= d; }
-  g /= n; l /= n;
-  for (let i = n + 1; i < closes.length; i++) {
-    const d = closes[i] - closes[i - 1];
-    g = (g * (n - 1) + Math.max(d, 0)) / n; l = (l * (n - 1) + Math.max(-d, 0)) / n;
-  }
-  return l === 0 ? 100 : 100 - 100 / (1 + g / l);
-}
 const r2 = x => x == null || !isFinite(x) ? null : Math.round(x * 100) / 100;
+const avg = a => a.reduce((s, x) => s + x, 0) / a.length;
 
-function compute(rows, livePrice) {
-  const closes = rows.map(r => r.c), vols = rows.map(r => r.v || 0);
-  if (livePrice && closes.length) closes[closes.length - 1] = livePrice;
-  const last = closes.length - 1, price = closes[last];
-  const s20 = smaAt(closes, 20, last), s50 = smaAt(closes, 50, last), s200 = smaAt(closes, 200, last);
-  // crosses within the last 10 sessions
-  let golden = false, death = false;
-  for (let i = Math.max(200, last - 9); i <= last; i++) {
-    const a1 = smaAt(closes, 50, i - 1), b1 = smaAt(closes, 200, i - 1), a2 = smaAt(closes, 50, i), b2 = smaAt(closes, 200, i);
-    if ([a1, b1, a2, b2].every(x => x != null)) { if (a1 <= b1 && a2 > b2) golden = true; if (a1 >= b1 && a2 < b2) death = true; }
+// ---------- indicator series (each value at i uses only data up to i: safe for back-testing) ----------
+function smaSeries(x, n) {
+  const out = new Array(x.length).fill(null); let s = 0;
+  for (let i = 0; i < x.length; i++) { s += x[i]; if (i >= n) s -= x[i - n]; if (i >= n - 1) out[i] = s / n; }
+  return out;
+}
+function emaSeries(x, n) {
+  const out = new Array(x.length).fill(null), k = 2 / (n + 1); let e = null;
+  for (let i = 0; i < x.length; i++) {
+    if (x[i] == null) continue;
+    if (e == null) { if (i >= n - 1 && x.slice(i - n + 1, i + 1).every(v => v != null)) e = avg(x.slice(i - n + 1, i + 1)); else continue; }
+    else e = x[i] * k + e * (1 - k);
+    out[i] = e;
   }
-  const back = n => closes.length > n ? (price / closes[last - n] - 1) * 100 : (price / closes[0] - 1) * 100;
-  const hi = Math.max(...rows.map(r => r.h ?? r.c)), lo = Math.min(...rows.map(r => r.l ?? r.c));
-  const vAvg = vols.length > 21 ? avg(vols.slice(-21, -1)) : null;
+  return out;
+}
+function rsiSeries(c, n = 14) {
+  const out = new Array(c.length).fill(null);
+  if (c.length <= n) return out;
+  let g = 0, l = 0;
+  for (let i = 1; i <= n; i++) { const d = c[i] - c[i - 1]; if (d > 0) g += d; else l -= d; }
+  g /= n; l /= n; out[n] = l === 0 ? 100 : 100 - 100 / (1 + g / l);
+  for (let i = n + 1; i < c.length; i++) {
+    const d = c[i] - c[i - 1];
+    g = (g * (n - 1) + Math.max(d, 0)) / n; l = (l * (n - 1) + Math.max(-d, 0)) / n;
+    out[i] = l === 0 ? 100 : 100 - 100 / (1 + g / l);
+  }
+  return out;
+}
+function stdSeries(x, n, mean) {
+  const out = new Array(x.length).fill(null);
+  for (let i = n - 1; i < x.length; i++) { let s = 0; for (let j = i - n + 1; j <= i; j++) s += (x[j] - mean[i]) ** 2; out[i] = Math.sqrt(s / n); }
+  return out;
+}
+function rollMax(x, n) { const out = new Array(x.length).fill(null); for (let i = 0; i < x.length; i++) { let m = -Infinity; for (let j = Math.max(0, i - n + 1); j <= i; j++) if (x[j] > m) m = x[j]; out[i] = m; } return out; }
+function rollMin(x, n) { const out = new Array(x.length).fill(null); for (let i = 0; i < x.length; i++) { let m = Infinity; for (let j = Math.max(0, i - n + 1); j <= i; j++) if (x[j] < m) m = x[j]; out[i] = m; } return out; }
+
+function indicators(rows) {
+  const c = rows.map(r => r.c), h = rows.map(r => r.h ?? r.c), l = rows.map(r => r.l ?? r.c), v = rows.map(r => r.v || 0);
+  const s20 = smaSeries(c, 20), s50 = smaSeries(c, 50), s200 = smaSeries(c, 200);
+  const e12 = emaSeries(c, 12), e26 = emaSeries(c, 26);
+  const macd = c.map((_, i) => e12[i] != null && e26[i] != null ? e12[i] - e26[i] : null);
+  const sig = emaSeries(macd, 9);
+  const sd20 = stdSeries(c, 20, s20);
+  const bbU = s20.map((m, i) => m == null ? null : m + 2 * sd20[i]), bbL = s20.map((m, i) => m == null ? null : m - 2 * sd20[i]);
+  const bw = s20.map((m, i) => m ? (bbU[i] - bbL[i]) / m : null);
+  const vAvg20 = v.map((_, i) => i >= 21 ? avg(v.slice(i - 20, i)) : null); // previous 20 sessions, excluding today
+  return { c, h, l, v, s20, s50, s200, macd, sig, rsi: rsiSeries(c), bbU, bbL, bw, vAvg20,
+    hi20: rollMax(h, 20), hi252: rollMax(h, 252), lo252: rollMin(l, 252), cHi252: rollMax(c, 252), cLo252: rollMin(c, 252) };
+}
+
+// ---------- support / resistance from swing points ----------
+function levels(ind, last, price) {
+  const W = 5, from = Math.max(W, last - 180);
+  const pts = [];
+  for (let i = from; i <= last - W; i++) {
+    let isH = true, isL = true;
+    for (let j = i - W; j <= i + W; j++) { if (ind.h[j] > ind.h[i]) isH = false; if (ind.l[j] < ind.l[i]) isL = false; }
+    if (isH) pts.push({ p: ind.h[i], i }); if (isL) pts.push({ p: ind.l[i], i });
+  }
+  // cluster swing points within 1.5%
+  pts.sort((a, b) => a.p - b.p);
+  const cl = [];
+  for (const x of pts) {
+    const k = cl[cl.length - 1];
+    if (k && x.p / k.lo - 1 < 0.015) { k.sum += x.p; k.n++; k.hi = x.p; k.last = Math.max(k.last, x.i); }
+    else cl.push({ sum: x.p, n: 1, lo: x.p, hi: x.p, last: x.i });
+  }
+  const lv = cl.map(k => ({ price: k.sum / k.n, touches: k.n, last: k.last }));
+  const below = lv.filter(x => x.price < price * 0.995).sort((a, b) => b.price - a.price);
+  const above = lv.filter(x => x.price > price * 1.005).sort((a, b) => a.price - b.price);
+  const pick = arr => arr.find(x => x.touches >= 2) && Math.abs(arr.find(x => x.touches >= 2).price / price - 1) < 0.12 ? arr.find(x => x.touches >= 2) : arr[0];
+  const s = pick(below), r = pick(above);
+  return { support: s ? r2(s.price) : null, support_touches: s?.touches || 0, resistance: r ? r2(r.price) : null, resistance_touches: r?.touches || 0 };
+}
+
+function crossedUp(a, b, i) { return a[i - 1] != null && b[i - 1] != null && a[i] != null && b[i] != null && a[i - 1] <= b[i - 1] && a[i] > b[i]; }
+function crossedDown(a, b, i) { return a[i - 1] != null && b[i - 1] != null && a[i] != null && b[i] != null && a[i - 1] >= b[i - 1] && a[i] < b[i]; }
+function within(n, i, fn) { for (let j = Math.max(1, i - n + 1); j <= i; j++) if (fn(j)) return true; return false; }
+
+// technical snapshot at bar i (used for today, and by the back-test for past days)
+function snapshotAt(ind, i) {
+  const { c } = ind, price = c[i];
+  const back = n => i >= n ? (price / c[i - n] - 1) * 100 : null;
+  const s50 = ind.s50[i], s200 = ind.s200[i];
   let trend = "Mixed";
   if (s50 && s200) {
     if (price > s50 && s50 > s200) trend = "Strong uptrend";
@@ -48,30 +116,63 @@ function compute(rows, livePrice) {
     else if (price < s50 && s50 < s200) trend = "Downtrend";
     else if (price < s200) trend = "Weak";
   }
+  const hi = ind.hi252[i], lo = ind.lo252[i];
   return {
-    price: r2(price), sma20: r2(s20), sma50: r2(s50), sma200: r2(s200), rsi14: r2(rsi(closes)),
-    vol: vols[last], vol_avg20: vAvg ? Math.round(vAvg) : null, vol_ratio: vAvg ? r2(vols[last] / vAvg) : null,
-    ret_1w: r2(back(5)), ret_1m: r2(back(21)), ret_3m: r2(back(63)), ret_1y: r2(back(Math.min(250, last))),
-    high52: r2(hi), low52: r2(lo), from_high_pct: r2((price / hi - 1) * 100), from_low_pct: r2((price / lo - 1) * 100),
-    golden_cross: golden, death_cross: death, trend,
+    price, sma20: ind.s20[i], sma50: s50, sma200: s200, rsi14: ind.rsi[i], trend,
     above_50: s50 ? price > s50 : null, above_200: s200 ? price > s200 : null,
+    golden_cross: within(10, i, j => crossedUp(ind.s50, ind.s200, j)), death_cross: within(10, i, j => crossedDown(ind.s50, ind.s200, j)),
+    ret_1w: back(5), ret_1m: back(21), ret_3m: back(63), ret_6m: back(126), ret_9m: back(189), ret_1y: back(Math.min(250, i)),
+    high52: hi, low52: lo, from_high_pct: hi ? (price / hi - 1) * 100 : null, from_low_pct: lo ? (price / lo - 1) * 100 : null,
+    vol_ratio: ind.vAvg20[i] ? ind.v[i] / ind.vAvg20[i] : null,
   };
 }
 
-// Returns {tech, series}; series is [{t, c}] for charting (with 50/200 DMA)
+function compute(rows, livePrice) {
+  if (livePrice && rows.length) { rows = rows.slice(); const L = rows[rows.length - 1]; rows[rows.length - 1] = { ...L, c: livePrice, h: Math.max(L.h ?? livePrice, livePrice), l: Math.min(L.l ?? livePrice, livePrice) }; }
+  const ind = indicators(rows), last = rows.length - 1, snap = snapshotAt(ind, last), price = snap.price;
+  const bwWin = ind.bw.slice(Math.max(0, last - 125), last + 1).filter(x => x != null);
+  const squeeze = bwWin.length > 60 && ind.bw[last] != null && ind.bw[last] <= Math.min(...bwWin) * 1.08;
+  const macdCross = within(5, last, j => crossedUp(ind.macd, ind.sig, j)) ? "bull" : within(5, last, j => crossedDown(ind.macd, ind.sig, j)) ? "bear" : null;
+  const bbPos = ind.bbU[last] != null && ind.bbU[last] !== ind.bbL[last] ? (price - ind.bbL[last]) / (ind.bbU[last] - ind.bbL[last]) : null;
+  const prevHi20 = last >= 21 ? Math.max(...ind.h.slice(last - 20, last)) : null;
+  const prevHi55 = last >= 56 ? Math.max(...ind.h.slice(last - 55, last)) : null;
+  const dayChg = last ? (price / ind.c[last - 1] - 1) * 100 : null;
+  const lv = levels(ind, last, price);
+  return {
+    price: r2(price), sma20: r2(snap.sma20), sma50: r2(snap.sma50), sma200: r2(snap.sma200), rsi14: r2(snap.rsi14),
+    vol: ind.v[last], vol_avg20: ind.vAvg20[last] ? Math.round(ind.vAvg20[last]) : null, vol_ratio: r2(snap.vol_ratio),
+    ret_1w: r2(snap.ret_1w), ret_1m: r2(snap.ret_1m), ret_3m: r2(snap.ret_3m), ret_6m: r2(snap.ret_6m), ret_9m: r2(snap.ret_9m), ret_1y: r2(snap.ret_1y),
+    high52: r2(snap.high52), low52: r2(snap.low52), from_high_pct: r2(snap.from_high_pct), from_low_pct: r2(snap.from_low_pct),
+    golden_cross: snap.golden_cross, death_cross: snap.death_cross, trend: snap.trend, above_50: snap.above_50, above_200: snap.above_200,
+    // pro indicators
+    macd: r2(ind.macd[last]), macd_signal: r2(ind.sig[last]), macd_hist: r2(ind.macd[last] != null && ind.sig[last] != null ? ind.macd[last] - ind.sig[last] : null),
+    macd_state: ind.macd[last] == null || ind.sig[last] == null ? null : ind.macd[last] > ind.sig[last] ? "bull" : "bear", macd_cross: macdCross,
+    bb_upper: r2(ind.bbU[last]), bb_lower: r2(ind.bbL[last]), bb_pos: r2(bbPos), bb_width: r2(ind.bw[last] != null ? ind.bw[last] * 100 : null), bb_squeeze: squeeze,
+    breakout_20d: prevHi20 != null && price > prevHi20, breakout_55d: prevHi55 != null && price > prevHi55,
+    vol_surge_up: snap.vol_ratio >= 2 && dayChg > 0, vol_surge_down: snap.vol_ratio >= 2 && dayChg < 0,
+    ...lv,
+    to_support_pct: lv.support ? r2((lv.support / price - 1) * 100) : null, to_resistance_pct: lv.resistance ? r2((lv.resistance / price - 1) * 100) : null,
+  };
+}
+
+// Returns {tech, series, quote, rows, ind}; rows/ind stay in memory for the back-test (not written out)
 async function analyse(nseSymbol) {
   const { rows, meta } = await history(nseSymbol + ".NS");
   if (rows.length < 30) throw new Error("not enough history");
   const tech = compute(rows, meta.regularMarketPrice);
-  const closes = rows.map(r => r.c);
-  const series = rows.map((r, i) => ({ t: r.t, c: r2(r.c), s50: r2(smaAt(closes, 50, i)), s200: r2(smaAt(closes, 200, i)) }));
+  const ind = indicators(rows);
+  const from = Math.max(0, rows.length - CHART_BARS);
+  // chart rows: [time, close, 50dma, 200dma, bbUpper, bbLower, macd, macdSignal, rsi, volume]
+  const series = [];
+  for (let i = from; i < rows.length; i++) series.push([Math.round(rows[i].t / 1000), r2(rows[i].c), r2(ind.s50[i]), r2(ind.s200[i]), r2(ind.bbU[i]), r2(ind.bbL[i]),
+    ind.macd[i] == null ? null : Math.round(ind.macd[i] * 1000) / 1000, ind.sig[i] == null ? null : Math.round(ind.sig[i] * 1000) / 1000, ind.rsi[i] == null ? null : Math.round(ind.rsi[i] * 10) / 10, rows[i].v || 0]);
   // day change: if the last daily bar is today's session, compare with the bar before it
   const ist = ms => new Date(ms + 5.5 * 3600e3).toISOString().slice(0, 10);
   const lastBarDay = ist(rows[rows.length - 1].t), liveDay = meta.regularMarketTime ? ist(meta.regularMarketTime * 1000) : lastBarDay;
   const prev = lastBarDay === liveDay ? rows[rows.length - 2]?.c : rows[rows.length - 1].c;
   const price = meta.regularMarketPrice ?? rows[rows.length - 1].c;
   const quote = { price: r2(price), prev_close: r2(prev), change_pct: prev ? r2((price / prev - 1) * 100) : null, as_of: meta.regularMarketTime ? new Date(meta.regularMarketTime * 1000).toISOString() : null };
-  return { tech, series, quote, updated: new Date().toISOString() };
+  return { tech, series, quote, rows, ind, updated: new Date().toISOString() };
 }
 
 async function analyseMany(symbols, log, concurrency = 6) {
@@ -83,4 +184,4 @@ async function analyseMany(symbols, log, concurrency = 6) {
   return out;
 }
 
-module.exports = { analyse, analyseMany, compute, history };
+module.exports = { analyse, analyseMany, compute, history, indicators, snapshotAt, crossedUp, crossedDown, CHART_BARS };

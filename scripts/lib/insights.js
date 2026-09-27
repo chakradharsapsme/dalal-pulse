@@ -103,9 +103,17 @@ function stockInsight(sym, name, t, news, events, dayChange) {
     s += `. RSI is ${f1(t.rsi14)}${t.rsi14 > 70 ? " (overbought: a strong run, which can mean a pause)" : t.rsi14 < 30 ? " (oversold: a sharp fall, which can mean a bounce or further weakness)" : ""}.`;
     parts.push(s);
     if (t.vol_ratio >= 2) parts.push(`Volume is ${f1(t.vol_ratio)}× its 20-day average: unusual activity.`);
+    if (t.macd_cross === "bull") parts.push("MACD just crossed above its signal line (momentum turning up).");
+    else if (t.macd_cross === "bear") parts.push("MACD just crossed below its signal line (momentum turning down).");
+    if (t.bb_squeeze) parts.push("Bollinger Bands are at their tightest in 6 months: a volatility squeeze that often comes before a big move.");
+    else if (t.bb_pos != null && t.bb_pos > 1) parts.push("Price is above the upper Bollinger Band: stretched to the upside.");
+    else if (t.bb_pos != null && t.bb_pos < 0) parts.push("Price is below the lower Bollinger Band: stretched to the downside.");
+    if (t.breakout_55d) parts.push("It just closed above its 55-day high (a breakout).");
     if (t.golden_cross) parts.push("A golden cross formed recently (50-day average crossed above the 200-day).");
     if (t.death_cross) parts.push("A death cross formed recently (50-day average crossed below the 200-day).");
     // levels
+    if (t.support) watch.push(`Support ${inr(t.support)} (${f1(Math.abs(t.to_support_pct))}% below${t.support_touches > 1 ? `, tested ${t.support_touches}×` : ""})`);
+    if (t.resistance) watch.push(`Resistance ${inr(t.resistance)} (${f1(t.to_resistance_pct)}% above${t.resistance_touches > 1 ? `, tested ${t.resistance_touches}×` : ""})`);
     if (t.price && t.sma50) watch.push(`${t.price > t.sma50 ? "Support" : "Resistance"} near the 50-day average ${inr(t.sma50)}`);
     if (t.price && t.sma200) watch.push(`${t.price > t.sma200 ? "Support" : "Resistance"} near the 200-day average ${inr(t.sma200)}`);
     if (t.high52 && t.from_high_pct > -8) watch.push(`52-week high ${inr(t.high52)}: a close above it would be a breakout`);
@@ -128,7 +136,7 @@ function stockInsight(sym, name, t, news, events, dayChange) {
   return {
     signal, label, score: Math.round(combo * 100),
     news_score: ns == null ? null : Math.round(ns * 100), tech_score: ts == null ? null : Math.round(ts * 100),
-    summary: parts.join(" "), watch: watch.slice(0, 4), pos, neg,
+    summary: parts.join(" "), watch: watch.slice(0, 5), pos, neg,
   };
 }
 
@@ -188,4 +196,4 @@ function trendingTopics(headlines, stockNames) {
   return out;
 }
 
-module.exports = { headlineTone, stockInsight, marketMood, trendingTopics };
+module.exports = { headlineTone, stockInsight, marketMood, trendingTopics, techScore };

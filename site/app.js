@@ -21,7 +21,8 @@ let view = "news", sel = null;
 let my = store.get("dp-my", { holdings: [], watch: [], alerts: [] });
 const saveMy = () => store.set("dp-my", my);
 const isMine = s => my.watch.includes(s) || my.holdings.some(h => h.symbol === s);
-const ui = { nf: "withnews", q: "", preset: "all", sort: { k: "change_pct", d: -1 }, w52: "highs", w52s: "all", cal: "tracked", range: 252, sq: "" };
+const ui = { nf: "withnews", q: "", preset: "all", sort: { k: "change_pct", d: -1 }, w52: "highs", w52s: "all", cal: "tracked", range: 252, sq: "",
+  ov: { ma: true, bb: false, sr: true, sig: true }, sub: "vol", hp: "change_pct", hm: "ind", bh: 20, bdir: "all" };
 const charts = window.__DP_CHARTS__ || {};
 
 // ---------- data ----------
@@ -110,7 +111,7 @@ function nav(v, s) {
 }
 function readHash() {
   const [v, s] = location.hash.replace(/^#\/?/, "").split("/");
-  if (["news", "markets", "screener", "w52", "portfolio", "calendar"].includes(v)) { view = v; sel = s ? decodeURIComponent(s).toUpperCase() : null; }
+  if (["news", "markets", "screener", "signals", "w52", "portfolio", "calendar"].includes(v)) { view = v; sel = s ? decodeURIComponent(s).toUpperCase() : null; }
 }
 const go = sym => nav("news", sym);
 
@@ -118,7 +119,7 @@ function render() {
   if (!D) return;
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.nav === view));
   const keep = document.querySelector(".list")?.scrollTop;
-  $("#view").innerHTML = view === "markets" ? markets() : view === "screener" ? screener() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : newsView();
+  $("#view").innerHTML = view === "markets" ? markets() : view === "screener" ? screener() : view === "signals" ? signals() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : newsView();
   if (keep && document.querySelector(".list")) document.querySelector(".list").scrollTop = keep;
   if (view === "news") { if (sel && S[sel]) drawChart(sel); document.querySelector(".row.on")?.scrollIntoView({ block: "nearest" }); }
   animateBars(); countUp($("#view"));
@@ -205,6 +206,28 @@ function meter(label, v) {
   const w = Math.min(50, Math.abs(v) / 2), left = v >= 0 ? 50 : 50 - w;
   return `<div class="meter"><div class="l"><span>${label}</span><span class="${cls(v)}">${v > 0 ? "+" : ""}${v}</span></div><div class="bar"><b></b><i style="left:50%;width:0;background:${v >= 0 ? "var(--up)" : "var(--down)"}" data-w="${w}%" data-l="${left}%"></i></div></div>`;
 }
+// ---------- signal track record helpers ----------
+const btSig = id => D.backtest?.signals?.find(x => x.id === id);
+const SIG_NAME = id => btSig(id)?.name || id;
+function activeSignals(t) {
+  if (!t) return [];
+  const a = [];
+  if (t.golden_cross) a.push("golden"); if (t.death_cross) a.push("death");
+  if (t.macd_cross === "bull") a.push("macdup"); if (t.macd_cross === "bear") a.push("macddn");
+  if (t.bb_squeeze && t.bb_pos > 1) a.push("bbsq");
+  if (t.rsi14 < 30) a.push("rsios"); if (t.rsi14 > 70) a.push("rsiob");
+  if (t.from_high_pct != null && t.from_high_pct > -0.5) a.push("high52"); if (t.from_low_pct != null && t.from_low_pct < 0.5) a.push("low52");
+  if (t.breakout_20d && t.vol_ratio >= 2) a.push("brk20v");
+  if (t.above_200 && t.price < t.sma20 && t.rsi14 >= 35 && t.rsi14 <= 50) a.push("pullback");
+  return a.filter(id => btSig(id));
+}
+function verdictBadge(v) { return `<span class="badge ${v === "Worked well" ? "bullish" : v === "Slight edge" ? "watch" : v === "Worked the opposite way" ? "bearish" : "neutral"}">${esc(v)}</span>`; }
+function trackLine(id, h = 20) {
+  const g = btSig(id); if (!g) return "";
+  const r = g.results[h]; if (!r?.n) return `<b>${esc(g.name)}</b>: not enough past cases yet.`;
+  return `<b>${esc(g.name)}</b>: in ${fmt(r.n, 0)} past cases the stock ${g.dir === "down" ? "fell" : "rose"} over the next ${h} sessions <b>${r.hit}%</b> of the time, average <b class="${cls(r.avg)}">${pct(r.avg)}</b> (${r.vs_nifty == null ? "" : `${pct(r.vs_nifty)} vs Nifty`}). ${verdictBadge(g.verdict)}`;
+}
+
 function stockDetail(sym) {
   const s = S[sym];
   if (!s) return `<div class="empty"><b>${esc(sym)} isn't tracked</b>This site covers the Nifty 200.</div>`;
@@ -228,17 +251,29 @@ function stockDetail(sym) {
       <div class="meters">${meter("News tone", ins.news_score)}${meter("Technicals", ins.tech_score)}${meter("Overall", ins.score)}</div>
       <p>${esc(ins.summary)}</p>
       ${ins.watch.length ? `<b style="font-size:14px">Levels and events to watch</b><ul>${ins.watch.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
-      <div class="muted" style="font-size:12px;margin-top:10px">Built from rules: headline tone words, trend, moving averages, RSI, volume and the 52-week range. Not investment advice.</div>
+      ${activeSignals(t).length ? `<div class="reli"><b style="font-size:14px">How these signals have played out before</b>${activeSignals(t).map(id => `<p>${trackLine(id)}</p>`).join("")}<button class="sy" data-nav="signals">See the full track record →</button></div>` : ""}
+      <div class="muted" style="font-size:12px;margin-top:10px">Built from rules: headline tone words, trend, moving averages, RSI, MACD, Bollinger Bands, volume, support/resistance and the 52-week range. Not investment advice.</div>
     </div>
     <div class="sect"><h3>News · ${news.length}</h3>${news.length ? news.map(newsItem).join("") : '<div class="muted">No Moneycontrol stories in the last few days.</div>'}</div>
     <div class="sect"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px"><h3 style="margin:0">Price chart</h3>
       <div class="seg">${[[21, "1M"], [63, "3M"], [126, "6M"], [252, "1Y"]].map(([n, l]) => `<button data-range="${n}" class="${ui.range === n ? "on" : ""}" aria-label="${range[n]}">${l}</button>`).join("")}</div></div>
-      <div class="legend"><span><i style="background:var(--s1)"></i>Price</span><span><i style="background:var(--s2)"></i>50-day average</span><span><i style="background:var(--s3)"></i>200-day average</span></div>
-      <div class="chart" id="chart"><div class="skeleton" style="height:230px"></div></div></div>
+      <div class="ctrls"><span class="muted">Show</span>${[["ma", "Averages"], ["bb", "Bollinger Bands"], ["sr", "Support / resistance"], ["sig", "Past signals"]].map(([k, l]) => `<button class="tog${ui.ov[k] ? " on" : ""}" data-ov="${k}" aria-pressed="${ui.ov[k]}">${l}</button>`).join("")}
+        <span class="muted" style="margin-left:6px">Lower panel</span><div class="seg">${[["vol", "Volume"], ["rsi", "RSI"], ["macd", "MACD"]].map(([k, l]) => `<button data-sub="${k}" class="${ui.sub === k ? "on" : ""}">${l}</button>`).join("")}</div></div>
+      <div class="legend" id="legend"></div>
+      <div class="chart" id="chart"><div class="skeleton" style="height:330px"></div></div></div>
+    <div class="sect" id="pastsig"></div>
     <div class="sect"><h3>Key numbers</h3><div class="stats">
       ${[["Trend", esc(t.trend || "–")], ["RSI (14)", fmt(t.rsi14, 0) + (t.rsi14 > 70 ? " · overbought" : t.rsi14 < 30 ? " · oversold" : "")], ["Volume vs 20-day", t.vol_ratio == null ? "–" : fmt(t.vol_ratio, 1) + "×"],
          ["From 52W high", `<span class="${cls(t.from_high_pct)}">${pct(t.from_high_pct)}</span>`], ["50-day avg", vsMa(t.sma50)], ["200-day avg", vsMa(t.sma200)], ["52W high", px(t.high52)], ["52W low", px(t.low52)],
-         ["1 week", `<span class="${cls(t.ret_1w)}">${pct(t.ret_1w)}</span>`], ["1 month", `<span class="${cls(t.ret_1m)}">${pct(t.ret_1m)}</span>`], ["3 months", `<span class="${cls(t.ret_3m)}">${pct(t.ret_3m)}</span>`], ["1 year", `<span class="${cls(t.ret_1y)}">${pct(t.ret_1y)}</span>`]]
+         ["1 week", `<span class="${cls(t.ret_1w)}">${pct(t.ret_1w)}</span>`], ["1 month", `<span class="${cls(t.ret_1m)}">${pct(t.ret_1m)}</span>`], ["3 months", `<span class="${cls(t.ret_3m)}">${pct(t.ret_3m)}</span>`], ["1 year", `<span class="${cls(t.ret_1y)}">${pct(t.ret_1y)}</span>`],
+         ["MACD", t.macd_state ? `<span class="${t.macd_state === "bull" ? "up" : "down"}">${t.macd_state === "bull" ? "▲ above signal" : "▼ below signal"}</span>${t.macd_cross ? " · new cross" : ""}` : "–"],
+         ["Bollinger", t.bb_pos == null ? "–" : (t.bb_pos > 1 ? "above upper band" : t.bb_pos < 0 ? "below lower band" : t.bb_pos > 0.5 ? "upper half" : "lower half") + (t.bb_squeeze ? " · squeeze" : "")],
+         ["Support", t.support ? `${px(t.support)} <span class="muted" style="font-size:11px">${pct(t.to_support_pct)}</span>` : "–"],
+         ["Resistance", t.resistance ? `${px(t.resistance)} <span class="muted" style="font-size:11px">${pct(t.to_resistance_pct)}</span>` : "none nearby"],
+         ["RS rating", t.rs_rating == null ? "–" : `<span class="${t.rs_rating >= 70 ? "up" : t.rs_rating <= 30 ? "down" : ""}">${t.rs_rating}</span> <span class="muted" style="font-size:11px">of 99</span>`],
+         ["vs Nifty · 3M", `<span class="${cls(t.rel_3m)}">${pct(t.rel_3m)}</span>`],
+         ["vs Nifty · 1Y", `<span class="${cls(t.rel_1y)}">${pct(t.rel_1y)}</span>`],
+         ["Bandwidth", t.bb_width == null ? "–" : fmt(t.bb_width, 1) + "%"]]
         .map(([l, v]) => `<div class="stat"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("")}</div></div>
     ${s.events.length ? `<div class="sect"><h3>Coming up</h3>${s.events.map(e => `<div style="margin-bottom:8px"><span class="badge ${e.type === "Results" ? "n50" : "watch"}">${esc(e.type)}</span> <b class="num">${esc(e.date)}</b> <span class="muted">${esc(e.detail)}</span></div>`).join("")}</div>` : ""}
     <div class="sect"><h3>My position and alerts</h3>
@@ -251,33 +286,84 @@ function stockDetail(sym) {
       <div class="muted" style="font-size:12px;margin-top:8px">Kept privately in this browser.</div>
     </div>`;
 }
+const chartRows = ch => (Array.isArray(ch) ? ch : ch.rows).map(r => ({ t: r[0] * 1000, c: r[1], s50: r[2], s200: r[3], bu: r[4], bl: r[5], macd: r[6], sig: r[7], rsi: r[8], v: r[9] }));
+const chartEvents = ch => Array.isArray(ch) ? [] : ch.ev || [];
 async function drawChart(sym) {
   const box = $("#chart"); if (!box) return;
   try { if (!charts[sym]) { const r = await fetch(`data/charts/${sym.replace(/[^A-Z0-9&-]/gi, "_")}.json?t=${D.generated_at}`); charts[sym] = await r.json(); } }
   catch { box.innerHTML = '<div class="muted">Chart unavailable.</div>'; return; }
   if (!$("#chart") || sel !== sym) return;
-  const pts = charts[sym].slice(-ui.range).map(([t, c, a, b]) => ({ t: t * 1000, c, s50: a, s200: b }));
+  const all = chartRows(charts[sym]), evs = chartEvents(charts[sym]), t = S[sym]?.tech || {};
+  renderPastSignals(sym, evs);
+  const pts = all.slice(-ui.range);
   if (pts.length < 2) { $("#chart").innerHTML = '<div class="muted">Chart unavailable.</div>'; return; }
-  const W = 720, H = 250, L = 8, R = 60, T = 12, B = 24;
-  const vals = pts.flatMap(p => [p.c, p.s50, p.s200]).filter(v => v != null);
+  const hasPro = pts.some(p => p.bu != null || p.v != null);
+  const sub = hasPro ? ui.sub : null;
+  const W = 720, L = 8, R = 60, T = 12, MH = 250, GAP = 26, SH = sub ? 86 : 0, H = MH + (sub ? GAP + SH : 0) + 22;
+  const ov = ui.ov, keys = ["c"].concat(ov.ma ? ["s50", "s200"] : [], ov.bb && hasPro ? ["bu", "bl"] : []);
+  const vals = pts.flatMap(p => keys.map(k => p[k])).filter(v => v != null);
+  if (ov.sr && t.support) vals.push(t.support); if (ov.sr && t.resistance && t.resistance < Math.max(...vals) * 1.15) vals.push(t.resistance);
   let lo = Math.min(...vals), hi = Math.max(...vals); const pd = (hi - lo) * 0.08 || 1; lo -= pd; hi += pd;
-  const x = i => L + i / (pts.length - 1) * (W - L - R), y = v => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
-  const line = k => { let d = "", on = false; pts.forEach((p, i) => { if (p[k] == null) { on = false; return; } d += (on ? "L" : "M") + x(i).toFixed(1) + " " + y(p[k]).toFixed(1); on = true; }); return d; };
+  const x = i => L + i / (pts.length - 1) * (W - L - R), y = v => T + (1 - (v - lo) / (hi - lo)) * (MH - T - 4);
+  const line = (k, yf = y) => { let d = "", on = false; pts.forEach((p, i) => { if (p[k] == null) { on = false; return; } d += (on ? "L" : "M") + x(i).toFixed(1) + " " + yf(p[k]).toFixed(1); on = true; }); return d; };
   const last = pts[pts.length - 1], chg = (last.c / pts[0].c - 1) * 100;
-  const lab = (k, c) => last[k] == null ? "" : `<circle cx="${x(pts.length - 1)}" cy="${y(last[k])}" r="3.5" fill="${c}" stroke="var(--card)" stroke-width="2"/>`;
-  const dfmt = t => new Date(t).toLocaleDateString("en-IN", { day: "numeric", month: "short", ...(ui.range > 130 ? { year: "2-digit" } : {}) });
+  const dot = (k, c) => last[k] == null ? "" : `<circle cx="${x(pts.length - 1)}" cy="${y(last[k])}" r="3.5" fill="${c}" stroke="var(--card)" stroke-width="2"/>`;
+  const dfmt = tt => new Date(tt).toLocaleDateString("en-IN", { day: "numeric", month: "short", ...(ui.range > 130 ? { year: "2-digit" } : {}) });
   const ticks = [0, 1, 2, 3].map(i => lo + (hi - lo) * (i + 0.5) / 4);
-  $("#chart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(sym)} price with 50 and 200 day averages">
+  // Bollinger band fill
+  let bbFill = "";
+  if (ov.bb && hasPro) {
+    const up = [], dn = []; pts.forEach((p, i) => { if (p.bu != null && p.bl != null) { up.push([x(i), y(p.bu)]); dn.push([x(i), y(p.bl)]); } });
+    if (up.length > 1) bbFill = `<path d="M${up.map(q => q[0].toFixed(1) + " " + q[1].toFixed(1)).join("L")}L${dn.reverse().map(q => q[0].toFixed(1) + " " + q[1].toFixed(1)).join("L")}Z" fill="var(--s4)" opacity=".10"/>
+      <path d="${line("bu")}" fill="none" stroke="var(--s4)" stroke-width="1.3" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/><path d="${line("bl")}" fill="none" stroke="var(--s4)" stroke-width="1.3" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>`;
+  }
+  // support / resistance
+  const hline = (v, col, lab) => v == null || v < lo || v > hi ? "" : `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="${col}" stroke-width="1.4" stroke-dasharray="6 4" vector-effect="non-scaling-stroke"/><rect x="${W - R + 2}" y="${y(v) - 9}" width="${R - 4}" height="18" rx="4" fill="${col}"/><text x="${W - R / 2}" y="${y(v) + 4}" font-size="10" font-weight="700" text-anchor="middle" fill="#fff">${lab}</text>`;
+  const sr = ov.sr ? hline(t.support, "var(--up)", "SUP") + hline(t.resistance, "var(--down)", "RES") : "";
+  // past-signal markers
+  let marks = "";
+  if (ov.sig && evs.length) {
+    const idx = {}; pts.forEach((p, i) => { idx[new Date(p.t + 5.5 * 3600e3).toISOString().slice(0, 10)] = i; });
+    for (const e of evs) { const i = idx[e.d]; if (i == null) continue; const g = btSig(e.s); if (!g) continue;
+      const upSig = g.dir === "up", yy = y(pts[i].c) + (upSig ? 14 : -14), xx = x(i);
+      marks += `<path d="${upSig ? `M${xx} ${yy - 6}l5 8h-10z` : `M${xx} ${yy + 6}l5 -8h-10z`}" fill="${upSig ? "var(--up)" : "var(--down)"}" opacity=".9"><title>${esc(g.name)} · ${esc(e.d)}${e.r20 != null ? ` · next 20 sessions ${pct(e.r20)}` : ""}</title></path>`; }
+  }
+  // lower panel
+  let subSvg = "";
+  const sy0 = MH + GAP, sy1 = sy0 + SH;
+  if (sub === "vol") {
+    const vmax = Math.max(1, ...pts.map(p => p.v || 0)), bw = Math.max(1, (W - L - R) / pts.length - 0.8);
+    subSvg = pts.map((p, i) => { const hgt = (p.v || 0) / vmax * SH; const upd = i ? p.c >= pts[i - 1].c : true; return `<rect x="${(x(i) - bw / 2).toFixed(1)}" y="${(sy1 - hgt).toFixed(1)}" width="${bw.toFixed(1)}" height="${hgt.toFixed(1)}" fill="${upd ? "var(--up)" : "var(--down)"}" opacity=".55"/>`; }).join("")
+      + `<text x="${W - R + 7}" y="${sy0 + 10}" font-size="10.5" fill="var(--muted)">Volume</text>`;
+  } else if (sub === "rsi") {
+    const ry = v => sy0 + (1 - v / 100) * SH;
+    subSvg = `<rect x="${L}" y="${ry(70)}" width="${W - L - R}" height="${ry(30) - ry(70)}" fill="var(--paper2)"/>
+      ${[30, 50, 70].map(v => `<line x1="${L}" x2="${W - R}" y1="${ry(v)}" y2="${ry(v)}" stroke="var(--line)" ${v !== 50 ? 'stroke-dasharray="3 3"' : ""}/><text x="${W - R + 7}" y="${ry(v) + 4}" font-size="10.5" fill="var(--muted)">${v}</text>`).join("")}
+      <path d="${line("rsi", ry)}" fill="none" stroke="var(--s5)" stroke-width="1.8" vector-effect="non-scaling-stroke"/>`;
+  } else if (sub === "macd") {
+    const mv = pts.flatMap(p => [p.macd, p.sig, p.macd != null && p.sig != null ? p.macd - p.sig : null]).filter(v => v != null);
+    const mx = Math.max(1e-9, ...mv.map(Math.abs)), my = v => sy0 + SH / 2 - v / mx * (SH / 2 - 2), bw = Math.max(1, (W - L - R) / pts.length - 0.8);
+    subSvg = `<line x1="${L}" x2="${W - R}" y1="${my(0)}" y2="${my(0)}" stroke="var(--line2)"/>`
+      + pts.map((p, i) => { if (p.macd == null || p.sig == null) return ""; const hv = p.macd - p.sig; return `<rect x="${(x(i) - bw / 2).toFixed(1)}" y="${Math.min(my(0), my(hv)).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.abs(my(hv) - my(0)).toFixed(1)}" fill="${hv >= 0 ? "var(--up)" : "var(--down)"}" opacity=".45"/>`; }).join("")
+      + `<path d="${line("macd", my)}" fill="none" stroke="var(--s1)" stroke-width="1.6" vector-effect="non-scaling-stroke"/><path d="${line("sig", my)}" fill="none" stroke="var(--s2)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
+      <text x="${W - R + 7}" y="${sy0 + 10}" font-size="10.5" fill="var(--muted)">MACD</text>`;
+  }
+  const lg = [["var(--s1)", "Price"]].concat(ov.ma ? [["var(--s2)", "50-day avg"], ["var(--s3)", "200-day avg"]] : [], ov.bb && hasPro ? [["var(--s4)", "Bollinger Bands (20, 2)"]] : [], ov.sr ? [["var(--up)", "Support"], ["var(--down)", "Resistance"]] : [],
+    sub === "rsi" ? [["var(--s5)", "RSI (14)"]] : sub === "macd" ? [["var(--s1)", "MACD"], ["var(--s2)", "Signal line"]] : []);
+  $("#legend").innerHTML = lg.map(([c, l]) => `<span><i style="background:${c}"></i>${l}</span>`).join("") + (ov.sig && evs.length ? `<span><b class="up">▲</b>/<b class="down">▼</b> past signals (hover)</span>` : "");
+  $("#chart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:${Math.round(H * 0.94)}px" role="img" aria-label="${esc(sym)} price chart">
     <defs><linearGradient id="ga" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--s1)" stop-opacity=".22"/><stop offset="1" stop-color="var(--s1)" stop-opacity="0"/></linearGradient></defs>
     ${ticks.map(g => `<line x1="${L}" x2="${W - R}" y1="${y(g)}" y2="${y(g)}" stroke="var(--line)"/><text x="${W - R + 7}" y="${y(g) + 4}" font-size="10.5" fill="var(--muted)">${fmt(g, g > 1000 ? 0 : 1)}</text>`).join("")}
     ${[0, Math.floor(pts.length / 2), pts.length - 1].map(i => `<text x="${x(i)}" y="${H - 6}" font-size="11" fill="var(--muted)" text-anchor="${i === 0 ? "start" : i === pts.length - 1 ? "end" : "middle"}">${dfmt(pts[i].t)}</text>`).join("")}
-    <path d="${line("c")}L${x(pts.length - 1)} ${H - B}L${x(0)} ${H - B}Z" fill="url(#ga)"/>
-    <path d="${line("s200")}" fill="none" stroke="var(--s3)" stroke-width="2" vector-effect="non-scaling-stroke"/>
-    <path d="${line("s50")}" fill="none" stroke="var(--s2)" stroke-width="2" vector-effect="non-scaling-stroke"/>
+    ${bbFill}
+    <path d="${line("c")}L${x(pts.length - 1)} ${MH - 4}L${x(0)} ${MH - 4}Z" fill="url(#ga)"/>
+    ${ov.ma ? `<path d="${line("s200")}" fill="none" stroke="var(--s3)" stroke-width="2" vector-effect="non-scaling-stroke"/><path d="${line("s50")}" fill="none" stroke="var(--s2)" stroke-width="2" vector-effect="non-scaling-stroke"/>` : ""}
     <path d="${line("c")}" fill="none" stroke="var(--s1)" stroke-width="2.2" vector-effect="non-scaling-stroke"/>
-    ${lab("s200", "var(--s3)")}${lab("s50", "var(--s2)")}${lab("c", "var(--s1)")}
-    <line id="xh" y1="${T}" y2="${H - B}" stroke="var(--muted)" stroke-dasharray="3 3" visibility="hidden"/>
-    <rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent"/>
+    ${sr}${marks}
+    ${ov.ma ? dot("s200", "var(--s3)") + dot("s50", "var(--s2)") : ""}${dot("c", "var(--s1)")}
+    ${subSvg}
+    <line id="xh" y1="${T}" y2="${sub ? sy1 : MH}" stroke="var(--muted)" stroke-dasharray="3 3" visibility="hidden"/>
+    <rect id="hit" x="${L}" y="${T}" width="${W - L - R}" height="${(sub ? sy1 : MH) - T}" fill="transparent"/>
   </svg><div class="tip" id="tip" hidden></div>
   <div class="muted" style="font-size:12.5px;margin-top:6px">Last ${{ 21: "month", 63: "3 months", 126: "6 months", 252: "year" }[ui.range]}: <b class="num ${cls(chg)}">${pct(chg)}</b> · price ${px(last.c)}${last.s50 ? ` · 50-day ${px(last.s50)}` : ""}${last.s200 ? ` · 200-day ${px(last.s200)}` : ""}</div>`;
   const svg = $("#chart svg"), tip = $("#tip"), xh = $("#xh");
@@ -285,15 +371,28 @@ async function drawChart(sym) {
     const b = svg.getBoundingClientRect(), sx = (cx - b.left) / b.width * W;
     const i = Math.max(0, Math.min(pts.length - 1, Math.round((sx - L) / (W - L - R) * (pts.length - 1)))), p = pts[i];
     xh.setAttribute("x1", x(i)); xh.setAttribute("x2", x(i)); xh.setAttribute("visibility", "visible");
-    tip.hidden = false; tip.innerHTML = `<b>${new Date(p.t).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</b><br>Price ${px(p.c)}${p.s50 ? `<br><span style="color:var(--s2)">■</span> 50-day ${px(p.s50)}` : ""}${p.s200 ? `<br><span style="color:var(--s3)">■</span> 200-day ${px(p.s200)}` : ""}`;
-    const lx = x(i) / W * b.width; tip.style.left = (lx > b.width - 180 ? lx - 170 : lx + 12) + "px"; tip.style.top = "6px";
+    tip.hidden = false; tip.innerHTML = `<b>${new Date(p.t).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</b><br>Price ${px(p.c)}${ov.ma && p.s50 ? `<br><span style="color:var(--s2)">■</span> 50-day ${px(p.s50)}` : ""}${ov.ma && p.s200 ? `<br><span style="color:var(--s3)">■</span> 200-day ${px(p.s200)}` : ""}${ov.bb && p.bu != null ? `<br><span style="color:var(--s4)">■</span> Bands ${px(p.bl)} – ${px(p.bu)}` : ""}${p.rsi != null ? `<br>RSI ${fmt(p.rsi, 0)}` : ""}${p.macd != null && p.sig != null ? ` · MACD ${p.macd > p.sig ? "▲" : "▼"}` : ""}${p.v ? `<br>Volume ${fmt(p.v, 0)}` : ""}`;
+    const lx = x(i) / W * b.width; tip.style.left = (lx > b.width - 190 ? lx - 180 : lx + 12) + "px"; tip.style.top = "6px";
   };
   svg.onmousemove = e => move(e.clientX); svg.ontouchmove = e => move(e.touches[0].clientX);
   svg.onmouseleave = () => { tip.hidden = true; xh.setAttribute("visibility", "hidden"); };
 }
+function renderPastSignals(sym, evs) {
+  const box = $("#pastsig"); if (!box) return;
+  if (!evs.length) { box.innerHTML = ""; return; }
+  const rows = evs.slice(0, 14);
+  const done = evs.filter(e => e.r20 != null && btSig(e.s)), ok = done.filter(e => btSig(e.s).dir === "down" ? e.r20 < 0 : e.r20 > 0).length;
+  box.innerHTML = `<h3>Past signals on ${esc(sym)} · last 2 years</h3>
+    ${done.length ? `<p class="muted" style="font-size:13.5px;margin:0 0 8px">${ok} of ${done.length} signals (${Math.round(ok / done.length * 100)}%) went the expected way over the next 20 sessions.</p>` : ""}
+    <div class="tblwrap" style="max-height:none"><table class="tbl"><thead><tr><th class="l">Date</th><th class="l">Signal</th><th>Price</th><th>+5 days</th><th>+20 days</th><th>+60 days</th><th class="l">Result</th></tr></thead><tbody>
+    ${rows.map(e => { const g = btSig(e.s) || { name: e.s, dir: "up" }; const r = e.r20 ?? e.r5, early = e.r20 == null; const good = r == null ? null : g.dir === "down" ? r < 0 : r > 0;
+      return `<tr style="cursor:default"><td class="l num">${new Date(e.d + "T00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "2-digit" })}</td><td class="l"><span class="${g.dir === "up" ? "up" : "down"}">${g.dir === "up" ? "▲" : "▼"}</span> ${esc(g.name)}</td><td class="num">${px(e.p)}</td>
+      ${["r5", "r20", "r60"].map(k => `<td class="num ${cls(e[k])}">${e[k] == null ? '<span class="muted">pending</span>' : pct(e[k])}</td>`).join("")}
+      <td class="l">${good == null ? '<span class="badge neutral">Too early</span>' : early ? `<span class="badge neutral">So far ${good ? "✓" : "✗"}</span>` : good ? '<span class="badge bullish">Worked</span>' : '<span class="badge bearish">Didn\'t work</span>'}</td></tr>`; }).join("")}</tbody></table></div>`;
+}
 
 // ---------- MARKETS ----------
-function heat(c) { if (c == null) return "background:var(--paper2)"; const a = Math.min(1, Math.abs(c) / 3); return `background:color-mix(in srgb, ${c >= 0 ? "var(--up)" : "var(--down)"} ${Math.round(14 + a * 56)}%, var(--mid))`; }
+function heat(c, scale = 3) { if (c == null) return "background:var(--paper2)"; const a = Math.min(1, Math.abs(c) / scale); return `background:color-mix(in srgb, ${c >= 0 ? "var(--up)" : "var(--down)"} ${Math.round(14 + a * 56)}%, var(--mid))`; }
 function markets() {
   const m = D.mood, withP = D.stocks.filter(s => s.change_pct != null);
   const gain = [...withP].sort((a, b) => b.change_pct - a.change_pct).slice(0, 8), lose = [...withP].sort((a, b) => a.change_pct - b.change_pct).slice(0, 8);
@@ -312,12 +411,42 @@ function markets() {
   </div>
   ${D.sectors.length ? `<div class="card" style="margin-top:16px"><div class="hd"><h2>Sector indices</h2><span class="muted" style="font-size:12.5px">green is up and red is down; the deeper the colour, the bigger the move</span></div><div class="bd"><div class="heat">
     ${D.sectors.map(s => `<div class="tile" style="${heat(s.change_pct)}"><b>${esc(s.name)}</b><div class="v">${pct(s.change_pct)}</div><div class="m">${s.ch30d != null ? "30 days " + pct(s.ch30d) : fmt(s.last, 0)}${s.adv != null ? ` · ${s.adv}▲ ${s.dec}▼` : ""}</div></div>`).join("")}</div></div></div>` : ""}
-  ${D.industries.length ? `<div class="card" style="margin-top:16px"><div class="hd"><h2>Nifty 200 by industry</h2><span class="muted" style="font-size:12.5px">average day change · tap a stock</span></div><div class="bd"><div class="heat">
-    ${D.industries.map(g => `<div class="tile" style="${heat(g.change_pct)}"><b>${esc(g.name)}</b><div class="v">${pct(g.change_pct)}</div><div class="m">${g.count} stocks · ${g.top.map(s => `<button class="sy" data-go="${esc(s)}">${esc(s)}</button>`).join(" ")}</div></div>`).join("")}</div></div></div>` : ""}
+  ${heatmapCard()}
+  ${rsCard()}
   <div class="grid g2" style="margin-top:16px">
     <div class="card"><div class="hd"><h2>Top gainers</h2></div><div class="bd" style="padding-top:4px">${gain.map(mv).join("")}</div></div>
     <div class="card"><div class="hd"><h2>Top losers</h2></div><div class="bd" style="padding-top:4px">${lose.map(mv).join("")}</div></div>
   </div></div>`;
+}
+
+const HP = { change_pct: ["1D", 3], ret_1w: ["1W", 6], ret_1m: ["1M", 10], ret_3m: ["3M", 20], ret_1y: ["1Y", 40] };
+function heatmapCard() {
+  const k = ui.hp, [pl, sc] = HP[k], v = s => k === "change_pct" ? s.change_pct : s.tech?.[k];
+  const ctrl = `<div style="display:flex;gap:8px;flex-wrap:wrap"><div class="seg">${Object.entries(HP).map(([kk, [l]]) => `<button data-hp="${kk}" class="${k === kk ? "on" : ""}">${l}</button>`).join("")}</div>
+    <div class="seg"><button data-hm="ind" class="${ui.hm === "ind" ? "on" : ""}">Industries</button><button data-hm="stk" class="${ui.hm === "stk" ? "on" : ""}">Every stock</button></div></div>`;
+  let body;
+  if (ui.hm === "ind") {
+    const list = [...(D.industries || [])].map(g => ({ ...g, val: g[k] })).sort((a, b) => (b.val ?? -1e9) - (a.val ?? -1e9));
+    body = `<div class="heat">${list.map(g => `<div class="tile" style="${heat(g.val, sc)}"><b>${esc(g.name)}</b><div class="v">${pct(g.val)}</div><div class="m">${g.count} stocks${g.rs_avg != null ? ` · RS ${Math.round(g.rs_avg)}` : ""} · ${g.top.map(x => `<button class="sy" data-go="${esc(x)}">${esc(x)}</button>`).join(" ")}</div></div>`).join("")}</div>`;
+  } else {
+    const groups = {};
+    for (const st of D.stocks) if (v(st) != null) (groups[st.industry || "Other"] ||= []).push(st);
+    const gl = Object.entries(groups).map(([n, a]) => [n, a.sort((x, y) => v(y) - v(x)), a.reduce((t, x) => t + v(x), 0) / a.length]).sort((a, b) => b[2] - a[2]);
+    body = gl.map(([n, a, m]) => `<div class="hgrp"><div class="hgh"><b>${esc(n)}</b><span class="num ${cls(m)}">${pct(m)}</span></div><div class="smap">${a.map(st => `<button class="st" data-go="${esc(st.symbol)}" style="${heat(v(st), sc)}" title="${esc(st.name)} · ${pct(v(st))}"><b>${esc(st.symbol)}</b><span>${pct(v(st))}</span></button>`).join("")}</div></div>`).join("");
+  }
+  return `<div class="card" style="margin-top:16px"><div class="hd"><h2>Heatmap · ${pl}</h2>${ctrl}</div><div class="bd">${body}
+    <div class="muted" style="font-size:12.5px;margin-top:10px">Green is up and red is down; the deeper the colour, the bigger the move (full colour at ±${sc}%). Tap a stock for its news and chart.</div></div></div>`;
+}
+function rsCard() {
+  const rows = D.stocks.filter(s => s.tech?.rs_rating != null);
+  if (!rows.length) return "";
+  const lead = [...rows].sort((a, b) => b.tech.rs_rating - a.tech.rs_rating || b.tech.rel_3m - a.tech.rel_3m).slice(0, 10), lag = [...rows].sort((a, b) => a.tech.rs_rating - b.tech.rs_rating || a.tech.rel_3m - b.tech.rel_3m).slice(0, 10);
+  const nr = D.nifty_returns || {};
+  const li = s => `<button class="mv" data-go="${esc(s.symbol)}"><span class="rsl"><b>${esc(s.symbol)}</b><span class="rsbar"><i style="width:0" data-w="${s.tech.rs_rating}%"></i></span><span class="num">${s.tech.rs_rating}</span></span><span class="num"><span class="muted">3M</span> <b class="${cls(s.tech.ret_3m)}">${pct(s.tech.ret_3m)}</b> <span class="muted">vs Nifty</span> <b class="${cls(s.tech.rel_3m)}">${pct(s.tech.rel_3m)}</b></span></button>`;
+  return `<div class="card" style="margin-top:16px"><div class="hd"><h2>Relative strength vs Nifty 50</h2><span class="muted" style="font-size:12.5px">Nifty: 3M ${pct(nr.m3)} · 1Y ${pct(nr.y1)}</span></div><div class="bd">
+    <div class="explain" style="margin-bottom:12px"><b>RS rating (1–99)</b> ranks each stock's 3, 6, 9 and 12-month performance (recent months weigh double) against the other tracked stocks. 90 means it beat 90% of them. Leaders often keep leading; laggards often keep lagging.</div>
+    <div class="grid g2"><div><h3 class="mini">Leaders</h3>${lead.map(li).join("")}</div><div><h3 class="mini">Laggards</h3>${lag.map(li).join("")}</div></div>
+    <div style="margin-top:10px"><button class="sy" data-rs="1">Open all in the screener →</button></div></div></div>`;
 }
 
 // ---------- SCREENER ----------
@@ -333,24 +462,95 @@ const PRESETS = {
   below200: ["Below 200-day", "Trading under the 200-day average, which points to a longer-term downtrend.", r => r.t.above_200 === false],
   nearlow: ["Near 52W low", "Within 5% of the 52-week low. Find out why before assuming it's cheap.", r => r.t.from_low_pct <= 5],
   newsy: ["Good news + uptrend", "Recent headlines lean positive and the stock is above its 200-day average.", r => r.s.insight.news_score > 15 && r.t.above_200],
+  rslead: ["RS leaders · 80+", "Relative-strength rating of 80 or more: beating at least 80% of the tracked stocks over the past year.", r => r.t.rs_rating >= 80],
+  rslag: ["RS laggards · 20−", "Relative-strength rating of 20 or less: among the weakest performers.", r => r.t.rs_rating <= 20],
+  brk55: ["55-day breakout", "Closed above its highest price of the previous 55 sessions.", r => r.t.breakout_55d],
+  brkvol: ["Breakout on 2× volume", "Closed above its 20-day high with volume at least twice the average: a breakout with conviction.", r => r.t.breakout_20d && r.t.vol_ratio >= 2],
+  volup: ["Volume surge, price up", "Volume 2× the average on an up day: buyers stepping in.", r => r.t.vol_surge_up],
+  voldn: ["Volume surge, price down", "Volume 2× the average on a down day: heavy selling.", r => r.t.vol_surge_down],
+  macdup: ["MACD bullish cross", "MACD crossed above its signal line in the last 5 sessions: momentum turning up.", r => r.t.macd_cross === "bull"],
+  macddn: ["MACD bearish cross", "MACD crossed below its signal line in the last 5 sessions: momentum turning down.", r => r.t.macd_cross === "bear"],
+  squeeze: ["Bollinger squeeze", "Bollinger Bands at their tightest in 6 months: volatility is coiled and a big move often follows (either way).", r => r.t.bb_squeeze],
+  nearsup: ["Near support", "Within 3% above a support level that price has bounced from before.", r => r.t.to_support_pct != null && r.t.to_support_pct >= -3],
+  nearres: ["Near resistance", "Within 3% below a resistance level where price has turned down before.", r => r.t.to_resistance_pct != null && r.t.to_resistance_pct <= 3],
 };
+// which back-tested signal matches each scan (for the track-record line)
+const PRESET_SIG = { golden: "golden", death: "death", oversold: "rsios", overbought: "rsiob", pullback: "pullback", below200: "below200", brkvol: "brk20v", volup: "volup", voldn: "voldn", macdup: "macdup", macddn: "macddn", squeeze: "bbsq", breakout: "high52", nearlow: "low52" };
 function screener() {
   const rows0 = D.stocks.filter(s => s.tech).map(s => ({ s, t: s.tech }));
   const [label, desc, f] = PRESETS[ui.preset], q = ui.sq.trim().toLowerCase();
-  const val = (r, k) => k === "symbol" ? r.s.symbol : k === "industry" ? r.s.industry : k === "change_pct" ? r.s.change_pct : k === "signal" ? r.s.insight.score : k === "news" ? r.s.news_ids.length : r.t[k];
-  const rows = rows0.filter(r => f(r) && (!q || r.s.symbol.toLowerCase().includes(q) || (r.s.name || "").toLowerCase().includes(q) || (r.s.industry || "").toLowerCase().includes(q)))
+  const val = (r, k) => k === "symbol" ? r.s.symbol : k === "industry" ? r.s.industry : k === "change_pct" ? r.s.change_pct : k === "signal" ? r.s.insight.score : k === "news" ? r.s.news_ids.length : k === "macd" ? r.t.macd_hist : r.t[k];
+  const rows = rows0.filter(r => { try { return f(r); } catch { return false; } }).filter(r => (!q || r.s.symbol.toLowerCase().includes(q) || (r.s.name || "").toLowerCase().includes(q) || (r.s.industry || "").toLowerCase().includes(q)))
     .sort((a, b) => { const x = val(a, ui.sort.k), y = val(b, ui.sort.k); return (typeof x === "string" ? String(x).localeCompare(y || "") : ((x ?? -1e9) - (y ?? -1e9))) * ui.sort.d; });
   const th = (k, l, left) => `<th class="${left ? "l" : ""}"><button data-sort="${k}">${l}${ui.sort.k === k ? (ui.sort.d > 0 ? " ▲" : " ▼") : ""}</button></th>`;
-  return `<div class="fade"><h1 class="page">Screener</h1><p class="sub">Scan ${rows0.length} stocks by trend, momentum and volume. Tap any row for its news, chart and insight.</p>
-  <div class="presets">${Object.entries(PRESETS).map(([k, p]) => `<button class="chip${k === ui.preset ? " on" : ""}" data-preset="${k}">${p[0]}<span class="n">${rows0.filter(p[2]).length}</span></button>`).join("")}</div>
-  <div class="explain"><b>${esc(label)}.</b> ${esc(desc)}</div>
+  return `<div class="fade"><h1 class="page">Screener</h1><p class="sub">Scan ${rows0.length} stocks by trend, momentum, volume, breakouts, MACD, Bollinger Bands, support/resistance and relative strength. Tap any row for its news, chart and insight.</p>
+  <div class="presets">${Object.entries(PRESETS).map(([k, p]) => `<button class="chip${k === ui.preset ? " on" : ""}" data-preset="${k}">${p[0]}<span class="n">${rows0.filter(r => { try { return p[2](r); } catch { return false; } }).length}</span></button>`).join("")}</div>
+  <div class="explain"><b>${esc(label)}.</b> ${esc(desc)}${PRESET_SIG[ui.preset] && btSig(PRESET_SIG[ui.preset]) ? `<div style="margin-top:6px">Track record: ${trackLine(PRESET_SIG[ui.preset])}</div>` : ""}</div>
   <div class="card"><div class="hd"><input class="field" id="sq" placeholder="Filter by name or industry" value="${esc(ui.sq)}" style="flex:1;min-width:180px" aria-label="Filter screener"><span class="muted num">${rows.length} stocks</span></div>
-  <div class="tblwrap"><table class="tbl"><thead><tr>${th("symbol", "Stock", 1)}${th("industry", "Industry", 1)}${th("price", "Price")}${th("change_pct", "Day")}${th("signal", "Signal", 1)}${th("rsi14", "RSI")}${th("from_high_pct", "From 52W high")}${th("vol_ratio", "Volume")}${th("ret_1m", "1M")}${th("ret_1y", "1Y")}${th("news", "News")}</tr></thead><tbody>
+  <div class="tblwrap"><table class="tbl"><thead><tr>${th("symbol", "Stock", 1)}${th("industry", "Industry", 1)}${th("price", "Price")}${th("change_pct", "Day")}${th("signal", "Signal", 1)}${th("rsi14", "RSI")}${th("from_high_pct", "From 52W high")}${th("vol_ratio", "Volume")}${th("ret_1m", "1M")}${th("ret_1y", "1Y")}${th("rs_rating", "RS")}${th("rel_3m", "vs Nifty 3M")}${th("macd", "MACD")}${th("to_support_pct", "To support")}${th("news", "News")}</tr></thead><tbody>
   ${rows.map(({ s, t }) => `<tr data-go="${esc(s.symbol)}"><td class="l"><span class="sym">${esc(s.symbol)}</span> ${s.nifty50 ? '<span class="badge n50">N50</span>' : ""}</td><td class="l muted">${esc((s.industry || "").slice(0, 26))}</td>
     <td class="num">${px(s.price)}</td><td class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</td><td class="l"><span class="badge ${s.insight.signal}">${esc(s.insight.label)}</span></td>
     <td class="num ${t.rsi14 < 30 ? "down" : t.rsi14 > 70 ? "up" : ""}">${fmt(t.rsi14, 0)}</td><td class="num">${pct(t.from_high_pct)}</td><td class="num ${t.vol_ratio >= 2 ? "up" : ""}">${t.vol_ratio == null ? "–" : fmt(t.vol_ratio, 1) + "×"}</td>
-    <td class="num ${cls(t.ret_1m)}">${pct(t.ret_1m)}</td><td class="num ${cls(t.ret_1y)}">${pct(t.ret_1y)}</td><td class="num">${s.news_ids.length || ""}</td></tr>`).join("") || `<tr><td colspan="11"><div class="empty">No stocks match this scan right now.</div></td></tr>`}
+    <td class="num ${cls(t.ret_1m)}">${pct(t.ret_1m)}</td><td class="num ${cls(t.ret_1y)}">${pct(t.ret_1y)}</td>
+    <td class="num ${t.rs_rating >= 70 ? "up" : t.rs_rating <= 30 ? "down" : ""}">${t.rs_rating ?? "–"}</td><td class="num ${cls(t.rel_3m)}">${pct(t.rel_3m)}</td>
+    <td class="num ${t.macd_state === "bull" ? "up" : t.macd_state === "bear" ? "down" : ""}">${t.macd_state ? (t.macd_state === "bull" ? "▲" : "▼") + (t.macd_cross ? " new" : "") : "–"}</td>
+    <td class="num">${t.to_support_pct == null ? "–" : pct(t.to_support_pct)}</td><td class="num">${s.news_ids.length || ""}</td></tr>`).join("") || `<tr><td colspan="15"><div class="empty">No stocks match this scan right now.</div></td></tr>`}
   </tbody></table></div></div></div>`;
+}
+
+// ---------- SIGNALS (track record) ----------
+function hitBar(v, base) {
+  if (v == null) return "–";
+  return `<div class="hb"><div class="bar"><i style="width:0;background:${v >= base + 3 ? "var(--up)" : v <= base - 3 ? "var(--down)" : "var(--accent)"}" data-w="${v}%"></i><em style="left:${base}%" title="An average day: ${base}%"></em></div><span class="num">${v}%</span></div>`;
+}
+function signals() {
+  const B = D.backtest;
+  if (!B) return `<div class="fade"><h1 class="page">Signal track record</h1><div class="card"><div class="empty"><b>Not ready yet</b>The track record is built with the next data update (every 15 minutes during market hours).</div></div></div>`;
+  const h = ui.bh, base = B.baseline[h];
+  const list = B.signals.filter(g => ui.bdir === "all" || g.dir === ui.bdir);
+  const order = { "Worked well": 0, "Slight edge": 1, "No real edge": 2, "Worked the opposite way": 3, "Too few cases": 4 };
+  list.sort((a, b) => order[a.verdict] - order[b.verdict] || (b.edge20 ?? -99) - (a.edge20 ?? -99));
+  const total = B.signals.reduce((a, g) => a + (g.results[h]?.n || 0), 0);
+  const best = [...B.signals].filter(g => g.results[20]?.n >= 30).sort((a, b) => (b.edge20 ?? -99) - (a.edge20 ?? -99))[0];
+  const LR = D.live_record;
+  const yr = d => new Date(d + "T00:00").toLocaleDateString("en-IN", { month: "short", year: "numeric" });
+  let html = `<div class="fade"><h1 class="page">Signal track record</h1>
+  <p class="sub">Every signal this site shows, replayed on ${yr(B.from)}–${yr(B.to)} daily prices for ${B.stocks} stocks. Did it work, and what happened next?</p>
+  <div class="kpis">
+    <div class="card kpi"><div class="l">Signal cases scored</div><div class="v">${fmt(total, 0)}</div><div class="muted" style="font-size:12px">over ${h} trading days</div></div>
+    <div class="card kpi"><div class="l">An average day (baseline)</div><div class="v ${cls(base.avg)}">${pct(base.avg)}</div><div class="muted" style="font-size:12px">stocks rose ${base.up}% of the time after ${h} days</div></div>
+    <div class="card kpi"><div class="l">Best signal (20 days)</div><div class="v" style="font-size:17px;font-family:var(--display)">${best ? esc(best.name) : "–"}</div><div class="muted" style="font-size:12px">${best ? `${pct(best.edge20)} better than an average day` : ""}</div></div>
+    <div class="card kpi"><div class="l">Signals firing now</div><div class="v">${B.recent.filter(e => e.ago < 5).length}</div><div class="muted" style="font-size:12px">in the last 5 sessions</div></div>
+  </div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;align-items:center">
+    <div class="seg">${B.horizons.map(x => `<button data-bh="${x}" class="${h === x ? "on" : ""}">After ${x} days</button>`).join("")}</div>
+    <div class="seg"><button data-bdir="all" class="${ui.bdir === "all" ? "on" : ""}">All signals</button><button data-bdir="up" class="${ui.bdir === "up" ? "on" : ""}">▲ Bullish</button><button data-bdir="down" class="${ui.bdir === "down" ? "on" : ""}">▼ Bearish</button></div>
+  </div>
+  <div class="card"><div class="tblwrap" style="max-height:none"><table class="tbl sigt"><thead><tr><th class="l">Signal</th><th>Cases</th><th class="l">Went the expected way</th><th>Avg return</th><th>Median</th><th>vs Nifty</th><th class="l">Verdict (20 days)</th></tr></thead><tbody>
+  ${list.map(g => { const r = g.results[h] || {}; const b = g.dir === "down" ? 100 - base.up : base.up;
+    return `<tr style="cursor:default"><td class="l"><div class="sn"><span class="${g.dir === "up" ? "up" : "down"}">${g.dir === "up" ? "▲" : "▼"}</span> <b>${esc(g.name)}</b></div><div class="muted sd">${esc(g.desc)}</div></td>
+      <td class="num">${r.n ? fmt(r.n, 0) : "–"}</td><td class="l">${r.n ? hitBar(r.hit, b) : "–"}</td>
+      <td class="num ${cls(r.avg)}">${r.n ? pct(r.avg) : "–"}</td><td class="num ${cls(r.med)}">${r.n ? pct(r.med) : "–"}</td><td class="num ${cls(r.vs_nifty)}">${r.n ? pct(r.vs_nifty) : "–"}</td>
+      <td class="l">${verdictBadge(g.verdict)}</td></tr>`; }).join("")}
+  </tbody></table></div>
+  <div class="bd muted" style="font-size:12.5px;border-top:1px solid var(--line)">"Went the expected way" means the price rose after a ▲ signal or fell after a ▼ signal. The small mark on each bar is an average day, so a bar well past the mark means the signal added something. A verdict needs 30+ cases and compares the 20-day average return with an average day.</div></div>
+  <div class="grid g2" style="margin-top:16px">
+    <div class="card"><div class="hd"><h2>Fired in the last 10 sessions</h2><span class="muted" style="font-size:12.5px">${B.recent.length} signals</span></div><div class="bd" style="padding-top:4px;max-height:520px;overflow:auto">
+      ${B.recent.map(e => { const g = btSig(e.s); if (!g) return ""; const r = g.results[20];
+        return `<button class="mv" data-go="${esc(e.symbol)}"><span><b>${esc(e.symbol)}</b> <span class="${g.dir === "up" ? "up" : "down"}">${g.dir === "up" ? "▲" : "▼"}</span> ${esc(g.name)}</span><span class="num muted" style="font-size:12px">${e.ago === 0 ? "today" : e.ago === 1 ? "1 day ago" : e.ago + " days ago"}${r?.n ? ` · ${r.hit}% hit` : ""}</span></button>`; }).join("") || '<div class="muted" style="padding-top:12px">No signals in the last 10 sessions.</div>'}
+    </div></div>
+    <div class="card"><div class="hd"><h2>Live record of this site's calls</h2><span class="muted" style="font-size:12.5px">news + chart labels${LR?.started ? `, since ${new Date(LR.started + "T00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}` : ""}</span></div><div class="bd">
+      <p style="margin:0 0 10px;font-size:13.5px;color:var(--ink2)">Old headlines can't be replayed, so the full labels (news tone plus chart) are recorded every trading day from now on and scored as the days pass.</p>
+      ${LR && LR.labels.length ? `<div class="tblwrap" style="max-height:none"><table class="tbl"><thead><tr><th class="l">Label</th><th>Days</th><th>5d avg</th><th>Rose</th><th>20d avg</th><th>vs Nifty</th></tr></thead><tbody>
+        ${LR.labels.map(l => `<tr style="cursor:default"><td class="l"><span class="badge ${l.signal}">${esc(l.label)}</span></td><td class="num">${fmt(l.n5 || 0, 0)}</td><td class="num ${cls(l.avg5)}">${l.n5 ? pct(l.avg5) : '<span class="muted">collecting</span>'}</td><td class="num">${l.n5 ? l.up5 + "%" : "–"}</td><td class="num ${cls(l.avg20)}">${l.n20 ? pct(l.avg20) : '<span class="muted">collecting</span>'}</td><td class="num ${cls(l.vs20)}">${l.n20 ? pct(l.vs20) : "–"}</td></tr>`).join("")}
+        </tbody></table></div>
+        <div class="muted" style="font-size:12.5px;margin-top:8px">${LR.logged_days} trading day${LR.logged_days === 1 ? "" : "s"} logged. The first 5-day results appear after 5 trading days and the 20-day results after about a month.</div>`
+      : '<div class="muted">Recording starts on the next trading day.</div>'}
+    </div></div>
+  </div>
+  <div class="card" style="margin-top:16px"><div class="bd" style="font-size:13.5px;color:var(--ink2)"><b>How this is tested.</b> For every stock and every day, each rule is checked using only the prices known that day, with no peeking ahead. The return is then measured 5, 20 and 60 trading days later and compared with the Nifty 50 over the same days. Repeats of the same signal on the same stock within 10 sessions count once.
+    <br><br><b>Keep in mind:</b> the test uses today's Nifty 200 members, so stocks that dropped out of the index are missing, which flatters results a little. Costs and taxes aren't included. A signal that worked in the past can stop working. Use this to judge how much weight a signal deserves, not as a promise.</div></div></div>`;
+  return html;
 }
 
 // ---------- 52W ----------
@@ -439,6 +639,13 @@ document.addEventListener("click", async e => {
   const w = t.closest("[data-w52]"); if (w) { ui.w52 = w.dataset.w52; render(); return; }
   const ws = t.closest("[data-w52s]"); if (ws) { ui.w52s = ws.dataset.w52s; render(); return; }
   const c = t.closest("[data-cal]"); if (c) { ui.cal = c.dataset.cal; render(); return; }
+  const ov = t.closest("[data-ov]"); if (ov) { ui.ov[ov.dataset.ov] = !ui.ov[ov.dataset.ov]; ov.classList.toggle("on", ui.ov[ov.dataset.ov]); ov.setAttribute("aria-pressed", ui.ov[ov.dataset.ov]); drawChart(sel); return; }
+  const sb = t.closest("[data-sub]"); if (sb) { ui.sub = sb.dataset.sub; document.querySelectorAll("[data-sub]").forEach(b => b.classList.toggle("on", b === sb)); drawChart(sel); return; }
+  const hp = t.closest("[data-hp]"); if (hp) { ui.hp = hp.dataset.hp; render(); return; }
+  const hm = t.closest("[data-hm]"); if (hm) { ui.hm = hm.dataset.hm; render(); return; }
+  const bh = t.closest("[data-bh]"); if (bh) { ui.bh = +bh.dataset.bh; render(); return; }
+  const bd = t.closest("[data-bdir]"); if (bd) { ui.bdir = bd.dataset.bdir; render(); return; }
+  if (t.closest("[data-rs]")) { ui.preset = "rslead"; ui.sort = { k: "rs_rating", d: -1 }; nav("screener"); return; }
   const rg = t.closest("[data-range]"); if (rg) { ui.range = +rg.dataset.range; document.querySelectorAll("[data-range]").forEach(b => b.classList.toggle("on", b === rg)); drawChart(sel); return; }
   const st = t.closest("[data-star]"); if (st) { const sy = st.dataset.star; my.watch = my.watch.includes(sy) ? my.watch.filter(x => x !== sy) : [...my.watch, sy]; saveMy(); render(); toast(my.watch.includes(sy) ? `${sy} is on your watchlist` : `${sy} removed from your watchlist`); return; }
   const hs = t.closest("[data-hsave]"); if (hs) { const sy = hs.dataset.hsave, q = +$("#hq").value, a = +$("#ha").value; if (!(q > 0 && a > 0)) { toast("Enter the quantity and your average buy price"); return; }
@@ -476,7 +683,7 @@ $("#theme").addEventListener("click", () => {
 });
 if (!SNAPSHOT) window.addEventListener("hashchange", () => { readHash(); render(); });
 
-if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "screener", "w52", "portfolio", "calendar"].includes(h)) view = h; }
+if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "screener", "signals", "w52", "portfolio", "calendar"].includes(h)) view = h; }
 tickClock(); setInterval(tickClock, 1000);
 load(true);
 if (!SNAPSHOT) { setInterval(() => load(false), 60000); document.addEventListener("visibilitychange", () => { if (!document.hidden) load(false); }); }
