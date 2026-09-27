@@ -22,7 +22,7 @@ let my = store.get("dp-my", { holdings: [], watch: [], alerts: [] });
 const saveMy = () => store.set("dp-my", my);
 const isMine = s => my.watch.includes(s) || my.holdings.some(h => h.symbol === s);
 const ui = { nf: "withnews", q: "", preset: "all", sort: { k: "change_pct", d: -1 }, w52: "highs", w52s: "all", cal: "tracked", range: 252, sq: "",
-  ov: { ma: true, bb: false, sr: true, sig: true }, sub: "vol", hp: "change_pct", hm: "ind", bh: 20, bdir: "all" };
+  ov: { ma: true, bb: false, sr: true, sig: true }, sub: "vol", hp: "change_pct", hm: "ind", bh: 20, bdir: "all", irange: "1d", crange: "252", icmp: [] };
 const charts = window.__DP_CHARTS__ || {};
 
 // ---------- data ----------
@@ -39,7 +39,7 @@ async function load(first) {
   if (D) prevPrice = Object.fromEntries(D.stocks.map(s => [s.symbol, s.price]));
   D = d; S = Object.fromEntries(D.stocks.map(s => [s.symbol, s])); NEWS = Object.fromEntries(D.news.map(n => [n.id, n]));
   if (!changed) { footer(); return; }
-  renderTape(); renderBand(); render(); footer(); checkAlerts(first);
+  renderTape(); renderBand(); render(); footer(); checkAlerts(first); newsFlash(first);
   if (!first) { flashChanges(); toast("New prices and headlines just arrived"); }
 }
 function footer() {
@@ -88,7 +88,8 @@ function renderBand() {
     <div><div class="l">Market mood</div><div class="v"><span data-count="${m.score}">${m.score}</span> · ${esc(m.label)}</div></div></div>`;
   for (const p of D.pulse) {
     const c = p.key === "INDIA VIX" ? -p.change_pct : p.change_pct;
-    h += `<div class="tk"><div class="l">${esc(p.label)}</div><div class="v">${fmt(p.last, p.last > 1000 ? 0 : 2)}</div><div class="c ${cls(c)}">${pct(p.change_pct)}</div></div>`;
+    const iid = PULSE_IDX[p.key] && (D.indices || []).some(x => x.id === PULSE_IDX[p.key]) ? PULSE_IDX[p.key] : "";
+    h += `<div class="tk${iid ? " link" : ""}"${iid ? ` data-idx="${iid}" role="button" tabindex="0" title="Open the ${esc(p.label)} chart"` : ""}><div class="l">${esc(p.label)}</div><div class="v">${fmt(p.last, p.last > 1000 ? 0 : 2)}</div><div class="c ${cls(c)}">${pct(p.change_pct)}</div></div>`;
   }
   for (const f of D.fii_dii || []) h += `<div class="tk" title="Net buying in the cash market, ₹ crore, ${esc(f.date)}"><div class="l">${esc(f.category.replace("/FPI", ""))} net · ₹ cr</div><div class="v ${cls(f.net)}">${f.net >= 0 ? "+" : "−"}${fmt(Math.abs(f.net), 0)}</div><div class="c muted">${esc(f.date)}</div></div>`;
   $("#band").innerHTML = h;
@@ -111,7 +112,7 @@ function nav(v, s) {
 }
 function readHash() {
   const [v, s] = location.hash.replace(/^#\/?/, "").split("/");
-  if (["news", "markets", "screener", "signals", "w52", "portfolio", "calendar"].includes(v)) { view = v; sel = s ? decodeURIComponent(s).toUpperCase() : null; }
+  if (["news", "markets", "indices", "screener", "signals", "w52", "portfolio", "calendar"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
 }
 const go = sym => nav("news", sym);
 
@@ -119,9 +120,10 @@ function render() {
   if (!D) return;
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.nav === view));
   const keep = document.querySelector(".list")?.scrollTop;
-  $("#view").innerHTML = view === "markets" ? markets() : view === "screener" ? screener() : view === "signals" ? signals() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : newsView();
+  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "screener" ? screener() : view === "signals" ? signals() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : newsView();
   if (keep && document.querySelector(".list")) document.querySelector(".list").scrollTop = keep;
   if (view === "news") { if (sel && S[sel]) drawChart(sel); document.querySelector(".row.on")?.scrollIntoView({ block: "nearest" }); }
+  if (view === "indices") { if (sel && sel !== "compare") drawIndexChart(sel); else drawCompare(); document.querySelector(".row.on")?.scrollIntoView({ block: "nearest" }); }
   animateBars(); countUp($("#view"));
 }
 function animateBars() {
@@ -160,7 +162,7 @@ function newsView() {
       <div><div class="s">${esc(s.symbol)}${s.nifty50 ? '<span class="badge n50">N50</span>' : ""}${isMine(s.symbol) ? '<span class="badge mine">★</span>' : ""}</div><div class="n2">${esc(s.name)}</div></div>
       ${sparkSvg(s.spark, (s.spark?.[s.spark.length - 1] ?? 0) >= (s.spark?.[0] ?? 0))}
       <div class="p">${px(s.price)}<small class="${cls(s.change_pct)}">${pct(s.change_pct)}</small></div>
-      <div class="m"><span class="badge ${ins.signal}">${esc(ins.label)}</span>${news.length ? `<span>${news.length} ${news.length === 1 ? "story" : "stories"}</span><span class="tdots" title="Tone of recent headlines">${news.slice(0, 6).map(n => `<i class="${n.tone}"></i>`).join("")}</span><span>${ago(latest.published)}</span>` : "<span>No recent news</span>"}</div>
+      <div class="m"><span class="badge ${ins.signal}">${esc(ins.label)}</span>${news.length ? `<span>${news.length} ${news.length === 1 ? "story" : "stories"}</span><span class="tdots" title="Tone of recent headlines">${news.slice(0, 6).map(n => `<i class="${n.tone}"></i>`).join("")}</span><span>${ago(latest.published)}</span>${Date.now() - Date.parse(latest.published) < 3600e3 ? '<span class="badge new">NEW</span>' : ""}` : "<span>No recent news</span>"}</div>
       ${latest ? `<div class="hl">${esc(latest.title)}</div>` : ""}</button>`;
   }).join("") || `<div class="empty"><b>No stocks here yet</b>${ui.nf === "mine" ? "Use ☆ Watch or Add to portfolio on any stock." : "Try another filter."}</div>`;
   const detail = sel ? (sel === "__MARKET" ? marketNewsDetail(general) : stockDetail(sel)) : glance();
@@ -498,6 +500,223 @@ function screener() {
   </tbody></table></div></div></div>`;
 }
 
+// ---------- INDICES ----------
+const IDX_KW = {
+  nifty50: /\bNifty ?50\b|\bNifty\b(?! ?(Bank|IT|Auto|Pharma|FMCG|Metal|Realty|Energy|Media|PSU|Midcap|Smallcap|Next|Financial|Infra))/i, sensex: /\bSensex\b/i,
+  next50: /Nifty Next 50/i, midcap: /mid-?caps?\b/i, smallcap: /small-?caps?\b/i, bank: /Bank Nifty|Nifty Bank|bank(ing)? (stocks|shares|index)|lenders?\b/i,
+  fin: /Nifty Financial|NBFCs?\b|financial (stocks|services)|insurers?\b/i, psubank: /PSU banks?|public sector banks?|\bPSBs?\b/i,
+  it: /Nifty IT|\bIT (stocks|shares|sector|index|majors|services)|tech stocks|software exporters/i, auto: /Nifty Auto|auto (stocks|shares|sales|sector)|automakers?|carmakers?|two-wheelers?/i,
+  pharma: /Nifty Pharma|pharma|drugmakers?|USFDA|healthcare stocks/i, fmcg: /\bFMCG\b|consumer staples/i, metal: /Nifty Metal|metal (stocks|shares|prices)|\bsteel\b|aluminium|copper/i,
+  energy: /Nifty Energy|crude|oil prices|\bOMCs?\b|power (stocks|demand)|energy stocks/i, realty: /\brealty\b|real estate|housing sales/i,
+  infra: /infrastructure|\binfra\b|capex/i, media: /Nifty Media|media stocks|\bOTT\b|broadcasters?/i, vix: /India VIX|\bVIX\b|volatility index/i,
+};
+const IDX = () => D.indices || [];
+const idxById = id => IDX().find(x => x.id === id);
+const idxData = {};
+async function loadIdx(id) {
+  if (idxData[id]) return idxData[id];
+  if (window.__DP_INDICES__?.[id]) return (idxData[id] = window.__DP_INDICES__[id]);
+  const r = await fetch(`data/indices/${id}.json?t=${D.generated_at}`); if (!r.ok) throw new Error(r.status);
+  return (idxData[id] = await r.json());
+}
+function idxNews(x) {
+  const kw = IDX_KW[x.id], mem = new Set(x.members || []), seen = new Set(), out = [];
+  for (const n of D.news) { if ((kw && kw.test(n.title)) || n.symbols.some(s => mem.has(s))) { if (!seen.has(n.id)) { seen.add(n.id); out.push(n); } } }
+  return out;
+}
+const PULSE_IDX = { "NIFTY 50": "nifty50", "NIFTY BANK": "bank", "SENSEX": "sensex", "INDIA VIX": "vix" };
+function indicesView() {
+  const list = IDX();
+  if (!list.length) return `<div class="fade"><h1 class="page">Indices</h1><div class="card"><div class="empty"><b>Index charts arrive with the next update</b>The data refreshes every 15 minutes during market hours.</div></div></div>`;
+  const groups = [...new Set(list.map(x => x.group))];
+  const row = x => { const vix = x.id === "vix", c = vix ? -x.change_pct : x.change_pct;
+    return `<button class="row irow${sel === x.id ? " on" : ""}" data-isel="${x.id}"><div><div class="s">${esc(x.name)}</div><div class="n2">${x.members?.length ? `${x.members.length} tracked stocks` : vix ? "expected volatility" : "&nbsp;"}</div></div>
+      ${sparkSvg(x.spark, vix ? (x.change_pct ?? 0) <= 0 : (x.change_pct ?? 0) >= 0)}<div class="p">${fmt(x.last, x.last >= 1000 ? 0 : 2)}<small class="${cls(c)}">${pct(x.change_pct)}</small></div></button>`; };
+  let master = `<button class="row irow cmp${sel === "compare" || !sel ? " on" : ""}" data-isel="compare"><div><div class="s">Compare indices</div><div class="n2">Which index is leading? All on one chart</div></div><span></span><div class="p" style="font-size:18px">⇄</div></button>`;
+  for (const g of groups) master += `<div class="grp">${esc(g)}</div>` + list.filter(x => x.group === g).map(row).join("");
+  const detail = !sel || sel === "compare" ? compareDetail() : indexDetail(sel);
+  return `<div class="md${sel ? " detail-open" : ""}">
+    <section class="card master" aria-label="Indices"><div class="tools"><b style="font-family:var(--display);font-size:17px">Indices</b><span class="muted" style="font-size:12.5px">Live-ish: refreshed every 15 min in market hours</span></div><div class="list">${master}</div></section>
+    <section class="card detail fade" id="detail">${detail}</section></div>`;
+}
+function indexDetail(id) {
+  const x = idxById(id); if (!x) return `<div class="empty"><b>Index not found</b></div>`;
+  const t = x.tech || {}, vix = id === "vix", mem = (x.members || []).map(s => S[s]).filter(Boolean);
+  const up = mem.filter(s => s.change_pct > 0).length, dn = mem.filter(s => s.change_pct < 0).length;
+  const news = idxNews(x).slice(0, 30);
+  const sorted = [...mem].sort((a, b) => (b.change_pct ?? -99) - (a.change_pct ?? -99));
+  const range = ui.irange;
+  const stat = (l, v) => `<div class="stat"><div class="l">${l}</div><div class="v">${v}</div></div>`;
+  const vsMa = ma => ma == null ? "–" : `${fmt(ma, 0)} <span class="${t.price > ma || x.last > ma ? "up" : "down"}" style="font-size:11px">${x.last > ma ? "above" : "below"}</span>`;
+  return `<div class="head"><button class="btn sm back" data-back-idx>← All indices</button>
+      <div><h2>${esc(x.name)} <span class="badge ${t.trend?.includes("up") ? "bullish" : t.trend === "Downtrend" || t.trend === "Weak" ? "bearish" : "neutral"}">${esc(t.trend || "–")}</span></h2><div class="co">${esc(x.group)}${x.pe ? ` · P/E ${fmt(x.pe, 1)}` : ""}${x.members_source ? ` · members: ${esc(x.members_source)}` : ""}</div></div>
+      <div class="px"><div class="v">${fmt(x.last, 2)}</div><div class="num ${cls(vix ? -x.change_pct : x.change_pct)}" style="font-weight:700">${x.change != null ? (x.change >= 0 ? "+" : "−") + fmt(Math.abs(x.change), 2) + " " : ""}(${pct(x.change_pct)})</div></div>
+    </div>
+    <div class="sect"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px"><h3 style="margin:0">Chart</h3>
+      <div class="seg">${[["1d", "1D"], ["21", "1M"], ["63", "3M"], ["126", "6M"], ["252", "1Y"], ["5y", "5Y"]].map(([k, l]) => `<button data-irange="${k}" class="${range === k ? "on" : ""}">${l}</button>`).join("")}</div></div>
+      <div class="legend" id="ilegend"></div><div class="chart" id="ichart"><div class="skeleton" style="height:260px"></div></div></div>
+    <div class="sect"><h3>Key numbers</h3><div class="stats">
+      ${stat("1 week", `<span class="${cls(t.ret_1w)}">${pct(t.ret_1w)}</span>`)}${stat("1 month", `<span class="${cls(t.ret_1m)}">${pct(t.ret_1m)}</span>`)}${stat("3 months", `<span class="${cls(t.ret_3m)}">${pct(t.ret_3m)}</span>`)}${stat("1 year", `<span class="${cls(t.ret_1y)}">${pct(t.ret_1y)}</span>`)}
+      ${stat("3 years", `<span class="${cls(t.ret_3y)}">${pct(t.ret_3y)}</span>`)}${stat("5 years", `<span class="${cls(t.ret_5y)}">${pct(t.ret_5y)}</span>`)}${stat("RSI (14)", fmt(t.rsi14, 0) + (t.rsi14 > 70 ? " · overbought" : t.rsi14 < 30 ? " · oversold" : ""))}${stat("MACD", t.macd_state ? `<span class="${t.macd_state === "bull" ? "up" : "down"}">${t.macd_state === "bull" ? "▲ bullish" : "▼ bearish"}</span>${t.macd_cross ? " · new" : ""}` : "–")}
+      ${stat("50-day avg", vsMa(t.sma50))}${stat("200-day avg", vsMa(t.sma200))}${stat("52W high", fmt(t.high52, 0) + ` <span class="muted" style="font-size:11px">${pct(t.from_high_pct)}</span>`)}${stat("52W low", fmt(t.low52, 0))}
+      ${stat("Support", t.support ? fmt(t.support, 0) : "–")}${stat("Resistance", t.resistance ? fmt(t.resistance, 0) : "none nearby")}${stat("Advances / declines", x.nse_adv != null ? `<span class="up">${x.nse_adv}</span> / <span class="down">${x.nse_dec}</span>` : mem.length ? `<span class="up">${up}</span> / <span class="down">${dn}</span>` : "–")}${stat("Golden / death cross", t.golden_cross ? '<span class="up">golden cross</span>' : t.death_cross ? '<span class="down">death cross</span>' : "none recently")}
+    </div></div>
+    ${mem.length ? `<div class="sect"><h3>Stocks in ${esc(x.name)} · ${mem.length}${x.members_total ? ` of ${x.members_total} tracked` : ""}</h3>
+      <div class="breadth"><i class="u" style="width:0" data-w="${mem.length ? up / mem.length * 100 : 0}%"></i><i class="d" style="width:0" data-w="${mem.length ? dn / mem.length * 100 : 0}%"></i></div>
+      <div class="muted" style="font-size:12.5px;margin:4px 0 10px">${up} up · ${dn} down today${mem.length - up - dn ? ` · ${mem.length - up - dn} flat` : ""}</div>
+      <div class="smap">${sorted.map(s => `<button class="st" data-go="${esc(s.symbol)}" style="${heat(s.change_pct)}" title="${esc(s.name)}"><b>${esc(s.symbol)}</b><span>${pct(s.change_pct)}</span>${s.news_ids.length ? `<em class="nb" title="${s.news_ids.length} news">${s.news_ids.length}</em>` : ""}</button>`).join("")}</div>
+      <div class="tblwrap" style="max-height:420px;margin-top:12px"><table class="tbl"><thead><tr><th class="l">Stock</th><th>Price</th><th>Day</th><th>1M</th><th class="l">Signal</th><th class="l">Latest news</th></tr></thead><tbody>
+      ${sorted.map(s => { const n = NEWS[s.news_ids[0]]; return `<tr data-go="${esc(s.symbol)}"><td class="l"><span class="sym">${esc(s.symbol)}</span></td><td class="num">${px(s.price)}</td><td class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</td><td class="num ${cls(s.tech?.ret_1m)}">${pct(s.tech?.ret_1m)}</td><td class="l"><span class="badge ${s.insight.signal}">${esc(s.insight.label)}</span></td><td class="l hlc">${n ? `<span class="tdot ${n.tone}"></span>${esc(n.title.slice(0, 80))}${n.title.length > 80 ? "…" : ""} <span class="muted">${ago(n.published)}</span>` : '<span class="muted">–</span>'}</td></tr>`; }).join("")}
+      </tbody></table></div></div>` : ""}
+    <div class="sect" id="iothers"></div>
+    <div class="sect"><h3>News for ${esc(x.name)} · ${news.length}</h3><p class="muted" style="font-size:12.5px;margin:-4px 0 8px">Headlines about the index itself or any of its stocks.</p>${news.map(newsItem).join("") || '<div class="muted">No recent headlines.</div>'}</div>`;
+}
+function compareDetail() {
+  const pickable = IDX().filter(x => x.id !== "vix");
+  if (!ui.icmp.length) ui.icmp = ["nifty50", "bank", "it", "midcap", "smallcap"].filter(id => idxById(id));
+  const range = ui.crange;
+  const rows = pickable.map(x => ({ x, r: range === "21" ? x.tech.ret_1m : range === "63" ? x.tech.ret_3m : range === "126" ? x.tech.ret_6m : range === "252" ? x.tech.ret_1y : x.tech.ret_5y })).sort((a, b) => (b.r ?? -1e9) - (a.r ?? -1e9));
+  const mx = Math.max(1, ...rows.map(r => Math.abs(r.r || 0)));
+  return `<div class="head"><div><h2>Compare indices</h2><div class="co">Each line starts at 0% so you can see which index has done best. Pick up to 6.</div></div></div>
+    <div class="sect"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px"><div class="ctrls" style="margin:0">${pickable.map((x, i) => { const on = ui.icmp.includes(x.id), ci = ui.icmp.indexOf(x.id); return `<button class="tog${on ? " on" : ""}" data-icmp="${x.id}"${on ? ` style="border-color:${CMP_COL[ci]};color:${CMP_COL[ci]};background:transparent"` : ""}>${on ? "● " : ""}${esc(x.id === "nifty50" ? "Nifty 50" : x.name.replace(/^Nifty /, ""))}</button>`; }).join("")}</div>
+      <div class="seg">${[["21", "1M"], ["63", "3M"], ["126", "6M"], ["252", "1Y"], ["5y", "5Y"]].map(([k, l]) => `<button data-crange="${k}" class="${range === k ? "on" : ""}">${l}</button>`).join("")}</div></div>
+      <div class="chart" id="cchart"><div class="skeleton" style="height:300px"></div></div></div>
+    <div class="sect"><h3>Performance ranking · ${{ 21: "1 month", 63: "3 months", 126: "6 months", 252: "1 year", "5y": "5 years" }[range]}</h3>
+      ${rows.map(({ x, r }) => `<button class="mv" data-isel="${x.id}"><span><b>${esc(x.name)}</b></span><span class="rk"><span class="rkbar"><i style="width:0;${r >= 0 ? "left:50%" : ""};background:${r >= 0 ? "var(--up)" : "var(--down)"}" data-w="${Math.abs(r || 0) / mx * 50}%" ${r < 0 ? `data-l="${50 - Math.abs(r) / mx * 50}%"` : ""}></i></span><b class="num ${cls(r)}">${pct(r)}</b></span></button>`).join("")}
+    </div>
+    <div class="sect"><h3>Today</h3><div class="heat">${IDX().map(x => `<button class="tile" data-isel="${x.id}" style="${heat(x.id === "vix" ? -x.change_pct : x.change_pct)}"><b>${esc(x.name)}</b><div class="v">${pct(x.change_pct)}</div><div class="m">${fmt(x.last, x.last >= 1000 ? 0 : 2)}</div></button>`).join("")}</div></div>`;
+}
+const CMP_COL = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s4)", "var(--s5)", "var(--peacock)"];
+function svgHover(svg, W, L, R, n, x, tipHtml) {
+  const tip = svg.parentElement.querySelector(".tip"), xh = svg.querySelector(".xh");
+  const move = cx => { const b = svg.getBoundingClientRect(), sx = (cx - b.left) / b.width * W, i = Math.max(0, Math.min(n - 1, Math.round((sx - L) / (W - L - R) * (n - 1))));
+    xh.setAttribute("x1", x(i)); xh.setAttribute("x2", x(i)); xh.setAttribute("visibility", "visible"); tip.hidden = false; tip.innerHTML = tipHtml(i);
+    const lx = x(i) / W * b.width; tip.style.left = (lx > b.width - 190 ? lx - 180 : lx + 12) + "px"; tip.style.top = "6px"; };
+  svg.onmousemove = e => move(e.clientX); svg.ontouchmove = e => move(e.touches[0].clientX);
+  svg.onmouseleave = () => { tip.hidden = true; xh.setAttribute("visibility", "hidden"); };
+}
+async function drawIndexChart(id) {
+  const box = $("#ichart"); if (!box) return;
+  let d; try { d = await loadIdx(id); } catch { box.innerHTML = '<div class="muted">Chart unavailable.</div>'; return; }
+  if (!$("#ichart") || sel !== id) return;
+  const x0 = idxById(id), vix = id === "vix", range = ui.irange, intra = range === "1d";
+  let pts;
+  if (intra) { if (!d.intraday || d.intraday.pts.length < 2) { box.innerHTML = '<div class="empty" style="padding:30px"><b>No intraday data right now</b>Today\'s line appears once the market opens. Try 1M.</div>'; $("#ilegend").innerHTML = ""; return; } pts = d.intraday.pts.map(([t, c]) => ({ t: t * 1000, c })); }
+  else if (range === "5y") pts = d.weekly.map(([t, c]) => ({ t: t * 1000, c }));
+  else pts = d.daily.slice(-(+range)).map(([t, c, a, b]) => ({ t: t * 1000, c, s50: a, s200: b }));
+  const prev = intra ? d.intraday.prev : null, W = 720, H = 280, L = 8, R = 62, T = 12, B = 24;
+  const showMa = !intra && range !== "5y";
+  const vals = pts.flatMap(p => [p.c, showMa ? p.s50 : null, showMa ? p.s200 : null]).filter(v => v != null); if (prev) vals.push(prev);
+  let lo = Math.min(...vals), hi = Math.max(...vals); const pd = (hi - lo) * 0.08 || 1; lo -= pd; hi += pd;
+  const n = pts.length, x = i => L + i / (n - 1) * (W - L - R), y = v => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+  const line = k => { let s = "", on = false; pts.forEach((p, i) => { if (p[k] == null) { on = false; return; } s += (on ? "L" : "M") + x(i).toFixed(1) + " " + y(p[k]).toFixed(1); on = true; }); return s; };
+  const last = pts[n - 1], base = prev ?? pts[0].c, chg = (last.c / base - 1) * 100, good = vix ? chg <= 0 : chg >= 0, col = good ? "var(--up)" : "var(--down)";
+  const tf = t => intra ? new Date(t).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : new Date(t).toLocaleDateString("en-IN", { day: "numeric", month: "short", ...(range === "5y" || +range > 130 ? { year: "2-digit" } : {}) });
+  const ticks = [0, 1, 2, 3].map(i => lo + (hi - lo) * (i + 0.5) / 4);
+  $("#ilegend").innerHTML = `<span><i style="background:${col}"></i>${esc(x0.name)}</span>` + (showMa ? `<span><i style="background:var(--s2)"></i>50-day avg</span><span><i style="background:var(--s3)"></i>200-day avg</span>` : "") + (prev ? `<span><i style="background:var(--muted)"></i>Previous close ${fmt(prev, 2)}</span>` : "");
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:270px" role="img" aria-label="${esc(x0.name)} chart">
+    <defs><linearGradient id="gi" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${col}" stop-opacity=".22"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>
+    ${ticks.map(g => `<line x1="${L}" x2="${W - R}" y1="${y(g)}" y2="${y(g)}" stroke="var(--line)"/><text x="${W - R + 7}" y="${y(g) + 4}" font-size="10.5" fill="var(--muted)">${fmt(g, g > 1000 ? 0 : 1)}</text>`).join("")}
+    ${[0, Math.floor(n / 2), n - 1].map(i => `<text x="${x(i)}" y="${H - 6}" font-size="11" fill="var(--muted)" text-anchor="${i === 0 ? "start" : i === n - 1 ? "end" : "middle"}">${tf(pts[i].t)}</text>`).join("")}
+    ${prev ? `<line x1="${L}" x2="${W - R}" y1="${y(prev)}" y2="${y(prev)}" stroke="var(--muted)" stroke-dasharray="5 4" vector-effect="non-scaling-stroke"/>` : ""}
+    <path d="${line("c")}L${x(n - 1)} ${H - B}L${x(0)} ${H - B}Z" fill="url(#gi)"/>
+    ${showMa ? `<path d="${line("s200")}" fill="none" stroke="var(--s3)" stroke-width="1.8" vector-effect="non-scaling-stroke"/><path d="${line("s50")}" fill="none" stroke="var(--s2)" stroke-width="1.8" vector-effect="non-scaling-stroke"/>` : ""}
+    <path d="${line("c")}" fill="none" stroke="${col}" stroke-width="2.2" vector-effect="non-scaling-stroke"/>
+    <circle cx="${x(n - 1)}" cy="${y(last.c)}" r="4" fill="${col}" stroke="var(--card)" stroke-width="2"/>
+    <line class="xh" y1="${T}" y2="${H - B}" stroke="var(--muted)" stroke-dasharray="3 3" visibility="hidden"/><rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent"/>
+  </svg><div class="tip" hidden></div>
+  <div class="muted" style="font-size:12.5px;margin-top:6px">${intra ? "Today vs previous close" : "Over this period"}: <b class="num ${good ? "up" : "down"}">${pct(chg)}</b> · ${fmt(last.c, 2)}${intra ? ` · as of ${tf(last.t)} IST` : ""}</div>`;
+  svgHover($("#ichart svg"), W, L, R, n, x, i => { const p = pts[i]; return `<b>${intra ? tf(p.t) + " IST" : new Date(p.t).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</b><br>${fmt(p.c, 2)} <span class="${cls((p.c / base - 1) * (vix ? -1 : 1))}">${pct((p.c / base - 1) * 100)}</span>${showMa && p.s50 ? `<br><span style="color:var(--s2)">■</span> 50-day ${fmt(p.s50, 0)}` : ""}${showMa && p.s200 ? `<br><span style="color:var(--s3)">■</span> 200-day ${fmt(p.s200, 0)}` : ""}`; });
+  // members of the index we don't track
+  const oth = d.others || [], ob = $("#iothers");
+  if (ob) ob.innerHTML = oth.length ? `<h3>Also in ${esc(x0.name)} (not tracked here)</h3><div class="others">${oth.map(s => `<a href="https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(s)}" target="_blank" rel="noopener">${esc(s)} ↗</a>`).join("")}</div>` : "";
+}
+async function drawCompare() {
+  const box = $("#cchart"); if (!box) return;
+  const ids = ui.icmp.slice(0, 6), range = ui.crange;
+  let ds; try { ds = await Promise.all(ids.map(loadIdx)); } catch { box.innerHTML = '<div class="muted">Chart unavailable.</div>'; return; }
+  if (!$("#cchart")) return;
+  const series = ids.map((id, k) => { const d = ds[k]; const raw = range === "5y" ? d.weekly : d.daily.slice(-(+range)); const b = raw[0][1]; return { id, name: idxById(id).name, col: CMP_COL[k], pts: raw.map(([t, c]) => [t * 1000, (c / b - 1) * 100]) }; });
+  const ref = series.reduce((a, s) => s.pts.length > a.pts.length ? s : a, series[0]);
+  const W = 720, H = 300, L = 8, R = 62, T = 12, B = 24, n = ref.pts.length;
+  const vals = series.flatMap(s => s.pts.map(p => p[1])); let lo = Math.min(0, ...vals), hi = Math.max(0, ...vals); const pd = (hi - lo) * 0.08 || 1; lo -= pd; hi += pd;
+  const t0 = ref.pts[0][0], t1 = ref.pts[n - 1][0], xt = t => L + (t - t0) / (t1 - t0 || 1) * (W - L - R), x = i => xt(ref.pts[i][0]), y = v => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+  const ticks = [0, 1, 2, 3].map(i => lo + (hi - lo) * (i + 0.5) / 4);
+  const tf = t => new Date(t).toLocaleDateString("en-IN", { day: "numeric", month: "short", ...(range === "5y" || +range > 130 ? { year: "2-digit" } : {}) });
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:290px" role="img" aria-label="Index comparison">
+    ${ticks.map(g => `<line x1="${L}" x2="${W - R}" y1="${y(g)}" y2="${y(g)}" stroke="var(--line)"/><text x="${W - R + 7}" y="${y(g) + 4}" font-size="10.5" fill="var(--muted)">${g > 0 ? "+" : ""}${fmt(g, 0)}%</text>`).join("")}
+    <line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--line2)" stroke-width="1.5"/>
+    ${[0, Math.floor(n / 2), n - 1].map(i => `<text x="${x(i)}" y="${H - 6}" font-size="11" fill="var(--muted)" text-anchor="${i === 0 ? "start" : i === n - 1 ? "end" : "middle"}">${tf(ref.pts[i][0])}</text>`).join("")}
+    ${series.map(s => `<path d="${s.pts.map((p, i) => (i ? "L" : "M") + xt(p[0]).toFixed(1) + " " + y(p[1]).toFixed(1)).join("")}" fill="none" stroke="${s.col}" stroke-width="2" vector-effect="non-scaling-stroke"/><circle cx="${xt(s.pts.at(-1)[0])}" cy="${y(s.pts.at(-1)[1])}" r="3.5" fill="${s.col}" stroke="var(--card)" stroke-width="2"/>`).join("")}
+    <line class="xh" y1="${T}" y2="${H - B}" stroke="var(--muted)" stroke-dasharray="3 3" visibility="hidden"/><rect x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}" fill="transparent"/>
+  </svg><div class="tip" hidden></div>
+  <div class="legend" style="margin-top:6px">${series.map(s => `<span><i style="background:${s.col}"></i>${esc(s.name)} <b class="num ${cls(s.pts.at(-1)[1])}">${pct(s.pts.at(-1)[1])}</b></span>`).join("")}</div>`;
+  svgHover($("#cchart svg"), W, L, R, n, x, i => { const t = ref.pts[i][0]; return `<b>${new Date(t).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</b>` + series.map(s => { let best = s.pts[0]; for (const p of s.pts) if (Math.abs(p[0] - t) < Math.abs(best[0] - t)) best = p; return `<br><span style="color:${s.col}">■</span> ${esc(s.name)} <b class="${cls(best[1])}">${pct(best[1])}</b>`; }).join(""); });
+}
+
+// ---------- NEWS POP-UPS ----------
+let flashLog = store.get("dp-flashlog", []), flashUnread = 0;
+const popPref = () => store.get("dp-pop", "all");
+function newsFlash(first) {
+  const pref = popPref(); if (!D) return;
+  const seen = new Set(store.get("dp-popseen", []));
+  const firstEver = !seen.size;
+  const stockNewsList = D.news.filter(n => n.symbols.length && S[n.symbols[0]]);
+  let fresh = stockNewsList.filter(n => !seen.has(n.id));
+  if (firstEver) fresh = fresh.filter(n => Date.now() - Date.parse(n.published) < 60 * 60e3);
+  if (pref === "mine") fresh = fresh.filter(n => n.symbols.some(isMine));
+  fresh.sort((a, b) => b.published.localeCompare(a.published));
+  store.set("dp-popseen", D.news.map(n => n.id).concat([...seen]).slice(0, 4000));
+  if (pref === "off" || !fresh.length) return;
+  const showN = first ? 3 : 4, show = fresh.slice(0, showN).reverse();
+  flashLog = fresh.slice(0, 60).map(n => ({ id: n.id, at: Date.now() })).concat(flashLog.filter(f => !fresh.some(n => n.id === f.id))).slice(0, 60);
+  store.set("dp-flashlog", flashLog);
+  flashUnread += fresh.length; updateBell();
+  show.forEach((n, i) => setTimeout(() => flashCard(n), i * 650));
+  if (fresh.length > showN) setTimeout(() => flashMore(fresh.length - showN), show.length * 650);
+  if (document.hidden && "Notification" in window && Notification.permission === "granted") {
+    const n = fresh[0], s = S[n.symbols[0]];
+    try { new Notification(`${n.symbols.slice(0, 2).join(", ")} ${s ? pct(s.change_pct) : ""}`, { body: n.title, tag: n.id }); } catch {}
+  }
+}
+function flashCard(n) {
+  const box = $("#flash"); if (!box) return;
+  const sym = n.symbols[0], s = S[sym] || {};
+  const el = document.createElement("div");
+  el.className = "fcard " + n.tone; el.setAttribute("role", "status");
+  el.innerHTML = `<button class="fx" aria-label="Dismiss">✕</button>
+    <div class="ft"><span class="fsym">${esc(sym)}</span>${n.symbols.slice(1, 3).map(x => `<span class="fsym sm">${esc(x)}</span>`).join("")}<span class="num">${px(s.price)}</span><b class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</b><span class="fnew">NEW</span></div>
+    <div class="fh">${esc(n.title)}</div>
+    <div class="fm"><span class="tdot ${n.tone}"></span>${n.tone === "positive" ? "positive tone" : n.tone === "negative" ? "negative tone" : "neutral tone"} · ${esc(n.source)} · ${ago(n.published)}<span class="fopen">Open ${esc(sym)} ›</span></div>
+    <i class="fbar"></i>`;
+  let timer = null, left = 14000, started = Date.now();
+  const close = () => { el.classList.add("out"); setTimeout(() => el.remove(), 350); };
+  const arm = () => { started = Date.now(); timer = setTimeout(close, left); el.querySelector(".fbar").style.animationPlayState = "running"; };
+  el.onmouseenter = () => { clearTimeout(timer); left -= Date.now() - started; el.querySelector(".fbar").style.animationPlayState = "paused"; };
+  el.onmouseleave = arm;
+  el.onclick = e => { if (e.target.closest(".fx")) { close(); return; } close(); go(sym); };
+  box.append(el); while (box.children.length > 5) box.firstElementChild.remove();
+  arm();
+}
+function flashMore(k) {
+  const box = $("#flash"); if (!box) return;
+  const el = document.createElement("button"); el.className = "fmore"; el.textContent = `+ ${k} more stock headlines · open the news feed`;
+  el.onclick = () => { el.remove(); openDrawer(); }; box.append(el); setTimeout(() => el.remove(), 15000);
+}
+function updateBell() { const b = $("#bellN"); if (!b) return; b.hidden = !flashUnread; b.textContent = flashUnread > 99 ? "99+" : flashUnread; }
+function openDrawer() {
+  flashUnread = 0; updateBell();
+  const dr = $("#drawer"), pref = popPref();
+  const items = flashLog.map(f => NEWS[f.id]).filter(Boolean);
+  const latest = items.length ? items : D.news.filter(n => n.symbols.length).slice(0, 30);
+  dr.innerHTML = `<div class="dh"><b>News flashes</b><button class="iconbtn" data-dclose aria-label="Close">✕</button></div>
+    <div class="dset"><span class="muted">Pop-ups for</span><div class="seg">${[["all", "All stocks"], ["mine", "My stocks"], ["off", "Off"]].map(([k, l]) => `<button data-pop="${k}" class="${pref === k ? "on" : ""}">${l}</button>`).join("")}</div>
+      ${"Notification" in window && Notification.permission !== "denied" && !SNAPSHOT ? `<button class="sy" id="notif2">${Notification.permission === "granted" ? "✓ Desktop alerts on" : "Also alert me when this tab is in the background"}</button>` : ""}</div>
+    <div class="dl">${latest.map(n => { const s = S[n.symbols[0]] || {}; return `<button class="di" data-go="${esc(n.symbols[0])}"><div class="ft"><span class="fsym">${esc(n.symbols[0])}</span><b class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</b><span class="muted" style="margin-left:auto;font-size:12px">${ago(n.published)}</span></div><div class="fh"><span class="tdot ${n.tone}"></span>${esc(n.title)}</div></button>`; }).join("") || '<div class="muted" style="padding:16px">No stock headlines yet.</div>'}</div>`;
+  dr.hidden = false; requestAnimationFrame(() => dr.classList.add("open"));
+}
+function closeDrawer() { const dr = $("#drawer"); dr.classList.remove("open"); setTimeout(() => { dr.hidden = true; }, 250); }
+
 // ---------- SIGNALS (track record) ----------
 function hitBar(v, base) {
   if (v == null) return "–";
@@ -618,9 +837,6 @@ function checkAlerts(first) {
     const p = S[a.symbol]?.price; if (p == null || a.hit) continue;
     if ((a.type === "above" && p >= a.price) || (a.type === "below" && p <= a.price)) { a.hit = new Date().toISOString(); changed = true; fired.push(`${a.symbol} ${a.type === "above" ? "rose to" : "fell to"} ${px(p)} (your alert: ${px(a.price)})`); }
   }
-  const seen = new Set(store.get("dp-seen", []));
-  if (!first) for (const n of D.news.filter(n => n.symbols.some(isMine) && !seen.has(n.id)).slice(0, 3)) fired.push(`${n.symbols.filter(isMine).join(", ")}: ${n.title}`);
-  store.set("dp-seen", D.news.map(n => n.id));
   if (changed) saveMy();
   for (const m of fired) { toast(m); if ("Notification" in window && Notification.permission === "granted") try { new Notification("Dalal Pulse", { body: m }); } catch {} }
 }
@@ -629,8 +845,18 @@ function checkAlerts(first) {
 document.addEventListener("click", async e => {
   const t = e.target;
   const n = t.closest("[data-nav]"); if (n) { nav(n.dataset.nav); return; }
+  if (t.closest("#bell")) { const dr = $("#drawer"); if (dr.hidden) openDrawer(); else closeDrawer(); return; }
+  if (t.closest("[data-dclose]")) { closeDrawer(); return; }
+  const pp = t.closest("[data-pop]"); if (pp) { store.set("dp-pop", pp.dataset.pop); openDrawer(); toast(pp.dataset.pop === "off" ? "News pop-ups are off" : pp.dataset.pop === "mine" ? "Pop-ups only for your watchlist and holdings" : "Pop-ups for news on any stock"); return; }
+  if (t.id === "notif2") { try { await Notification.requestPermission(); } catch {} openDrawer(); return; }
+  const ix = t.closest("[data-idx]"); if (ix) { nav("indices", ix.dataset.idx); return; }
+  const is = t.closest("[data-isel]"); if (is) { sel = is.dataset.isel; view = "indices"; if (!SNAPSHOT) history.replaceState(null, "", "#indices/" + sel); render(); if (innerWidth <= 900) window.scrollTo({ top: 0 }); return; }
+  if (t.closest("[data-back-idx]")) { nav("indices"); return; }
+  const ir = t.closest("[data-irange]"); if (ir) { ui.irange = ir.dataset.irange; document.querySelectorAll("[data-irange]").forEach(b => b.classList.toggle("on", b === ir)); drawIndexChart(sel); return; }
+  const cr = t.closest("[data-crange]"); if (cr) { ui.crange = cr.dataset.crange; render(); return; }
+  const ic = t.closest("[data-icmp]"); if (ic) { const id = ic.dataset.icmp; if (ui.icmp.includes(id)) { if (ui.icmp.length > 1) ui.icmp = ui.icmp.filter(x => x !== id); } else if (ui.icmp.length < 6) ui.icmp.push(id); else toast("Up to 6 indices at a time"); render(); return; }
   if (t.closest("a[href]")) return;
-  const g = t.closest("[data-go]"); if (g) { $("#gsugg").hidden = true; go(g.dataset.go); return; }
+  const g = t.closest("[data-go]"); if (g) { $("#gsugg").hidden = true; if (g.closest("#drawer")) closeDrawer(); go(g.dataset.go); return; }
   const s = t.closest("[data-sel]"); if (s) { sel = s.dataset.sel; if (!SNAPSHOT) history.replaceState(null, "", "#news/" + encodeURIComponent(sel)); render(); if (innerWidth <= 900) window.scrollTo({ top: 0 }); return; }
   if (t.closest("[data-back]")) { nav("news"); return; }
   const nf = t.closest("[data-nf]"); if (nf) { ui.nf = nf.dataset.nf; render(); return; }
@@ -683,7 +909,7 @@ $("#theme").addEventListener("click", () => {
 });
 if (!SNAPSHOT) window.addEventListener("hashchange", () => { readHash(); render(); });
 
-if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "screener", "signals", "w52", "portfolio", "calendar"].includes(h)) view = h; }
+if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "screener", "signals", "w52", "portfolio", "calendar"].includes(h)) view = h; }
 tickClock(); setInterval(tickClock, 1000);
 load(true);
 if (!SNAPSHOT) { setInterval(() => load(false), 60000); document.addEventListener("visibilitychange", () => { if (!document.hidden) load(false); }); }

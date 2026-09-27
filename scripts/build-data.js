@@ -8,6 +8,7 @@ const technicals = require("./lib/technicals");
 const { KEYWORDS, compileMatchers, matchSymbols, deriveKeywords } = require("./lib/watchlist");
 const { headlineTone, stockInsight, marketMood, trendingTopics } = require("./lib/insights");
 const backtest = require("./lib/backtest");
+const { loadIndices } = require("./lib/indices");
 
 const ROOT = path.join(__dirname, "..");
 const OUT = path.join(ROOT, "site", "data");
@@ -88,7 +89,7 @@ async function loadPulse() {
     sectors = YAHOO_SECTORS.map(([name], i) => ss[i] && { name, last: ss[i].last, change_pct: ss[i].change_pct }).filter(Boolean);
   }
   sectors.sort((a, b) => b.change_pct - a.change_pct);
-  return { items, sectors, nifty_pe: byName["NIFTY 50"]?.pe || null };
+  return { items, sectors, nifty_pe: byName["NIFTY 50"]?.pe || null, raw: idx || [] };
 }
 
 // ---------- news (with history kept between runs) ----------
@@ -121,6 +122,7 @@ async function main() {
     attempt("nifty_history", () => technicals.history("^NSEI"), null),
   ]);
   status.technicals = `${Object.keys(techs).length}/${syms.length}`;
+  const indices = await attempt("indices", () => loadIndices({ universe, nseIndices: pulse.raw, outDir: path.join(OUT, "indices"), cacheDir: path.join(CACHE, "idx"), log }), []);
 
   // relative strength vs Nifty 50 + RS rating (1-99 percentile of weighted 3/6/9/12-month returns)
   const nRows = nifty?.rows || [];
@@ -206,7 +208,7 @@ async function main() {
   const out = {
     generated_at: new Date().toISOString(), build_seconds: Math.round((Date.now() - t0) / 1000), status,
     pulse: pulse.items, sectors: pulse.sectors, industries, nifty_pe: pulse.nifty_pe, fii_dii: fii, mood, topics,
-    nifty_returns: Object.fromEntries(Object.entries(nr).map(([k, v]) => [k, r2(v)])), backtest: bt.summary, live_record: liveRecord,
+    nifty_returns: Object.fromEntries(Object.entries(nr).map(([k, v]) => [k, r2(v)])), backtest: bt.summary, live_record: liveRecord, indices,
     stocks, news: newsOut, w52, calendar: upcoming.slice(0, 600).map(e => ({ ...e, tracked: Boolean(universe[e.symbol]), nifty50: Boolean(universe[e.symbol]?.nifty50) })),
   };
   fs.writeFileSync(path.join(OUT, "latest.json"), JSON.stringify(out));
