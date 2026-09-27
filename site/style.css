@@ -356,3 +356,18 @@ button.tile{cursor:pointer;font:inherit;width:100%}
 .imp{display:flex;align-items:center;gap:8px;font-size:11.5px}.ib{width:70px;height:5px;border-radius:3px;background:var(--line);flex:none;overflow:hidden}.ib i{display:block;height:100%;background:var(--accent);transition:width .8s cubic-bezier(.2,.7,.2,1)}
 @media(max-width:1100px){.band .in{flex-direction:column}.mm{flex:none;min-width:0;max-width:none}}
 @media(prefers-reduced-motion:reduce){.live{animation:none}}
+
+/* ---- second tape: near 52-week high / low ---- */
+.tape2{background:color-mix(in srgb,var(--band) 88%,#1e3a3a);display:flex;align-items:stretch}
+.tape2 .tlab{position:relative;z-index:3;flex:none;display:flex;flex-direction:column;justify-content:center;gap:1px;padding:3px 12px;background:var(--band);border-right:1px solid rgba(223,233,230,.15);font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.04em;white-space:nowrap}
+.tape2 .tlab .u{color:#3fdc93}.tape2 .tlab .d{color:#ff7a6b}
+.tape2::before{display:none}
+.tape2 .track{flex:none}
+.tape2 .track{animation-name:tape2}
+.tape2 .it{padding:6px 16px;font-size:12px;text-decoration:none;align-items:center}
+.tape2 .it .tag{font-size:9.5px;font-weight:800;letter-spacing:.06em;padding:1px 5px;border-radius:3px}
+.tape2 .it .tag.u{background:rgba(63,220,147,.16);color:#3fdc93}.tape2 .it .tag.d{background:rgba(255,122,107,.16);color:#ff7a6b}
+.tape2 .it .u{color:#3fdc93}.tape2 .it .d{color:#ff7a6b}
+@keyframes tape2{from{transform:translateX(-50%)}to{transform:translateX(0)}}
+@media(max-width:600px){.tape2 .tlab{padding:3px 8px;font-size:9px}}
+@media (prefers-reduced-motion:reduce){.tape2 .track{animation:none}}

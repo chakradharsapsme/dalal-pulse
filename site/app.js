@@ -39,7 +39,7 @@ async function load(first) {
   if (D) prevPrice = Object.fromEntries(D.stocks.map(s => [s.symbol, s.price]));
   D = d; S = Object.fromEntries(D.stocks.map(s => [s.symbol, s])); NEWS = Object.fromEntries(D.news.map(n => [n.id, n]));
   if (!changed) { footer(); return; }
-  renderTape(); renderBand(); render(); footer(); checkAlerts(first); newsFlash(first);
+  renderTape(); renderTape2(); renderBand(); render(); footer(); checkAlerts(first); newsFlash(first);
   if (!first) { flashChanges(); toast("New prices and headlines just arrived"); }
 }
 function footer() {
@@ -77,6 +77,26 @@ function renderTape() {
   const item = s => `<button class="it" data-go="${esc(s.symbol)}"><b>${esc(s.symbol)}</b><span class="p">${fmt(s.price, s.price >= 1000 ? 0 : 2)}</span><span class="${s.change_pct >= 0 ? "u" : "d"}">${s.change_pct >= 0 ? "▲" : "▼"} ${Math.abs(s.change_pct ?? 0).toFixed(2)}%</span></button>`;
   const h = list.map(item).join("");
   $("#track").innerHTML = h + h.replace(/<button class="it"/g, '<button class="it" tabindex="-1" aria-hidden="true"');
+}
+// second tape: tracked stocks within 3% of their 52-week high or low (plus fresh NSE-wide hits)
+function renderTape2() {
+  const el = $("#track2"); if (!el) return;
+  const hi = D.stocks.filter(s => s.tech && s.price != null && s.tech.from_high_pct != null && s.tech.from_high_pct >= -3).sort((a, b) => b.tech.from_high_pct - a.tech.from_high_pct);
+  const lo = D.stocks.filter(s => s.tech && s.price != null && s.tech.from_low_pct != null && s.tech.from_low_pct <= 3).sort((a, b) => a.tech.from_low_pct - b.tech.from_low_pct);
+  const mk = (s, up) => { const at = up ? s.tech.from_high_pct >= -0.3 : s.tech.from_low_pct <= 0.3;
+    return `<button class="it ${up ? "hz" : "lz"}" data-go="${esc(s.symbol)}" title="${esc(s.name)} · 52-week ${up ? "high" : "low"} ${px(up ? s.tech.high52 : s.tech.low52)}"><span class="${up ? "u" : "d"}">${up ? "▲" : "▼"}</span><b>${esc(s.symbol)}</b><span class="p">${fmt(s.price, s.price >= 1000 ? 0 : 2)}</span>${at ? `<span class="tag ${up ? "u" : "d"}">${up ? "AT 52W HIGH" : "AT 52W LOW"}</span>` : `<span class="${up ? "u" : "d"}">${up ? pct(s.tech.from_high_pct) + " from high" : pct(s.tech.from_low_pct) + " above low"}</span>`}<span class="${s.change_pct >= 0 ? "u" : "d"}" style="opacity:.8">${pct(s.change_pct)}</span></button>`; };
+  // NSE whole-market fresh 52-week hits not in the tracked list
+  const tracked = new Set(D.stocks.map(s => s.symbol));
+  const ext = (list, up) => (list || []).filter(x => !tracked.has(x.symbol)).slice(0, 12).map(x => `<a class="it ${up ? "hz" : "lz"}" href="https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(x.symbol)}" target="_blank" rel="noopener" title="${esc(x.name)} (not tracked here, opens NSE)"><span class="${up ? "u" : "d"}">${up ? "▲" : "▼"}</span><b>${esc(x.symbol)}</b><span class="p">${fmt(x.ltp, x.ltp >= 1000 ? 0 : 2)}</span><span class="tag ${up ? "u" : "d"}">NEW 52W ${up ? "HIGH" : "LOW"}</span><span class="${x.change_pct >= 0 ? "u" : "d"}" style="opacity:.8">${pct(x.change_pct)}</span></a>`);
+  const items = [];
+  const H = hi.map(s => mk(s, true)).concat(ext(D.w52?.highs, true)), Lo = lo.map(s => mk(s, false)).concat(ext(D.w52?.lows, false));
+  for (let i = 0; i < Math.max(H.length, Lo.length); i++) { if (H[i]) items.push(H[i]); if (Lo[i]) items.push(Lo[i]); }
+  if (!items.length) { el.innerHTML = '<span class="it">No stocks near their 52-week high or low right now</span>'; el.style.animation = "none"; return; }
+  let h = items.join("");
+  while (items.length && h.length < 6000 && items.length < 12) h += items.join("");
+  el.style.animationDuration = Math.max(40, items.length * 4.5) + "s";
+  el.innerHTML = h + h.replace(/class="it /g, 'tabindex="-1" aria-hidden="true" class="it ');
+  $("#tape2").querySelector(".tlab").innerHTML = `<span class="u">▲ ${hi.length} near 52W high</span><span class="d">▼ ${lo.length} near 52W low</span>`;
 }
 const arcPath = (cx, cy, r) => `M${cx - r} ${cy} A${r} ${r} 0 0 1 ${cx + r} ${cy}`;
 const moodColor = s => s >= 57 ? "var(--up)" : s <= 43 ? "var(--down)" : "var(--accent)";
