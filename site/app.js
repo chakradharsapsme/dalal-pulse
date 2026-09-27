@@ -22,7 +22,7 @@ let my = store.get("dp-my", { holdings: [], watch: [], alerts: [] });
 const saveMy = () => store.set("dp-my", my);
 const isMine = s => my.watch.includes(s) || my.holdings.some(h => h.symbol === s);
 const ui = { nf: "withnews", q: "", preset: "all", sort: { k: "change_pct", d: -1 }, w52: "highs", w52s: "all", cal: "tracked", range: 252, sq: "",
-  ov: { ma: true, bb: false, sr: true, sig: true }, sub: "vol", hp: "change_pct", hm: "ind", bh: 20, bdir: "all", irange: "1d", crange: "252", icmp: [] };
+  ov: { ma: true, bb: false, sr: true, sig: true }, sub: "vol", hp: "change_pct", hm: "ind", bh: 20, bdir: "all", irange: "1d", crange: "252", icmp: [], fq: "", ff: "all", fsort: { k: "score", d: -1 }, bm: "fo", bsize: "turnover" };
 const charts = window.__DP_CHARTS__ || {};
 
 // ---------- data ----------
@@ -81,8 +81,8 @@ function renderTape() {
 // second tape: only quality large/mid-cap stocks (Nifty 200) within 3% of their 52-week high or low; Nifty 50 first
 function renderTape2() {
   const el = $("#track2"); if (!el) return;
-  const hi = D.stocks.filter(s => s.tech && s.price != null && s.tech.from_high_pct != null && s.tech.from_high_pct >= -3).sort((a, b) => (b.nifty50 - a.nifty50) || b.tech.from_high_pct - a.tech.from_high_pct);
-  const lo = D.stocks.filter(s => s.tech && s.price != null && s.tech.from_low_pct != null && s.tech.from_low_pct <= 3).sort((a, b) => (b.nifty50 - a.nifty50) || a.tech.from_low_pct - b.tech.from_low_pct);
+  const hi = D.stocks.filter(s => s.nifty200 !== false && s.tech && s.price != null && s.tech.from_high_pct != null && s.tech.from_high_pct >= -3).sort((a, b) => (b.nifty50 - a.nifty50) || b.tech.from_high_pct - a.tech.from_high_pct);
+  const lo = D.stocks.filter(s => s.nifty200 !== false && s.tech && s.price != null && s.tech.from_low_pct != null && s.tech.from_low_pct <= 3).sort((a, b) => (b.nifty50 - a.nifty50) || a.tech.from_low_pct - b.tech.from_low_pct);
   const mk = (s, up) => { const at = up ? s.tech.from_high_pct >= -0.3 : s.tech.from_low_pct <= 0.3;
     return `<button class="it ${up ? "hz" : "lz"}" data-go="${esc(s.symbol)}" title="${esc(s.name)} · 52-week ${up ? "high" : "low"} ${px(up ? s.tech.high52 : s.tech.low52)}"><span class="${up ? "u" : "d"}">${up ? "▲" : "▼"}</span><b>${esc(s.symbol)}</b>${s.nifty50 ? '<span class="n50t">N50</span>' : ""}<span class="p">${fmt(s.price, s.price >= 1000 ? 0 : 2)}</span>${at ? `<span class="tag ${up ? "u" : "d"}">${up ? "AT 52W HIGH" : "AT 52W LOW"}</span>` : `<span class="${up ? "u" : "d"}">${up ? pct(s.tech.from_high_pct) + " from high" : pct(s.tech.from_low_pct) + " above low"}</span>`}<span class="${s.change_pct >= 0 ? "u" : "d"}" style="opacity:.8">${pct(s.change_pct)}</span></button>`; };
   // NSE whole-market fresh 52-week hits not in the tracked list
@@ -132,7 +132,7 @@ function nav(v, s) {
 }
 function readHash() {
   const [v, s] = location.hash.replace(/^#\/?/, "").split("/");
-  if (["news", "markets", "indices", "screener", "signals", "w52", "portfolio", "calendar"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
+  if (["news", "markets", "indices", "fno", "screener", "signals", "w52", "portfolio", "calendar"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
 }
 const go = sym => nav("news", sym);
 
@@ -140,7 +140,7 @@ function render() {
   if (!D) return;
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.nav === view));
   const keep = document.querySelector(".list")?.scrollTop;
-  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "screener" ? screener() : view === "signals" ? signals() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : newsView();
+  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "fno" ? fnoView() : view === "screener" ? screener() : view === "signals" ? signals() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : newsView();
   if (keep && document.querySelector(".list")) document.querySelector(".list").scrollTop = keep;
   if (view === "news") { if (sel && S[sel]) drawChart(sel); document.querySelector(".row.on")?.scrollIntoView({ block: "nearest" }); }
   if (view === "indices") { if (sel && sel !== "compare") drawIndexChart(sel); else drawCompare(); document.querySelector(".row.on")?.scrollIntoView({ block: "nearest" }); }
@@ -189,7 +189,7 @@ function newsView() {
   return `<div class="md${sel ? " detail-open" : ""}">
     <section class="card master" aria-label="Stocks">
       <div class="tools"><input class="field" id="nq" placeholder="Filter stocks or headlines" value="${esc(ui.q)}" aria-label="Filter stocks or headlines">
-        <div class="chips">${chip("withnews", "In the news")}${chip("mine", "★ Mine")}${chip("n50", "Nifty 50")}${chip("pos", "Good news")}${chip("neg", "Bad news")}${chip("all", "All 200")}</div></div>
+        <div class="chips">${chip("withnews", "In the news")}${chip("mine", "★ Mine")}${chip("n50", "Nifty 50")}${chip("pos", "Good news")}${chip("neg", "Bad news")}${chip("all", "All")}</div></div>
       <div class="list">${list}</div>
     </section>
     <section class="card detail fade" id="detail">${detail}</section>
@@ -466,8 +466,9 @@ function markets() {
   const gain = [...withP].sort((a, b) => b.change_pct - a.change_pct).slice(0, 8), lose = [...withP].sort((a, b) => a.change_pct - b.change_pct).slice(0, 8);
   const mv = s => `<button class="mv" data-go="${esc(s.symbol)}"><span><b>${esc(s.symbol)}</b> <span class="muted" style="font-size:12.5px">${esc((s.name || "").slice(0, 28))}</span></span><span class="num"><span class="muted">${px(s.price)}</span> <b class="${cls(s.change_pct)}">${pct(s.change_pct)}</b></span></button>`;
   const maxF = Math.max(1, ...(D.fii_dii || []).map(f => Math.max(f.buy, f.sell)));
-  return `<div class="fade"><h1 class="page">Markets today</h1><p class="sub">Mood, sectors, institutional flows and the biggest movers among ${D.stocks.length} Nifty 200 stocks.</p>
-  <div class="grid g2">
+  return `<div class="fade"><h1 class="page">Markets today</h1><p class="sub">Mood, sectors, institutional flows and the biggest movers among ${D.stocks.length} tracked stocks (Nifty 200 + F&O).</p>
+  ${bubbleCard()}
+  <div class="grid g2" style="margin-top:16px">
     <div class="card"><div class="hd"><h2>Market mood</h2><span class="muted" style="font-size:12.5px">rule-based score out of 100</span></div><div class="bd"><div class="glance"><div class="gauge">${gaugeSvg(m.score, m.label)}</div><div>${m.lines.map(l => `<p>${esc(l)}</p>`).join("")}</div></div></div></div>
     <div class="card"><div class="hd"><h2>Who's buying</h2><span class="muted" style="font-size:12.5px">cash market, ₹ crore</span></div><div class="bd">
       ${(D.fii_dii || []).length ? D.fii_dii.map(f => `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between"><b>${esc(f.category)}</b><b class="num ${cls(f.net)}">Net ${f.net >= 0 ? "+" : "−"}${fmt(Math.abs(f.net), 0)}</b></div>
@@ -785,6 +786,95 @@ function openDrawer() {
 }
 function closeDrawer() { const dr = $("#drawer"); dr.classList.remove("open"); setTimeout(() => { dr.hidden = true; }, 250); }
 
+// ---------- F&O ----------
+const BU = { "Long build-up": ["bullish", "Price ↑ OI ↑", "Fresh buying: new long positions are being added."], "Short covering": ["watch", "Price ↑ OI ↓", "Shorts are closing positions, which pushes the price up."],
+  "Short build-up": ["bearish", "Price ↓ OI ↑", "Fresh selling: new short positions are being added."], "Long unwinding": ["neutral", "Price ↓ OI ↓", "Longs are exiting, so the price drifts lower."] };
+const trending = s => { const t = s.tech; if (!t) return false; return (t.above_50 && t.above_200) || (t.ret_1m > 3 && t.macd_state === "bull") || (t.rs_rating >= 70 && t.above_50); };
+function foScore(s) { const t = s.tech || {}; return (s.insight.news_score || 0) * 0.5 + (s.insight.tech_score || 0) * 0.35 + ((t.rs_rating ?? 50) - 50) * 0.4 + (s.fo?.buildup === "Long build-up" ? 12 : s.fo?.buildup === "Short covering" ? 6 : 0) + Math.min(10, Math.max(-10, s.change_pct || 0)); }
+function fnoView() {
+  const fo = D.stocks.filter(s => s.fo);
+  if (!fo.length) return `<div class="fade"><h1 class="page">F&O stocks</h1><div class="card"><div class="empty"><b>F&O data arrives with the next update</b>It refreshes every 15 minutes during market hours.</div></div></div>`;
+  const hot = fo.filter(s => trending(s) && s.news_ids.length && s.insight.news_score > 15 && s.fo.buildup !== "Short build-up" && s.fo.buildup !== "Long unwinding").sort((a, b) => foScore(b) - foScore(a));
+  const cnt = k => fo.filter(s => s.fo.buildup === k).length;
+  const q = ui.fq.trim().toLowerCase(), f = ui.ff;
+  const rows = fo.filter(s => (f === "all" || (f === "hot" ? hot.includes(s) : f === "trend" ? trending(s) : s.fo.buildup === f)) && (!q || s.symbol.toLowerCase().includes(q) || (s.name || "").toLowerCase().includes(q)))
+    .sort((a, b) => { const k = ui.fsort.k, v = x => k === "symbol" ? x.symbol : k === "oi" ? x.fo.oi_chg_pct : k === "score" ? foScore(x) : k === "news" ? x.insight.news_score ?? -999 : k === "change_pct" ? x.change_pct : k === "turnover" ? x.turnover_cr : x.tech?.[k];
+      const A = v(a), B = v(b); return (typeof A === "string" ? A.localeCompare(B) : ((A ?? -1e9) - (B ?? -1e9))) * ui.fsort.d; });
+  const th = (k, l, left) => `<th class="${left ? "l" : ""}"><button data-fsort="${k}">${l}${ui.fsort.k === k ? (ui.fsort.d > 0 ? " ▲" : " ▼") : ""}</button></th>`;
+  const buList = k => { const l = fo.filter(s => s.fo.buildup === k).sort((a, b) => Math.abs(b.fo.oi_chg_pct || 0) - Math.abs(a.fo.oi_chg_pct || 0)).slice(0, 8);
+    return `<div class="card bu"><div class="hd"><h2><span class="badge ${BU[k][0]}">${k}</span></h2><span class="muted" style="font-size:12px">${BU[k][1]} · ${cnt(k)}</span></div><div class="bd" style="padding-top:2px"><p class="muted" style="font-size:12.5px;margin:6px 0">${BU[k][2]}</p>
+      ${l.map(s => `<button class="mv" data-go="${esc(s.symbol)}"><span><b>${esc(s.symbol)}</b> ${s.news_ids.length ? `<span class="tdot ${s.insight.news_score > 15 ? "positive" : s.insight.news_score < -15 ? "negative" : "neutral"}" title="news"></span>` : ""}</span><span class="num"><b class="${cls(s.change_pct)}">${pct(s.change_pct)}</b> <span class="muted">OI</span> <b class="${cls(s.fo.oi_chg_pct)}">${pct(s.fo.oi_chg_pct)}</b></span></button>`).join("") || '<div class="muted">None today.</div>'}</div></div>`; };
+  return `<div class="fade"><h1 class="page">F&O stocks</h1><p class="sub">All ${fo.length} stocks in the futures & options segment: which are trending with good news, and where traders are building positions (open interest, from NSE${fo[0].fo.date ? ", " + esc(fo[0].fo.date) : ""}).</p>
+  <div class="kpis"><div class="card kpi"><div class="l">Trending + positive news</div><div class="v up">${hot.length}</div></div><div class="card kpi"><div class="l">Long build-up</div><div class="v up">${cnt("Long build-up")}</div></div>
+    <div class="card kpi"><div class="l">Short build-up</div><div class="v down">${cnt("Short build-up")}</div></div><div class="card kpi"><div class="l">Short covering / long unwinding</div><div class="v">${cnt("Short covering")} / ${cnt("Long unwinding")}</div></div></div>
+  <div class="card"><div class="hd"><h2>🔥 Trending with positive news</h2><span class="muted" style="font-size:12.5px">uptrend or strong momentum, and recent headlines lean positive</span></div><div class="bd">
+    ${hot.length ? `<div class="hotfo">${hot.slice(0, 12).map(s => { const t = s.tech || {}, n = stockNews(s.symbol).find(x => x.tone === "positive") || stockNews(s.symbol)[0];
+      return `<button class="fcardx" data-go="${esc(s.symbol)}"><div class="ft"><span class="fsym">${esc(s.symbol)}</span>${s.nifty50 ? '<span class="badge n50">N50</span>' : ""}<span class="num" style="margin-left:auto">${px(s.price)}</span><b class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</b></div>
+        <div class="chips2"><span class="badge ${s.insight.signal}">${esc(s.insight.label)}</span>${s.fo.buildup ? `<span class="badge ${BU[s.fo.buildup][0]}" title="${esc(BU[s.fo.buildup][2])}">${esc(s.fo.buildup)}</span>` : ""}<span class="badge neutral">${esc(t.trend || "")}</span></div>
+        <div class="fh"><span class="tdot ${n?.tone || "neutral"}"></span>${esc(n?.title || "")}</div>
+        <div class="fm"><span>1M <b class="num ${cls(t.ret_1m)}">${pct(t.ret_1m)}</b></span><span>RS <b class="num">${t.rs_rating ?? "–"}</b></span><span>OI <b class="num ${cls(s.fo.oi_chg_pct)}">${pct(s.fo.oi_chg_pct)}</b></span><span>${s.news_ids.length} news · ${n ? ago(n.published) : ""}</span></div></button>`; }).join("")}</div>`
+    : '<div class="empty"><b>No F&O stock is both trending and in positive news right now</b>Check back after the next update, or see the build-up lists below.</div>'}</div></div>
+  <div class="grid g4" style="margin-top:16px">${Object.keys(BU).map(buList).join("")}</div>
+  <div class="card" style="margin-top:16px"><div class="hd"><input class="field" id="fq" placeholder="Filter F&O stocks" value="${esc(ui.fq)}" style="flex:1;min-width:160px" aria-label="Filter F&O stocks">
+    <div class="chips">${[["all", "All"], ["hot", "🔥 Trending + good news"], ["trend", "Trending"], ...Object.keys(BU).map(k => [k, k])].map(([k, l]) => `<button class="chip${ui.ff === k ? " on" : ""}" data-ff="${esc(k)}">${esc(l)}</button>`).join("")}</div><span class="muted num">${rows.length}</span></div>
+  <div class="tblwrap"><table class="tbl"><thead><tr>${th("symbol", "Stock", 1)}${th("price", "Price")}${th("change_pct", "Day")}${th("oi", "OI change")}<th class="l">Build-up</th><th class="l">Trend</th>${th("rs_rating", "RS")}${th("ret_1m", "1M")}${th("news", "News tone")}${th("turnover", "Turnover ₹cr")}${th("score", "Score")}</tr></thead><tbody>
+  ${rows.map(s => { const t = s.tech || {}; return `<tr data-go="${esc(s.symbol)}"><td class="l"><span class="sym">${esc(s.symbol)}</span> ${s.nifty50 ? '<span class="badge n50">N50</span>' : ""}</td><td class="num">${px(s.price)}</td><td class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</td>
+    <td class="num ${cls(s.fo.oi_chg_pct)}">${pct(s.fo.oi_chg_pct)}</td><td class="l">${s.fo.buildup ? `<span class="badge ${BU[s.fo.buildup][0]}">${esc(s.fo.buildup)}</span>` : "–"}</td><td class="l muted">${esc(t.trend || "–")}</td>
+    <td class="num ${t.rs_rating >= 70 ? "up" : t.rs_rating <= 30 ? "down" : ""}">${t.rs_rating ?? "–"}</td><td class="num ${cls(t.ret_1m)}">${pct(t.ret_1m)}</td>
+    <td class="num ${cls(s.insight.news_score)}">${s.news_ids.length ? (s.insight.news_score > 0 ? "+" : "") + s.insight.news_score + ` <small class="muted">(${s.news_ids.length})</small>` : "–"}</td><td class="num">${s.turnover_cr == null ? "–" : fmt(s.turnover_cr, 0)}</td><td class="num">${Math.round(foScore(s))}</td></tr>`; }).join("")}
+  </tbody></table></div></div>
+  <div class="muted" style="font-size:12.5px;margin-top:10px">Open interest (OI) is the number of open futures & options contracts. Rising OI with a rising price usually means fresh buying; rising OI with a falling price usually means fresh selling. The score blends news tone, chart strength, relative strength, OI build-up and today's move. This is for information, not a trading call. F&O trading is high-risk.</div></div>`;
+}
+
+// ---------- TRENDING BUBBLES (by market) ----------
+const BMKTS = [["fo", "F&O"], ["nifty50", "Nifty 50"], ["next50", "Next 50"], ["bank", "Bank"], ["it", "IT"], ["auto", "Auto"], ["pharma", "Pharma"], ["fmcg", "FMCG"], ["metal", "Metal"], ["energy", "Energy"], ["realty", "Realty"], ["fin", "Financial"], ["psubank", "PSU Bank"], ["midcap", "Midcap"]];
+function bubbleMembers(m) {
+  if (m === "fo") return D.stocks.filter(s => s.fo);
+  if (m === "nifty50") return D.stocks.filter(s => s.nifty50);
+  const x = idxById(m); return x ? (x.members || []).map(s => S[s]).filter(Boolean) : [];
+}
+function packCircles(items, W, H, tall) {
+  // spiral placement: biggest first, each new circle goes to the closest free spot to the centre
+  const placed = [], cx = W / 2, cy = H / 2;
+  for (const it of items) {
+    let best = null;
+    if (!placed.length) best = { x: cx, y: cy };
+    else for (let k = 0; k < 20000 && !best; k++) {
+      const a = k * 0.22, rr = k * 0.3;
+      const x = cx + rr * Math.cos(a) * (tall ? 0.8 : 1.35), y = cy + rr * Math.sin(a) * (tall ? 1.3 : 0.85);
+      if (placed.every(p => Math.hypot(p.x - x, p.y - y) >= p.r + it.r + 2)) best = { x, y };
+    }
+    placed.push({ ...it, ...(best || { x: cx, y: cy }) });
+  }
+  // fit into the box
+  const minX = Math.min(...placed.map(p => p.x - p.r)), maxX = Math.max(...placed.map(p => p.x + p.r)), minY = Math.min(...placed.map(p => p.y - p.r)), maxY = Math.max(...placed.map(p => p.y + p.r));
+  const k = Math.min((W - 8) / (maxX - minX), (H - 8) / (maxY - minY), 1.6);
+  return placed.map(p => ({ ...p, x: (p.x - (minX + maxX) / 2) * k + W / 2, y: (p.y - (minY + maxY) / 2) * k + H / 2, r: p.r * k }));
+}
+function bubbleCard() {
+  const m = ui.bm, size = ui.bsize;
+  const mem = bubbleMembers(m).filter(s => s.price != null && s.change_pct != null);
+  const val = s => size === "turnover" ? (s.turnover_cr || 0) : size === "move" ? Math.abs(s.change_pct || 0) + 0.15 : Math.max(0.2, s.tech?.vol_ratio || 0.2);
+  const narrow = innerWidth < 700;
+  let list = [...mem].sort((a, b) => val(b) - val(a)).slice(0, narrow ? 36 : 60);
+  const up = mem.filter(s => s.change_pct > 0).length, dn = mem.filter(s => s.change_pct < 0).length;
+  const W = narrow ? 400 : 900, H = narrow ? 600 : 460, mx = Math.max(1e-9, ...list.map(val));
+  const items = list.map(s => ({ s, r: 12 + 58 * Math.sqrt(val(s) / mx) }));
+  const circles = items.length ? packCircles(items, W, H, narrow) : [];
+  const col = c => c > 0 ? `color-mix(in srgb, var(--up) ${Math.round(35 + Math.min(1, c / 3) * 60)}%, var(--card))` : c < 0 ? `color-mix(in srgb, var(--down) ${Math.round(35 + Math.min(1, -c / 3) * 60)}%, var(--card))` : "var(--line2)";
+  const svg = circles.map((c, i) => { const s = c.s, fs = Math.max(7, Math.min(16, c.r / 3.1, (1.75 * c.r) / (Math.min(s.symbol.length, 10) * 0.64))), n = s.news_ids.length, big = c.r > 26;
+    return `<g class="bub" data-go="${esc(s.symbol)}" style="animation-delay:${Math.min(i * 18, 700)}ms"><title>${esc(s.symbol)} · ${esc(s.name)}\n${pct(s.change_pct)} today · ₹${fmt(s.turnover_cr, 0)} cr traded${s.tech?.vol_ratio ? ` · volume ${fmt(s.tech.vol_ratio, 1)}× avg` : ""}${n ? `\n${n} news: ${NEWS[s.news_ids[0]]?.title || ""}` : ""}</title>
+      <circle cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="${c.r.toFixed(1)}" fill="${col(s.change_pct)}" stroke="var(--card)" stroke-width="2"/>
+      ${n && c.r > 18 ? `<circle cx="${(c.x + c.r * 0.68).toFixed(1)}" cy="${(c.y - c.r * 0.68).toFixed(1)}" r="${Math.max(6, c.r * 0.16).toFixed(1)}" fill="var(--ink)"/><text x="${(c.x + c.r * 0.68).toFixed(1)}" y="${(c.y - c.r * 0.68 + 3.5).toFixed(1)}" text-anchor="middle" font-size="${Math.max(8, c.r * 0.17).toFixed(0)}" font-weight="800" fill="var(--card)">${n}</text>` : ""}
+      ${c.r > 15 ? `<text x="${c.x.toFixed(1)}" y="${(c.y + (big ? -2 : 3)).toFixed(1)}" text-anchor="middle" font-size="${fs.toFixed(0)}" font-weight="800" fill="var(--ink)" style="font-family:var(--display)">${esc(s.symbol.length > 10 && c.r < 40 ? s.symbol.slice(0, 9) + "…" : s.symbol)}</text>` : ""}
+      ${big ? `<text x="${c.x.toFixed(1)}" y="${(c.y + fs).toFixed(1)}" text-anchor="middle" font-size="${(fs * 0.8).toFixed(0)}" font-weight="700" fill="var(--ink)" style="font-family:var(--mono)">${pct(s.change_pct)}</text>` : ""}</g>`; }).join("");
+  return `<div class="card"><div class="hd" style="flex-wrap:wrap"><h2>Trending now · by market</h2>
+      <div class="seg">${[["turnover", "Most traded"], ["move", "Biggest moves"], ["vol", "Volume surge"]].map(([k, l]) => `<button data-bsize="${k}" class="${size === k ? "on" : ""}">${l}</button>`).join("")}</div></div>
+    <div class="bd"><div class="bmk">${BMKTS.filter(([k]) => bubbleMembers(k).length).map(([k, l]) => `<button class="chip${m === k ? " on" : ""}" data-bm="${k}">${l}</button>`).join("")}</div>
+      <div class="bubwrap">${circles.length ? `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Bubble chart of trending stocks" style="max-height:${narrow ? 640 : 520}px">${svg}</svg>` : '<div class="empty">No data for this market yet.</div>'}</div>
+      <div class="blegend"><span><i style="background:var(--up)"></i>up today</span><span><i style="background:var(--down)"></i>down today</span><span>deeper colour = bigger move</span><span>bubble size = ${size === "turnover" ? "value traded today" : size === "move" ? "size of today's move" : "volume vs 20-day average"}</span><span><b class="nbdot">3</b> = news count</span><span class="num"><b class="up">${up}▲</b> <b class="down">${dn}▼</b> of ${mem.length}</span></div></div></div>`;
+}
+
 // ---------- SIGNALS (track record) ----------
 function hitBar(v, base) {
   if (v == null) return "–";
@@ -917,6 +1007,10 @@ document.addEventListener("click", async e => {
   if (t.closest("[data-dclose]")) { closeDrawer(); return; }
   const pp = t.closest("[data-pop]"); if (pp) { store.set("dp-pop", pp.dataset.pop); openDrawer(); toast(pp.dataset.pop === "off" ? "News pop-ups are off" : pp.dataset.pop === "mine" ? "Pop-ups only for your watchlist and holdings" : "Pop-ups for news on any stock"); return; }
   if (t.id === "notif2") { try { await Notification.requestPermission(); } catch {} openDrawer(); return; }
+  const fsb = t.closest("[data-fsort]"); if (fsb) { const k = fsb.dataset.fsort; ui.fsort = { k, d: ui.fsort.k === k ? -ui.fsort.d : (k === "symbol" ? 1 : -1) }; render(); return; }
+  const ffb = t.closest("[data-ff]"); if (ffb) { ui.ff = ffb.dataset.ff; render(); return; }
+  const bmb = t.closest("[data-bm]"); if (bmb) { ui.bm = bmb.dataset.bm; render(); return; }
+  const bsb = t.closest("[data-bsize]"); if (bsb) { ui.bsize = bsb.dataset.bsize; render(); return; }
   const mi = t.closest("[data-mmi]"); if (mi) { mmI = +mi.dataset.mmi; renderMM(); return; }
   const ix = t.closest("[data-idx]"); if (ix) { nav("indices", ix.dataset.idx); return; }
   const is = t.closest("[data-isel]"); if (is) { sel = is.dataset.isel; view = "indices"; if (!SNAPSHOT) history.replaceState(null, "", "#indices/" + sel); render(); if (innerWidth <= 900) window.scrollTo({ top: 0 }); return; }
@@ -955,8 +1049,8 @@ document.addEventListener("click", async e => {
   if (!t.closest(".search")) $("#gsugg").hidden = true;
 });
 document.addEventListener("input", e => {
-  const id = e.target.id; if (id !== "nq" && id !== "sq") return;
-  ui[id === "nq" ? "q" : "sq"] = e.target.value; const pos = e.target.selectionStart; render(); const el = $("#" + id); el.focus(); el.setSelectionRange(pos, pos);
+  const id = e.target.id; if (id !== "nq" && id !== "sq" && id !== "fq") return;
+  ui[id === "nq" ? "q" : id === "sq" ? "sq" : "fq"] = e.target.value; const pos = e.target.selectionStart; render(); const el = $("#" + id); el.focus(); el.setSelectionRange(pos, pos);
 });
 let gi = -1;
 $("#gsearch").addEventListener("input", () => {
@@ -978,7 +1072,7 @@ $("#theme").addEventListener("click", () => {
 });
 if (!SNAPSHOT) window.addEventListener("hashchange", () => { readHash(); render(); });
 
-if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "screener", "signals", "w52", "portfolio", "calendar"].includes(h)) view = h; }
+if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "fno", "screener", "signals", "w52", "portfolio", "calendar"].includes(h)) view = h; }
 tickClock(); setInterval(tickClock, 1000);
 document.addEventListener("mouseover", e => { mmPaused = Boolean(e.target.closest("#mm")); });
 load(true);

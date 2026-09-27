@@ -89,4 +89,16 @@ async function fetchIndexList(file) {
   return lines.slice(1).map(l => l.split(",")).filter(c => c[iSym]).map(c => ({ symbol: c[iSym].trim(), name: (c[iName] || "").trim(), industry: (c[iInd] || "").trim() }));
 }
 
-module.exports = { fetch52Week, fetchIndices, fetchFiiDii, fetchCalendar, fetchEquityList, fetchIndexList, nseGet };
+// ---- F&O: every underlying with today's open-interest change (NSE "OI spurts") ----
+const FO_INDEX = new Set(["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50", "NIFTYFPI"]);
+async function fetchFoOI() {
+  const j = await nseGet("/api/live-analysis-oi-spurts-underlyings", "/market-data/oi-spurts");
+  const items = (j.data || []).filter(x => x.symbol && !FO_INDEX.has(x.symbol)).map(x => ({
+    symbol: x.symbol, oi: x.latestOI, prev_oi: x.prevOI, oi_chg: x.changeInOI,
+    oi_chg_pct: x.prevOI ? Math.round(x.changeInOI / x.prevOI * 10000) / 100 : null, volume: x.volume, underlying: x.underlyingValue,
+  }));
+  if (items.length < 100) throw new Error("F&O list too short");
+  return { date: j.timestamp, items };
+}
+
+module.exports = { fetch52Week, fetchIndices, fetchFiiDii, fetchCalendar, fetchEquityList, fetchIndexList, fetchFoOI, nseGet };

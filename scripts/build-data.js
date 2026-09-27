@@ -53,6 +53,20 @@ async function loadUniverse() {
   for (const x of n50list) if (!list.some(y => y.symbol === x.symbol)) list.push(x);
   const map = {};
   for (const x of list) map[x.symbol] = { ...x, nifty50: n50.has(x.symbol) };
+  for (const x of Object.values(map)) x.nifty200 = true;
+  // F&O stocks: add any that aren't in the Nifty 200 (they are all large/mid caps with derivatives)
+  const fo = await attempt("fo_oi", () => nse.fetchFoOI(), null);
+  const foFile = path.join(CACHE, "fo.json");
+  const foData = fo || readJson(foFile, null);
+  if (fo) { fs.mkdirSync(CACHE, { recursive: true }); fs.writeFileSync(foFile, JSON.stringify(fo)); }
+  if (foData) {
+    let names = readJson(path.join(CACHE, "equity_names.json"), null);
+    if (!names) { const eq = await attempt("equity_list", () => nse.fetchEquityList(), null); if (eq) { names = Object.fromEntries(eq.map(e => [e.symbol, e.name])); fs.mkdirSync(CACHE, { recursive: true }); fs.writeFileSync(path.join(CACHE, "equity_names.json"), JSON.stringify(names)); } }
+    for (const f of foData.items) {
+      if (!map[f.symbol]) map[f.symbol] = { symbol: f.symbol, name: names?.[f.symbol] || f.symbol, industry: "", nifty50: false, nifty200: false };
+      map[f.symbol].fo = { oi: f.oi, oi_chg: f.oi_chg, oi_chg_pct: f.oi_chg_pct, date: foData.date, fresh: Boolean(fo) };
+    }
+  }
   for (const s of cfg.extra_symbols || []) if (!map[s.symbol || s]) map[s.symbol || s] = { symbol: s.symbol || s, name: s.name || s.symbol || s, industry: s.industry || "", nifty50: false, extra: true };
   for (const x of Object.values(map)) {
     const kws = KEYWORDS[x.symbol] ? [...KEYWORDS[x.symbol]] : deriveKeywords(x.name);
@@ -161,7 +175,8 @@ async function main() {
   const stocks = syms.map(s => {
     const u = universe[s], t = techs[s], q = t?.quote || {};
     const sn = bySym[s] || [], ev = upcoming.filter(e => e.symbol === s);
-    return { symbol: s, name: u.name, industry: u.industry, nifty50: u.nifty50, price: q.price ?? null, change_pct: q.change_pct ?? null,
+    const foInfo = u.fo ? { ...u.fo, buildup: u.fo.oi_chg_pct == null || q.change_pct == null ? null : q.change_pct >= 0 ? (u.fo.oi_chg >= 0 ? "Long build-up" : "Short covering") : (u.fo.oi_chg >= 0 ? "Short build-up" : "Long unwinding") } : null;
+    return { symbol: s, name: u.name, industry: u.industry, nifty50: u.nifty50, nifty200: u.nifty200 !== false, fo: foInfo, turnover_cr: t?.tech?.vol && q.price ? Math.round(t.tech.vol * q.price / 1e5) / 100 : null, price: q.price ?? null, change_pct: q.change_pct ?? null,
       tech: t?.tech || null, news_ids: sn.map(n => n.id), events: ev.slice(0, 3),
       spark: t ? t.series.slice(-30).map(p => p[1]) : [],
       insight: stockInsight(s, u.name, t?.tech, sn, ev, q.change_pct) };
