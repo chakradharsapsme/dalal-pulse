@@ -282,6 +282,8 @@ async function main() {
     nifty_returns: Object.fromEntries(Object.entries(nr).map(([k, v]) => [k, r2(v)])), backtest: bt.summary, live_record: liveRecord, indices, circuits, news_speed: newsSpeed, options, kite_api_key: cfg.kite_publisher_api_key || null,
     stocks, news: newsOut, w52, calendar: upcoming.slice(0, 600).map(e => ({ ...e, tracked: Boolean(universe[e.symbol]), nifty50: Boolean(universe[e.symbol]?.nifty50) })),
   };
+  // Expert Agent: rule-based advice cards (pop up on the site; history in .cache/advice.json)
+  try { out.advice = require("./lib/advisor").run(out, CACHE); log(`[advice] ${out.advice.new_ids.length} new, ${out.advice.items.length} kept, stance ${out.advice.stance}`); } catch (e) { log("[advice] " + e.message); }
   fs.writeFileSync(path.join(OUT, "latest.json"), JSON.stringify(out));
   // small plain-text briefs for the "Dalal Pulse Expert" AI agent / connector (data/ai/*.txt)
   try {

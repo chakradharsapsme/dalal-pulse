@@ -39,7 +39,7 @@ async function load(first) {
   if (D) prevPrice = Object.fromEntries(D.stocks.map(s => [s.symbol, s.price]));
   D = d; S = Object.fromEntries(D.stocks.map(s => [s.symbol, s])); NEWS = Object.fromEntries(D.news.map(n => [n.id, n]));
   if (!changed) { footer(); return; }
-  renderTape(); renderTape2(); renderBand(); renderTicker(); render(); footer(); checkAlerts(first); newsFlash(first);
+  renderTape(); renderTape2(); renderBand(); renderTicker(); render(); footer(); checkAlerts(first); newsFlash(first); paAgent(first);
   if (!first) { flashChanges(); toast("New prices and headlines just arrived"); }
 }
 function footer() {
@@ -1418,6 +1418,160 @@ if (!SNAPSHOT) window.addEventListener("hashchange", () => { readHash(); render(
 if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "fno", "options", "circuits", "screener", "w52", "portfolio", "calendar"].includes(h)) view = h; }
 tickClock(); setInterval(tickClock, 1000);
 document.addEventListener("mouseover", e => { mmPaused = Boolean(e.target.closest("#mm")); btHover = Boolean(e.target.closest("#bticker")); });
+// ---------- PULSE AGENT: floating assistant (rule-based; advice comes from data/latest.json → advice) ----------
+const PA = { open: false, queue: [], unread: 0, msgs: [], busy: false };
+const paPref = () => store.get("dp-agentpop", "all");
+const PA_ICON = `<svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true"><circle cx="16" cy="16" r="15" fill="url(#pagrad)"/><path d="M5.5 17.5h4.2l2.2-5 3.2 9.2 2.6-6.4 1.6 2.2h3.2" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M23.2 6.2l.9 2.3 2.3.9-2.3.9-.9 2.3-.9-2.3-2.3-.9 2.3-.9z" fill="#fff"/></svg>`;
+const PA_DEFS = `<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="pagrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b6e72"/><stop offset=".55" stop-color="#138a7e"/><stop offset="1" stop-color="#d9820f"/></linearGradient></defs></svg>`;
+const paKindIcon = { market: "🧭", long: "📈", exit: "🎯", caution: "⚠️", options: "🧮", news: "🏛", event: "📅" };
+function paInit() {
+  if ($("#pa")) return;
+  const w = document.createElement("div"); w.id = "pa";
+  w.innerHTML = PA_DEFS + `<div class="pa-bub" id="paBub" hidden></div>
+    <section class="pa-panel" id="paPanel" hidden aria-label="Pulse Agent">
+      <div class="pa-h">${PA_ICON}<div><b>Pulse Agent</b><span id="paSt">watching the market</span></div>
+        <button class="pa-ic" id="paSet" title="Pop-up settings" aria-label="Settings">⚙</button><button class="pa-ic" id="paX" aria-label="Close">✕</button></div>
+      <div class="pa-setr" id="paSetR" hidden><span>Pop-ups:</span>${[["all", "All advice"], ["high", "Important only"], ["off", "Off"]].map(([k, l]) => `<button data-papop="${k}">${l}</button>`).join("")}</div>
+      <div class="pa-body" id="paBody"></div>
+      <div class="pa-chips" id="paChips">${[["market", "🧭 Market now"], ["ideas", "📈 Today's setups"], ["open", "🎯 Track my setups"], ["options", "🧮 Options idea"], ["help", "❓ How to use"]].map(([k, l]) => `<button data-paq="${k}">${l}</button>`).join("")}</div>
+      <form class="pa-in" id="paForm"><input id="paQ" placeholder="Ask about a stock (e.g. HDFC Bank) or the market…" autocomplete="off" aria-label="Ask Pulse Agent"><button aria-label="Send">➤</button></form>
+      <div class="pa-foot">Rule-based assistant using this site's data. Information only, not investment advice.</div>
+    </section>
+    <button class="pa-fab" id="paFab" aria-label="Open Pulse Agent" title="Pulse Agent">${PA_ICON}<span class="pa-n" id="paN" hidden></span></button>`;
+  document.body.append(w);
+  $("#paFab").onclick = () => paToggle();
+  $("#paX").onclick = () => paToggle(false);
+  $("#paSet").onclick = () => { const r = $("#paSetR"); r.hidden = !r.hidden; paSetMark(); };
+  w.addEventListener("click", e => {
+    const t = e.target;
+    const pp = t.closest("[data-papop]"); if (pp) { store.set("dp-agentpop", pp.dataset.papop); paSetMark(); toast(pp.dataset.papop === "off" ? "Agent pop-ups turned off (advice still collects here)" : "Saved"); return; }
+    const q = t.closest("[data-paq]"); if (q) { paAsk(q.dataset.paq, q.textContent.replace(/^\S+\s/, "")); return; }
+    const g = t.closest("[data-pago]"); if (g) { go(g.dataset.pago); if (innerWidth < 700) paToggle(false); $("#paBub").hidden = true; return; }
+    const nv = t.closest("[data-panav]"); if (nv) { nav(nv.dataset.panav); if (innerWidth < 700) paToggle(false); $("#paBub").hidden = true; return; }
+    const k = t.closest("[data-pakite]"); if (k) { paKite(k.dataset.pakite); return; }
+    const o = t.closest("[data-paopen]"); if (o) { $("#paBub").hidden = true; paToggle(true); const a = paItems().find(x => x.id === o.dataset.paopen); if (a) paSay(paCard(a, true)); return; }
+    if (t.closest("[data-panext]")) { PA.queue.shift(); paShowBub(); return; }
+    if (t.closest("[data-pabx]")) { PA.queue = []; $("#paBub").hidden = true; return; }
+  });
+  $("#paForm").onsubmit = e => { e.preventDefault(); const v = $("#paQ").value.trim(); if (!v) return; $("#paQ").value = ""; paAsk(null, v); };
+}
+function paSetMark() { const p = paPref(); document.querySelectorAll("[data-papop]").forEach(b => b.classList.toggle("on", b.dataset.papop === p)); }
+const paItems = () => ((D && D.advice && D.advice.items) || []);
+function paToggle(force) {
+  const p = $("#paPanel"); PA.open = force ?? p.hidden; p.hidden = !PA.open; $("#pa").classList.toggle("open", PA.open);
+  if (PA.open) { $("#paBub").hidden = true; PA.unread = 0; paBadge(); if (!PA.msgs.length) paWelcome(); setTimeout(() => $("#paQ").focus({ preventScroll: true }), 50); }
+}
+function paBadge() { const n = $("#paN"); if (!n) return; n.hidden = !PA.unread; n.textContent = PA.unread > 9 ? "9+" : PA.unread; $("#paFab").classList.toggle("ping", PA.unread > 0); }
+function paStance() { const st = D.advice?.stance; return st === "bull" ? ["up", "Market uptrend"] : st === "bear" ? ["down", "Market downtrend"] : ["warn", "Market mixed"]; }
+function paPlanRow(p) { return p ? `<div class="pa-plan"><span>Buy near <b>${px(p.entry)}</b></span><span>Stop <b class="down">${px(p.stop)}</b></span><span>Target <b class="up">${px(p.target)}</b></span><span>R:R <b>${p.rr}</b></span></div>` : ""; }
+function paSize(p) {
+  if (!p) return "";
+  const c = agentCfg || { capital: 200000, risk: "balanced" }, r = (RISK[c.risk] || RISK.balanced).pct;
+  const riskRs = c.capital * r / 100, qty = Math.max(0, Math.floor(riskRs / Math.max(0.01, p.entry - p.stop)));
+  const cost = qty * p.entry, capQ = Math.floor(c.capital * 0.25 / p.entry), q = Math.min(qty, capQ);
+  return q ? `<div class="pa-size">Size for your ₹${fmt(c.capital, 0)} capital (${(RISK[c.risk] || RISK.balanced).name}, ${r}% risk): <b>${q} shares</b> ≈ ${px(q * p.entry)}. A stop-out loses ≈ ${px(q * (p.entry - p.stop))}.${q < qty ? " Capped at 25% of capital." : ""} <span class="muted">Change capital/risk in Options → Expert.</span></div>` : "";
+}
+function paCard(a, full) {
+  const s = a.sym && S[a.sym], live = s ? `<span class="num">${px(s.price)}</span> <b class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</b>` : "";
+  const status = a.kind === "long" && a.status && a.status !== "open" ? `<span class="badge ${a.status === "target" ? "bullish" : "bearish"}">${a.status === "target" ? "target hit" : a.status === "stopped" ? "stopped out" : "expired"}</span>` : "";
+  return `<div class="pa-card ${a.tone || "neutral"}"><div class="pa-ct"><span class="pa-k">${paKindIcon[a.kind] || "💡"}</span><b>${esc(a.title)}</b>${status}</div>
+    <div class="pa-meta">${live}<span class="muted">${ago(a.at)}</span>${a.conf ? `<span class="badge ${a.conf === "High" ? "bullish" : a.conf === "Medium" ? "watch" : "neutral"}">${a.conf} confidence</span>` : ""}</div>
+    <p>${esc(a.text)}</p>${a.kind === "long" ? paPlanRow(a.plan) : ""}
+    ${full && (a.why || []).length ? `<ul class="pa-why">${a.why.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
+    ${full && (a.notes || []).length ? a.notes.map(n => `<div class="pa-note">${esc(n)}</div>`).join("") : ""}
+    ${full && a.kind === "long" && a.status === "open" ? paSize(a.plan) : ""}
+    <div class="pa-act">${a.sym && S[a.sym] ? `<button data-pago="${esc(a.sym)}">Open ${esc(a.sym)} chart ›</button>` : ""}${a.kind === "options" ? `<button data-panav="options">Open Options tab ›</button>` : ""}${full && a.kind === "long" && a.status === "open" ? `<button class="kb" data-pakite="${esc(a.id)}">Buy on Kite</button>` : ""}${!full ? `<button data-paopen="${esc(a.id)}">Details</button>` : ""}</div></div>`;
+}
+function paSay(html, who = "agent") {
+  PA.msgs.push({ who, html }); const b = $("#paBody"); if (!b) return;
+  const el = document.createElement("div"); el.className = "pa-m " + who; el.innerHTML = html; b.append(el);
+  while (b.children.length > 40) b.firstElementChild.remove();
+  el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+function paWelcome() {
+  const [c, l] = paStance(), items = paItems(), today = items.filter(a => a.day === D.advice?.day);
+  paSay(`<div class="pa-hi">Hi! I watch Dalal Pulse every 5 minutes and pop up when something needs your attention.</div>
+    <div class="pa-stance ${c}">${l}${D.advice?.day ? ` · data of ${esc(D.advice.day)}` : ""}</div>
+    ${today.length ? `<div class="muted" style="margin:8px 0 4px">Latest advice (${today.length}):</div>` + today.slice(0, 4).map(a => paCard(a, false)).join("") : `<p class="muted">No new advice yet today. Tap a question below or type a stock name.</p>`}`);
+}
+function paAsk(key, text) {
+  paSay(esc(text), "me");
+  const q = (text || "").toLowerCase(), k = key ||
+    (/\b(market|nifty|sensex|today|mood|trend|fii)\b/.test(q) ? "market" : /\b(idea|buy|pick|recommend|setup|suggest)/.test(q) ? "ideas" : /\b(option|f&o|fno|spread|lottery|call|put)\b/.test(q) ? "options" : /\b(exit|stop|target|track|open setup|my setup)/.test(q) ? "open" : /\b(help|how|use|where|what can)/.test(q) ? "help" : "stock");
+  setTimeout(() => paSay(paAnswer(k, text) + paClaude(text)), 250);
+}
+function paClaude(text) {
+  const q = `Using my Dalal Pulse connector and the Dalal Pulse Expert skill: ${text}`;
+  return `<a class="pa-claude" href="https://claude.ai/new?q=${encodeURIComponent(q)}" target="_blank" rel="noopener">Ask Claude for a deeper view ↗</a>`;
+}
+function paAnswer(k, text) {
+  const adv = paItems();
+  if (k === "market") {
+    const m = D.mood || {}, a = adv.find(x => x.kind === "market"), [c, l] = paStance();
+    return `<div class="pa-stance ${c}">${l}</div>${a ? `<p><b>${esc(a.title)}.</b> ${esc(a.text)}</p>` : ""}<ul class="pa-why">${(m.lines || []).slice(0, 5).map(x => `<li>${esc(x)}</li>`).join("")}</ul>`;
+  }
+  if (k === "ideas") {
+    const l = adv.filter(a => a.kind === "long" && a.status === "open");
+    if (l.length) return `<p>${l.length} active setup${l.length > 1 ? "s" : ""} that pass my checklist (trend, relative strength, sector, trigger, F&O/news):</p>` + l.slice(0, 5).map(a => paCard(a, true)).join("");
+    const top = D.stocks.filter(s => s.tech?.above_200 && (s.insight?.score ?? 0) > 20).sort((a, b) => b.insight.score - a.insight.score).slice(0, 4);
+    return `<p>No stock passes my full checklist right now. When the market is weak, waiting is a position too.</p>${top.length ? `<p class="muted">Closest candidates to watch:</p>` + top.map(s => `<button class="pa-row" data-pago="${esc(s.symbol)}"><b>${esc(s.symbol)}</b><span>${esc(s.insight.label)}</span><b class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</b></button>`).join("") : ""}`;
+  }
+  if (k === "open") {
+    const l = adv.filter(a => a.kind === "long").slice(0, 8), ex = adv.filter(a => a.kind === "exit").slice(0, 4);
+    if (!l.length) return `<p>No setups are being tracked yet. When I post one, I follow it and pop up if it hits the target or the stop.</p>`;
+    return ex.map(a => paCard(a, false)).join("") + l.map(a => { const s = S[a.sym] || {}, ch = s.price && a.plan ? (s.price / a.plan.entry - 1) * 100 : null;
+      return `<button class="pa-row" data-pago="${esc(a.sym)}"><b>${esc(a.sym)}</b><span>${a.status === "open" ? "open" : a.status} · since ${esc(a.day)}</span><b class="num ${cls(ch)}">${ch == null ? "–" : pct(ch)}</b></button>`; }).join("") + `<p class="muted">Rule: exit at the stop, book at the target. Small losses, bigger wins.</p>`;
+  }
+  if (k === "options") {
+    const a = adv.find(x => x.kind === "options"), iv = (D.options?.indices || [])[0];
+    return (a ? paCard(a, true) : `<p>No defined-risk options idea right now.</p>`) + (iv ? `<p class="muted">${esc(iv.symbol)}: expected move ±${iv.exp_move_pct}% to expiry ${esc(iv.expiry)} (${fmt(iv.range_lo, 0)}–${fmt(iv.range_hi, 0)}), PCR ${iv.pcr}, max pain ${iv.max_pain}.</p>` : "") + `<div class="pa-note">About 9 in 10 individual F&O traders lose money (SEBI). Only use money you can fully lose, and prefer spreads.</div>`;
+  }
+  if (k === "help") return `<p>I'm the Pulse Agent. I:</p><ul class="pa-why"><li>check the site's data every refresh (5 min in market hours)</li><li>pop up for market-trend changes, strong stock setups with entry/stop/target, target or stop hits, caution flags, options ideas and key NSE filings</li><li>answer questions: type a stock name (e.g. "Tata Motors") or tap a chip</li></ul><p class="muted">Pop-up settings: ⚙ at the top. Everything is rule-based: no guesses, no paid AI.</p>`;
+  // stock lookup
+  const raw = (text || "").trim(), up = raw.toUpperCase().replace(/[^A-Z0-9&\- ]/g, "").trim(), words = raw.toLowerCase().split(/\s+/).filter(w => w.length > 2 && !/^(is|the|buy|sell|good|now|should|what|about|stock|share|price|ltd|limited)$/.test(w));
+  const s = S[up.replace(/\s/g, "")] || D.stocks.find(x => up.split(" ").includes(x.symbol)) || D.stocks.find(x => words.length && words.every(w => (x.name || "").toLowerCase().includes(w))) || D.stocks.find(x => words.some(w => w.length > 3 && (x.name || "").toLowerCase().startsWith(w)));
+  if (!s) return `<p>I couldn't match that to a tracked stock (Nifty 200 + F&O). Try a symbol like <b>RELIANCE</b> or a name like <b>HDFC Bank</b>, or tap a chip below.</p>`;
+  const t = s.tech || {}, i = s.insight || {}, a = adv.find(x => x.sym === s.symbol && x.kind === "long" && x.status === "open");
+  const verdict = a ? `✅ It is one of my active setups.` : (i.score ?? 0) >= 30 && t.above_200 ? "🟢 Positive, but it doesn't pass my full checklist yet: wait for a pullback to support or a breakout on volume." : (i.score ?? 0) <= -25 ? "🔴 Weak: avoid fresh buying until it gets back above its 50-day average." : "🟡 Mixed: no clear edge. Watch the levels below.";
+  return `<div class="pa-card neutral"><div class="pa-ct"><b>${esc(s.symbol)}</b><span class="muted">${esc((s.name || "").slice(0, 34))}</span></div><div class="pa-meta"><span class="num">${px(s.price)}</span><b class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</b><span class="badge ${i.signal || "neutral"}">${esc(i.label || "–")}</span></div>
+    <p><b>${verdict}</b></p>${a ? paPlanRow(a.plan) : ""}<p>${esc(i.summary || "")}</p>
+    <ul class="pa-why">${(i.watch || []).slice(0, 4).map(w => `<li>${esc(w)}</li>`).join("")}${s.fo?.buildup ? `<li>F&O: ${esc(s.fo.buildup)} (OI ${pct(s.fo.oi_chg_pct)})</li>` : ""}${t.rs_rating != null ? `<li>Relative strength ${t.rs_rating}/99 · 1M ${pct(t.ret_1m)}</li>` : ""}</ul>
+    <div class="pa-act"><button data-pago="${esc(s.symbol)}">Open ${esc(s.symbol)} chart ›</button></div></div>`;
+}
+function paKite(id) {
+  const a = paItems().find(x => x.id === id); if (!a || !a.plan) return;
+  const c = agentCfg || { capital: 200000, risk: "balanced" }, r = (RISK[c.risk] || RISK.balanced).pct, p = a.plan;
+  const q = Math.max(1, Math.min(Math.floor(c.capital * r / 100 / Math.max(0.01, p.entry - p.stop)), Math.floor(c.capital * 0.25 / p.entry)));
+  const live = S[a.sym]?.price || p.entry;
+  kiteModal(`Buy ${a.sym} (Pulse Agent setup)`, [{ exchange: "NSE", tradingsymbol: a.sym, transaction_type: "BUY", quantity: q, order_type: "LIMIT", price: Math.round(live * 20) / 20, product: "CNC", variety: "regular" }],
+    `Plan: stop ${px(p.stop)}, target ${px(p.target)}. After buying, place your stop-loss in Kite (GTT) yourself. Quantity uses your ${RISK[c.risk]?.name || "Balanced"} risk on ₹${fmt(c.capital, 0)}.`);
+}
+function paShowBub() {
+  const b = $("#paBub"), a = PA.queue[0]; if (!b) return;
+  if (!a || PA.open) { b.hidden = true; return; }
+  b.innerHTML = `<button class="pa-bx" data-pabx aria-label="Dismiss">✕</button><div class="pa-bh">${PA_ICON}<b>Pulse Agent</b><span class="muted">${ago(a.at)}</span></div>${paCard(a, false)}${PA.queue.length > 1 ? `<button class="pa-next" data-panext>Next (${PA.queue.length - 1} more) ›</button>` : ""}`;
+  b.hidden = false; b.classList.remove("in"); void b.offsetWidth; b.classList.add("in");
+  clearTimeout(PA.t); PA.t = setTimeout(() => { if (!b.matches(":hover")) b.hidden = true; }, 25000);
+}
+function paAgent(first) {
+  if (SNAPSHOT) return; paInit(); if (!D || !D.advice) return;
+  const [c, l] = paStance(); $("#paSt").textContent = `${l} · checks every refresh`; $("#paSt").className = c;
+  const items = paItems(), seen = new Set(store.get("dp-advseen", [])), firstEver = !seen.size;
+  let fresh = items.filter(a => !seen.has(a.id));
+  store.set("dp-advseen", items.map(a => a.id).concat([...seen]).slice(0, 600));
+  if (firstEver) fresh = fresh.filter(a => a.kind === "market" || (a.prio === "high" && Date.now() - Date.parse(a.at) < 6 * 3600e3)).slice(0, 2);
+  if (!fresh.length) return;
+  PA.unread += fresh.length; paBadge();
+  if (PA.open) { fresh.slice(0, 3).forEach(a => paSay(paCard(a, false))); return; }
+  const pref = paPref(), pop = fresh.filter(a => pref === "all" ? a.prio !== "low" : pref === "high" ? a.prio === "high" : false);
+  if (!pop.length) return;
+  const order = { exit: 0, market: 1, long: 2, caution: 3, options: 4, news: 5, event: 6 };
+  PA.queue = pop.sort((x, y) => (order[x.kind] ?? 9) - (order[y.kind] ?? 9)).slice(0, 6);
+  setTimeout(paShowBub, first ? 2500 : 600);
+  if (document.hidden && "Notification" in window && Notification.permission === "granted") { try { new Notification("Pulse Agent: " + pop[0].title, { body: pop[0].text, tag: pop[0].id }); } catch {} }
+}
+
 load(true);
 // auto-update: if a newer version of the site has been published, reload once to pick it up
 async function checkVersion() {

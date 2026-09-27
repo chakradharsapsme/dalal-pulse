@@ -77,6 +77,12 @@ function build(d, opt = {}) {
   // ---------- ideas.txt (screens) ----------
   {
     const L = ["DALAL PULSE — IDEAS & SCREENS", stamp, "Each list is rule-based. Treat as a shortlist to research, never as a buy/sell call.", ""];
+    const adv = ((d.advice || {}).items || []).slice(0, 15);
+    if (adv.length) {
+      L.push("## EXPERT AGENT ADVICE (site's rule-based pop-ups, newest first)");
+      for (const a of adv) L.push(`- [${ist(a.at)}] ${a.title}${a.status && a.status !== "open" ? ` [${a.status}]` : ""}: ${a.text}${(a.why || []).length ? ` | why: ${a.why.join("; ")}` : ""}${(a.notes || []).length ? ` | note: ${a.notes.join(" ")}` : ""}`);
+      L.push("");
+    }
     const sec = (title, arr, n = 10, why = 0) => { L.push(`## ${title} (${arr.length})`); arr.slice(0, n).forEach((s, k) => L.push("- " + stockLine(s) + (k < why && I(s).summary ? `\n    why: ${I(s).summary}` : ""))); if (!arr.length) L.push("- none right now"); L.push(""); };
     const up = stocks.filter(s => T(s).above_200 && T(s).above_50);
     sec("Strongest positive setups (site's rule-based view, highest score)", [...stocks].filter(s => (I(s).score ?? 0) > 0).sort((a, b) => I(b).score - I(a).score), 12, 5);
