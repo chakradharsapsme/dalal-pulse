@@ -210,6 +210,13 @@ async function main() {
     stocks, news: newsOut, w52, calendar: upcoming.slice(0, 600).map(e => ({ ...e, tracked: Boolean(universe[e.symbol]), nifty50: Boolean(universe[e.symbol]?.nifty50) })),
   };
   fs.writeFileSync(path.join(OUT, "latest.json"), JSON.stringify(out));
+  // cache-busting: stamp app.js / style.css links with a content hash so visitors always get the latest design
+  try {
+    const crypto = require("crypto"), site = path.join(ROOT, "site"), idx = path.join(site, "index.html");
+    const ver = f => crypto.createHash("md5").update(fs.readFileSync(path.join(site, f))).digest("hex").slice(0, 8);
+    const html = fs.readFileSync(idx, "utf8").replace(/(href|src)="(style\.css|app\.js)(\?v=\w+)?"/g, (m, a, f) => `${a}="${f}?v=${ver(f)}"`);
+    fs.writeFileSync(idx, html);
+  } catch (e) { log("[version] " + e.message); }
   log(`[done] ${stocks.length} stocks, ${newsOut.length} headlines (${Object.keys(bySym).length} stocks with news), mood ${mood.score} ${mood.label}, ${Math.round((Date.now() - t0) / 1000)}s`);
   log("[status] " + JSON.stringify(status));
 }
