@@ -1606,7 +1606,7 @@ const PA_SECTORS = [
   ["psu bank", s => ["SBIN", "PNB", "BANKBARODA", "CANBK", "UNIONBANK", "INDIANB", "BANKINDIA", "MAHABANK", "IOB", "UCOBANK"].includes(s.symbol)],
   ["private bank", s => /bank/i.test(s.name) && !["SBIN", "PNB", "BANKBARODA", "CANBK", "UNIONBANK", "INDIANB", "BANKINDIA"].includes(s.symbol)],
   ["bank", s => /bank/i.test(s.name) && s.industry === "Financial Services"], ["nbfc|finance|financial|insurance|broking|amc", s => s.industry === "Financial Services" && !/bank/i.test(s.name)],
-  ["pharma|healthcare|hospital|health|drug", s => s.industry === "Healthcare"], ["it|tech|software|information technology", s => s.industry === "Information Technology"],
+  ["pharma|healthcare|hospital|health|drug", s => s.industry === "Healthcare"], ["it sector|it stocks|it shares|it companies|it index|it space|tech|software|information technology", s => s.industry === "Information Technology"],
   ["auto|automobile|car|vehicle|two wheeler|ev", s => /Automobile/.test(s.industry || "")], ["metal|steel|mining|aluminium|copper", s => /Metals/.test(s.industry || "")],
   ["oil|gas|energy|petroleum|refin", s => /Oil Gas/.test(s.industry || "")], ["power|electric|utility|utilities|renewable", s => s.industry === "Power"],
   ["fmcg|consumer goods|staples", s => /Fast Moving/.test(s.industry || "")], ["realty|real estate|property|housing", s => s.industry === "Realty"],
