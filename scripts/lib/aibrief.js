@@ -125,6 +125,9 @@ function build(d, opt = {}) {
   files["stocks.txt"] = ["DALAL PULSE — ALL TRACKED STOCKS (Nifty 200 + F&O). RS = relative-strength rating 1-99 vs the universe.", stamp, "",
     ...[...stocks].sort((a, b) => a.symbol.localeCompare(b.symbol)).map(stockLine), "", "For full detail on one stock read stock/<SYMBOL>.txt", DISCLAIMER].join("\n");
 
+  // ---------- names.txt (symbol|company name, for lookups by name) ----------
+  files["names.txt"] = stocks.map(s => `${s.symbol}|${s.name || ""}`).join("\n");
+
   // ---------- stock/<SYM>.txt ----------
   for (const s of stocks) {
     const t = T(s), i = I(s), L = [];

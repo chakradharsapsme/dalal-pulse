@@ -58,11 +58,11 @@ async function callTool(name, args = {}) {
   const key = s => s.replace(/[^A-Z0-9&-]/g, "_");
   const direct = await getText(`stock/${encodeURIComponent(key(sym))}.txt`);
   if (direct) return direct;
-  // fall back: search symbols / names in the list
-  const list = (await getText("stocks.txt")) || "";
-  const syms = list.split("\n").map(l => l.split("|")[0].trim()).filter(s => /^[A-Z0-9&-]+$/.test(s));
-  const words = raw.toUpperCase().split(/\s+/).filter(Boolean);
-  const hit = syms.find(s => s === words[0]) || syms.find(s => s.startsWith(sym)) || syms.find(s => words.some(w => w.length >= 3 && s.includes(w.slice(0, 5))));
+  // fall back: search symbols / company names
+  const rows = ((await getText("names.txt")) || "").split("\n").map(l => l.split("|")).filter(r => r[0]);
+  const norm = x => String(x).toUpperCase().replace(/\b(LTD|LIMITED|INDIA|CORPORATION|CORP|COMPANY|CO|THE|OF|AND)\b\.?/g, " ").replace(/[^A-Z0-9&]/g, "");
+  const q = norm(raw), syms = rows.map(r => r[0]);
+  const hit = (rows.find(r => r[0] === sym) || rows.find(r => norm(r[1]) === q) || rows.find(r => q.length >= 3 && norm(r[1]).startsWith(q)) || rows.find(r => r[0].startsWith(sym)) || rows.find(r => q.length >= 4 && norm(r[1]).includes(q)) || [])[0];
   if (hit) { const t2 = await getText(`stock/${encodeURIComponent(key(hit))}.txt`); if (t2) return `(Closest match for "${raw}": ${hit})\n\n` + t2; }
   return `"${raw}" is not in the Dalal Pulse universe (Nifty 200 + F&O stocks). Tracked symbols include: ${syms.slice(0, 60).join(", ")} … Call all_stocks for the full list.`;
 }
