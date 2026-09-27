@@ -1562,6 +1562,7 @@ async function paAsk(key, text) {
     let html;
     if (ai) {
       const secs = ((Date.now() - t0) / 1000).toFixed(1);
+      ai.answer = ai.answer.replace(/(the |our )?DESK QUANT MODEL/gi, "our quant model").replace(/Based on our quant model/g, "Per our quant model");
       html = stamp + `<div class="pa-ai">${paMd(ai.answer)}</div>
         <details class="pa-work"><summary>Worked for ${secs}s · ${(ai.steps || []).length} steps · ${esc(ai.model || "AI")}</summary><ol>${(ai.steps || []).map(x => `<li>${esc(x.d)}</li>`).join("")}</ol></details>
         <details class="pa-data"><summary>Data snapshot used</summary>${cardHtml}</details>` + paFollow(paNext(PA.lastIntent, syms));
@@ -1579,7 +1580,7 @@ function paDesk(syms) {
   return syms.filter(x => S[x]).map(x => { const st = S[x], sc = paScore(st), t = st.tech || {}, adv = paItems().find(a => a.sym === x && a.kind === "long" && a.status === "open"), p = adv ? adv.plan : paPlan(st);
     const rating = adv ? "Buy (active setup)" : sc.v >= 72 && t.above_50 ? "Buy on dips" : sc.v >= 58 ? "Accumulate / wait for entry" : sc.v >= 44 ? "Hold / Neutral" : sc.v >= 30 ? "Reduce" : "Avoid";
     const cap = agentCfg?.capital || 200000, per = p && p.entry > p.stop ? p.entry - p.stop : null;
-    const size = per ? [1, 2].map(r => { const q = Math.max(0, Math.min(Math.floor(cap * r / 100 / per), Math.floor(cap * 0.25 / p.entry))); return `${r}% risk (₹${Math.round(cap * r / 100).toLocaleString("en-IN")}) → ${q} shares ≈ ₹${Math.round(q * p.entry).toLocaleString("en-IN")}, loss if stopped ≈ ₹${Math.round(q * per).toLocaleString("en-IN")}`; }).join(" | ") + ` (capital ₹${cap.toLocaleString("en-IN")}, max 25% in one stock)` : "";
+    const size = per ? [1, 2].map(r => { const raw = Math.floor(cap * r / 100 / per), q = Math.max(0, Math.min(raw, Math.floor(cap * 0.25 / p.entry))); return `${r}% risk (₹${Math.round(cap * r / 100).toLocaleString("en-IN")}) → ${q} shares${q < raw ? " (capped by the 25%-of-capital limit)" : ""} ≈ ₹${Math.round(q * p.entry).toLocaleString("en-IN")}, loss if stopped ≈ ₹${Math.round(q * per).toLocaleString("en-IN")}`; }).join(" | ") + ` (capital ₹${cap.toLocaleString("en-IN")}, max 25% in one stock)` : "";
     return { sym: x, score: sc.v, rating, size, entry: p?.entry && Math.round(p.entry * 100) / 100, stop: p?.stop, target: p?.target, pros: sc.parts.filter(y => y[1] > 0).map(y => y[0]).join("; "), cons: sc.parts.filter(y => y[1] < 0).map(y => y[0]).join("; ") }; });
 }
 function paNext(intent, syms) {
