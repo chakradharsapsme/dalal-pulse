@@ -283,6 +283,14 @@ async function main() {
     stocks, news: newsOut, w52, calendar: upcoming.slice(0, 600).map(e => ({ ...e, tracked: Boolean(universe[e.symbol]), nifty50: Boolean(universe[e.symbol]?.nifty50) })),
   };
   fs.writeFileSync(path.join(OUT, "latest.json"), JSON.stringify(out));
+  // the site's public address: custom domain (config.json "custom_domain", e.g. dalalpulse.com) or the GitHub Pages address
+  try {
+    const [o, r] = (process.env.GITHUB_REPOSITORY || "chakradharsapsme/dalal-pulse").split("/");
+    // public_url: a free short address that fronts this site (e.g. https://dalalpulse.pages.dev/); custom_domain wins if set
+    const siteUrl = cfg.custom_domain ? `https://${cfg.custom_domain.trim()}/` : cfg.public_url ? cfg.public_url.trim().replace(/\/?$/, "/") : `https://${o.toLowerCase()}.github.io/${r}/`;
+    const addr = /https:\/\/(?:[a-z0-9-]+\.github\.io\/[A-Za-z0-9._-]+\/|(?:www\.)?dalalpulse\.com\/|[a-z0-9-]+\.pages\.dev\/|__SITE_URL__)/g;
+    for (const f of ["index.html", "sitemap.xml"]) { const fp = path.join(ROOT, "site", f); if (fs.existsSync(fp)) fs.writeFileSync(fp, fs.readFileSync(fp, "utf8").replace(addr, siteUrl)); }
+  } catch (e) { log("[site-url] " + e.message); }
   // cache-busting: stamp app.js / style.css links with a content hash so visitors always get the latest design
   try {
     const crypto = require("crypto"), site = path.join(ROOT, "site"), idx = path.join(site, "index.html");
