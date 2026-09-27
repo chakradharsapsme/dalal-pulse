@@ -982,6 +982,16 @@ if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["market
 tickClock(); setInterval(tickClock, 1000);
 document.addEventListener("mouseover", e => { mmPaused = Boolean(e.target.closest("#mm")); });
 load(true);
+// auto-update: if a newer version of the site has been published, reload once to pick it up
+async function checkVersion() {
+  try {
+    const mine = [...document.scripts].map(x => x.src).find(u => /app\.js\?v=/.test(u))?.match(/v=(\w+)/)?.[1]; if (!mine) return;
+    const h = await fetch("./?nv=" + Date.now(), { cache: "no-store" }).then(r => r.text());
+    const live = h.match(/app\.js\?v=(\w+)/)?.[1];
+    if (live && live !== mine) { toast("A new version of Dalal Pulse is available: updating…"); setTimeout(() => location.reload(), 1500); }
+  } catch {}
+}
+if (!SNAPSHOT) { setInterval(checkVersion, 5 * 60000); setTimeout(checkVersion, 8000); }
 if (!SNAPSHOT) { setInterval(() => load(false), 60000); document.addEventListener("visibilitychange", () => { if (!document.hidden) load(false); }); }
 setInterval(() => { if (D) footer(); }, 30000);
 })();
