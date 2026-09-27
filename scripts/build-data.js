@@ -231,9 +231,21 @@ async function main() {
     if (lastBar === today) { clog[today] = { U: c.upper.map(x => x.symbol), L: c.lower.map(x => x.symbol) }; const ks = Object.keys(clog).sort(); for (const k of ks.slice(0, Math.max(0, ks.length - 30))) delete clog[k]; fs.mkdirSync(CACHE, { recursive: true }); fs.writeFileSync(lf, JSON.stringify(clog)); }
     const days = Object.keys(clog).sort().reverse();
     const streak = (sym, side) => { let n = 0; for (const d of days) { if ((clog[d][side] || []).includes(sym)) n++; else break; } return n; };
-    const enrich = (x, side) => ({ ...x, name: universe[x.symbol]?.name || names[x.symbol] || x.symbol, tracked: Boolean(universe[x.symbol]), nifty50: Boolean(universe[x.symbol]?.nifty50),
+    // market-cap class from NSE's official lists: Nifty 100 = large cap, Nifty Midcap 150 = mid cap
+    const capList = async file => {
+      const f = path.join(CACHE, "idx", file); let text = null;
+      try { const r = await fetch(`https://nsearchives.nseindia.com/content/indices/${file}`, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(12000) }); const t = await r.text(); if (r.ok && t.includes("Symbol")) { text = t; fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, t); } } catch {}
+      if (!text && fs.existsSync(f)) text = fs.readFileSync(f, "utf8");
+      return text ? new Set(parseIndexCsv(text).map(x => x.symbol)) : null;
+    };
+    const large = await capList("ind_nifty100list.csv"), mid = await capList("ind_niftymidcap150list.csv");
+    const capOf = sym => large?.has(sym) ? "Large" : mid?.has(sym) ? "Mid" : (!large && universe[sym]?.nifty200 !== false && universe[sym]) ? "Large/Mid" : null;
+    status.circuit_caps = `${large ? large.size : "no"} large, ${mid ? mid.size : "no"} mid`;
+    const enrich = (x, side) => ({ ...x, cap: capOf(x.symbol), name: universe[x.symbol]?.name || names[x.symbol] || x.symbol, tracked: Boolean(universe[x.symbol]), nifty50: Boolean(universe[x.symbol]?.nifty50),
       at_52w_high: x.year_high && x.ltp >= x.year_high, at_52w_low: x.year_low && x.ltp <= x.year_low, streak: side ? streak(x.symbol, side) : 0 });
-    return { upper: c.upper.map(x => enrich(x, "U")), lower: c.lower.map(x => enrich(x, "L")), both: c.both.map(x => enrich(x, null)), count: c.count, updated: new Date().toISOString(), log_days: days.length };
+    const keep = l => l.filter(x => x.cap); // only large & mid caps
+    const U = c.upper.map(x => enrich(x, "U")), L = c.lower.map(x => enrich(x, "L")), B = c.both.map(x => enrich(x, null));
+    return { upper: keep(U), lower: keep(L), both: keep(B), hidden_small: { upper: U.length - keep(U).length, lower: L.length - keep(L).length }, count: c.count, updated: new Date().toISOString(), log_days: days.length };
   })();
 
   const out = {

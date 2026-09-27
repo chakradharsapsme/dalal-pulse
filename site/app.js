@@ -22,7 +22,7 @@ let my = store.get("dp-my", { holdings: [], watch: [], alerts: [] });
 const saveMy = () => store.set("dp-my", my);
 const isMine = s => my.watch.includes(s) || my.holdings.some(h => h.symbol === s);
 const ui = { nf: "withnews", q: "", preset: "all", sort: { k: "change_pct", d: -1 }, w52: "highs", w52s: "all", cal: "tracked", range: 252, sq: "",
-  ov: { ma: true, bb: false, sr: true, sig: true }, sub: "vol", hp: "change_pct", hm: "ind", bh: 20, bdir: "all", irange: "1d", crange: "252", icmp: [], fq: "", ff: "all", fsort: { k: "score", d: -1 }, bm: "fo", bsize: "turnover", sgrp: "Popular", suni: "n200", sview: "cards", slimit: 60, smore: false, cside: "upper", cband: "all", csort: "turnover", cmain: true, cpenny: true, climit: 60 };
+  ov: { ma: true, bb: false, sr: true, sig: true }, sub: "vol", hp: "change_pct", hm: "ind", bh: 20, bdir: "all", irange: "1d", crange: "252", icmp: [], fq: "", ff: "all", fsort: { k: "score", d: -1 }, bm: "fo", bsize: "turnover", sgrp: "Popular", suni: "n200", sview: "cards", slimit: 60, smore: false, cside: "upper", cband: "all", csort: "turnover", ccap: "all", climit: 60 };
 const charts = window.__DP_CHARTS__ || {};
 
 // ---------- data ----------
@@ -922,7 +922,7 @@ const SERIES_TAG = { EQ: "", BE: "T2T", BZ: "BZ", SM: "SME", ST: "SME", SZ: "SME
 function circuitsView() {
   const C = D.circuits;
   if (!C) return `<div class="fade"><h1 class="page">Circuit hits</h1><div class="card"><div class="empty"><b>Circuit data arrives with the next update</b>It refreshes every 15 minutes during market hours.</div></div></div>`;
-  const base = x => (!ui.cmain || x.series === "EQ" || x.series === "BE") && (!ui.cpenny || x.ltp >= 20);
+  const base = x => ui.ccap === "all" || x.cap === ui.ccap || x.cap === "Large/Mid";
   const U = C.upper.filter(base), L = C.lower.filter(base), B = C.both.filter(base);
   const bands = [5, 10, 20, 2];
   const bandCount = (list, b) => list.filter(x => x.band === b).length;
@@ -932,26 +932,25 @@ function circuitsView() {
   const shown = list.slice(0, ui.climit);
   const nth = n => n + (n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th");
   const card = x => { const up = ui.cside === "upper" || (ui.cside === "both" && x.change_pct >= 0), s = S[x.symbol], tag = SERIES_TAG[x.series] ?? x.series;
-    const inner = `<div class="sc1"><div><b class="sym">${esc(x.symbol)}</b>${x.nifty50 ? ' <span class="badge n50">N50</span>' : ""}${tag ? ` <span class="badge neutral" title="Series ${esc(x.series)}">${esc(tag)}</span>` : ""}<div class="scn">${x.name && x.name !== x.symbol ? esc(x.name.replace(/ Limited$| Ltd\.?$/i, "")) : "&nbsp;"}</div></div>
+    const inner = `<div class="sc1"><div><b class="sym">${esc(x.symbol)}</b>${x.nifty50 ? ' <span class="badge n50">N50</span>' : ""}${x.cap ? ` <span class="badge ${x.cap === "Mid" ? "watch" : "bullish"}">${x.cap === "Large/Mid" ? "Large/Mid" : x.cap + " cap"}</span>` : ""}${tag ? ` <span class="badge neutral" title="Series ${esc(x.series)}">${esc(tag)}</span>` : ""}<div class="scn">${x.name && x.name !== x.symbol ? esc(x.name.replace(/ Limited$| Ltd\.?$/i, "")) : "&nbsp;"}</div></div>
         <div class="scp"><div class="num">₹${fmt(x.ltp, x.ltp >= 1000 ? 0 : 2)}</div><b class="num ${cls(x.change_pct)}">${pct(x.change_pct)}</b></div></div>
       <div class="ctags"><span class="cband ${up ? "u" : "d"}">${ui.cside === "both" ? "HIT BOTH BANDS" : up ? "▲ UPPER CIRCUIT" : "▼ LOWER CIRCUIT"} · ${x.band}%</span>${x.streak >= 2 ? `<span class="badge watch">🔥 ${nth(x.streak)} day in a row</span>` : ""}${x.at_52w_high ? '<span class="badge bullish">52W high</span>' : x.at_52w_low ? '<span class="badge bearish">52W low</span>' : ""}</div>
       <div class="sc3 c3"><span><em>Traded</em><b class="num">₹${fmt(x.turnover_cr, x.turnover_cr < 10 ? 2 : 0)} cr</b></span><span><em>Day range</em><b class="num">${fmt(x.low, x.low >= 100 ? 0 : 1)}–${fmt(x.high, x.high >= 100 ? 0 : 1)}</b></span><span><em>News</em><b class="num">${s ? s.news_ids.length || "–" : "–"}</b></span></div>
       <div class="muted" style="font-size:12px">${s ? "Tap for news, chart and insight" : "Opens on NSE ↗"}</div>`;
     return s ? `<button class="scard ccard ${up ? "u" : "d"}" data-go="${esc(x.symbol)}">${inner}</button>` : `<a class="scard ccard ${up ? "u" : "d"}" href="https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(x.symbol)}" target="_blank" rel="noopener">${inner}</a>`; };
-  return `<div class="fade"><h1 class="page">Circuit hits today</h1><p class="sub">Stocks that hit their daily price limit (circuit) on NSE, by band. At an upper circuit there are only buyers left; at a lower circuit, only sellers. Updated every 15 minutes in market hours.</p>
+  return `<div class="fade"><h1 class="page">Circuit hits today</h1><p class="sub">Large-cap (Nifty 100) and mid-cap (Nifty Midcap 150) stocks that hit their daily price limit (circuit) on NSE, by band. Small caps are left out. At an upper circuit there are only buyers left; at a lower circuit, only sellers. Updated every 15 minutes in market hours.</p>
   <div class="cbands">${bands.map(b => `<button class="card cbk${ui.cband === String(b) ? " on" : ""}" data-cband="${b}"><div class="l">${b}% circuit</div><div class="v"><span class="up">▲ ${bandCount(U, b)}</span><span class="down">▼ ${bandCount(L, b)}</span></div><div class="muted" style="font-size:12px">upper · lower</div></button>`).join("")}
     <button class="card cbk${ui.cband === "all" ? " on" : ""}" data-cband="all"><div class="l">All bands</div><div class="v"><span class="up">▲ ${U.length}</span><span class="down">▼ ${L.length}</span></div><div class="muted" style="font-size:12px">${B.length} hit both</div></button></div>
   <div class="stools">
     <div class="seg"><button data-cside="upper" class="${ui.cside === "upper" ? "on" : ""}">▲ Upper circuit · ${U.length}</button><button data-cside="lower" class="${ui.cside === "lower" ? "on" : ""}">▼ Lower circuit · ${L.length}</button><button data-cside="both" class="${ui.cside === "both" ? "on" : ""}">Hit both · ${B.length}</button></div>
     <div class="seg">${[["all", "All"], ...bands.map(b => [String(b), b + "%"])].map(([k, l]) => `<button data-cband="${k}" class="${ui.cband === k ? "on" : ""}">${l}</button>`).join("")}</div>
     <label class="ssort"><span class="muted">Sort</span><select id="csort" aria-label="Sort circuits">${[["turnover", "Most traded"], ["change", "Biggest move"], ["streak", "Days in a row"], ["price", "Highest price"]].map(([k, l]) => `<option value="${k}"${ui.csort === k ? " selected" : ""}>${l}</option>`).join("")}</select></label>
-    <label class="ctog"><input type="checkbox" data-cmain ${ui.cmain ? "checked" : ""}> Main board only</label>
-    <label class="ctog"><input type="checkbox" data-cpenny ${ui.cpenny ? "checked" : ""}> Hide below ₹20</label>
+    <div class="seg">${[["all", "Large + mid cap"], ["Large", "Large cap"], ["Mid", "Mid cap"]].map(([k, l]) => `<button data-ccap="${k}" class="${ui.ccap === k ? "on" : ""}">${l}</button>`).join("")}</div>
     <b class="num scount">${list.length} stock${list.length === 1 ? "" : "s"}</b>
   </div>
-  ${list.length ? `<div class="sgrid">${shown.map(card).join("")}</div>` : `<div class="card"><div class="empty"><b>No ${ui.cside === "upper" ? "upper" : ui.cside === "lower" ? "lower" : ""} circuit hits here</b>Try another band${ui.cmain || ui.cpenny ? ", or untick the filters" : ""}.</div></div>`}
+  ${list.length ? `<div class="sgrid">${shown.map(card).join("")}</div>` : `<div class="card"><div class="empty"><b>No ${ui.cside === "upper" ? "upper" : ui.cside === "lower" ? "lower" : ""} circuit hits here</b>Large and mid-cap stocks hit circuits much less often than small caps; on many days there are none. Try another band or side.</div></div>`}
   ${list.length > shown.length ? `<div style="text-align:center;margin-top:14px"><button class="btn" data-climit>Show ${Math.min(60, list.length - shown.length)} more of ${list.length - shown.length}</button></div>` : ""}
-  <div class="muted" style="font-size:12.5px;margin-top:12px">NSE sets each stock's daily limit at 2%, 5%, 10% or 20% (there is no 30% band). F&O stocks have no fixed circuit, so large companies rarely appear here. Circuit stocks are often small and illiquid, so prices can swing sharply and you may not be able to buy or sell. "Main board only" hides SME and other special series; T2T (trade-to-trade) stocks must be delivered, with no intraday trading. "Days in a row" counts from when this site started logging circuits. For information only, not investment advice.</div></div>`;
+  <div class="muted" style="font-size:12.5px;margin-top:12px">NSE sets each stock's daily limit at 2%, 5%, 10% or 20% (there is no 30% band). F&O stocks have no fixed circuit, so large companies rarely appear here. ${C.hidden_small ? `${C.hidden_small.upper + C.hidden_small.lower} small-cap circuit hits today are hidden. ` : ""}T2T (trade-to-trade) stocks must be delivered, with no intraday trading. "Days in a row" counts from when this site started logging circuits. For information only, not investment advice.</div></div>`;
 }
 
 // ---------- SIGNALS (track record) ----------
@@ -1087,6 +1086,7 @@ document.addEventListener("click", async e => {
   const pp = t.closest("[data-pop]"); if (pp) { store.set("dp-pop", pp.dataset.pop); openDrawer(); toast(pp.dataset.pop === "off" ? "News pop-ups are off" : pp.dataset.pop === "mine" ? "Pop-ups only for your watchlist and holdings" : "Pop-ups for news on any stock"); return; }
   if (t.id === "notif2") { try { await Notification.requestPermission(); } catch {} openDrawer(); return; }
   const cs = t.closest("[data-cside]"); if (cs) { ui.cside = cs.dataset.cside; ui.climit = 60; render(); return; }
+  const cc = t.closest("[data-ccap]"); if (cc) { ui.ccap = cc.dataset.ccap; render(); return; }
   const cb = t.closest("[data-cband]"); if (cb) { ui.cband = cb.dataset.cband; ui.climit = 60; render(); return; }
   if (t.closest("[data-climit]")) { ui.climit += 60; render(); return; }
   const fsb = t.closest("[data-fsort]"); if (fsb) { const k = fsb.dataset.fsort; ui.fsort = { k, d: ui.fsort.k === k ? -ui.fsort.d : (k === "symbol" ? 1 : -1) }; render(); return; }
