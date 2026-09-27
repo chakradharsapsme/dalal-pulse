@@ -371,3 +371,4 @@ button.tile{cursor:pointer;font:inherit;width:100%}
 @keyframes tape2{from{transform:translateX(-50%)}to{transform:translateX(0)}}
 @media(max-width:600px){.tape2 .tlab{padding:3px 8px;font-size:9px}}
 @media (prefers-reduced-motion:reduce){.tape2 .track{animation:none}}
+.tape2 .it .n50t{font-size:9px;font-weight:800;color:#7fd6d0;border:1px solid rgba(127,214,208,.45);border-radius:3px;padding:0 4px}

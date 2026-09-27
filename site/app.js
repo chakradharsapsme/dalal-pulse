@@ -78,18 +78,18 @@ function renderTape() {
   const h = list.map(item).join("");
   $("#track").innerHTML = h + h.replace(/<button class="it"/g, '<button class="it" tabindex="-1" aria-hidden="true"');
 }
-// second tape: tracked stocks within 3% of their 52-week high or low (plus fresh NSE-wide hits)
+// second tape: only quality large/mid-cap stocks (Nifty 200) within 3% of their 52-week high or low; Nifty 50 first
 function renderTape2() {
   const el = $("#track2"); if (!el) return;
-  const hi = D.stocks.filter(s => s.tech && s.price != null && s.tech.from_high_pct != null && s.tech.from_high_pct >= -3).sort((a, b) => b.tech.from_high_pct - a.tech.from_high_pct);
-  const lo = D.stocks.filter(s => s.tech && s.price != null && s.tech.from_low_pct != null && s.tech.from_low_pct <= 3).sort((a, b) => a.tech.from_low_pct - b.tech.from_low_pct);
+  const hi = D.stocks.filter(s => s.tech && s.price != null && s.tech.from_high_pct != null && s.tech.from_high_pct >= -3).sort((a, b) => (b.nifty50 - a.nifty50) || b.tech.from_high_pct - a.tech.from_high_pct);
+  const lo = D.stocks.filter(s => s.tech && s.price != null && s.tech.from_low_pct != null && s.tech.from_low_pct <= 3).sort((a, b) => (b.nifty50 - a.nifty50) || a.tech.from_low_pct - b.tech.from_low_pct);
   const mk = (s, up) => { const at = up ? s.tech.from_high_pct >= -0.3 : s.tech.from_low_pct <= 0.3;
-    return `<button class="it ${up ? "hz" : "lz"}" data-go="${esc(s.symbol)}" title="${esc(s.name)} · 52-week ${up ? "high" : "low"} ${px(up ? s.tech.high52 : s.tech.low52)}"><span class="${up ? "u" : "d"}">${up ? "▲" : "▼"}</span><b>${esc(s.symbol)}</b><span class="p">${fmt(s.price, s.price >= 1000 ? 0 : 2)}</span>${at ? `<span class="tag ${up ? "u" : "d"}">${up ? "AT 52W HIGH" : "AT 52W LOW"}</span>` : `<span class="${up ? "u" : "d"}">${up ? pct(s.tech.from_high_pct) + " from high" : pct(s.tech.from_low_pct) + " above low"}</span>`}<span class="${s.change_pct >= 0 ? "u" : "d"}" style="opacity:.8">${pct(s.change_pct)}</span></button>`; };
+    return `<button class="it ${up ? "hz" : "lz"}" data-go="${esc(s.symbol)}" title="${esc(s.name)} · 52-week ${up ? "high" : "low"} ${px(up ? s.tech.high52 : s.tech.low52)}"><span class="${up ? "u" : "d"}">${up ? "▲" : "▼"}</span><b>${esc(s.symbol)}</b>${s.nifty50 ? '<span class="n50t">N50</span>' : ""}<span class="p">${fmt(s.price, s.price >= 1000 ? 0 : 2)}</span>${at ? `<span class="tag ${up ? "u" : "d"}">${up ? "AT 52W HIGH" : "AT 52W LOW"}</span>` : `<span class="${up ? "u" : "d"}">${up ? pct(s.tech.from_high_pct) + " from high" : pct(s.tech.from_low_pct) + " above low"}</span>`}<span class="${s.change_pct >= 0 ? "u" : "d"}" style="opacity:.8">${pct(s.change_pct)}</span></button>`; };
   // NSE whole-market fresh 52-week hits not in the tracked list
   const tracked = new Set(D.stocks.map(s => s.symbol));
   const ext = (list, up) => (list || []).filter(x => !tracked.has(x.symbol)).slice(0, 12).map(x => `<a class="it ${up ? "hz" : "lz"}" href="https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(x.symbol)}" target="_blank" rel="noopener" title="${esc(x.name)} (not tracked here, opens NSE)"><span class="${up ? "u" : "d"}">${up ? "▲" : "▼"}</span><b>${esc(x.symbol)}</b><span class="p">${fmt(x.ltp, x.ltp >= 1000 ? 0 : 2)}</span><span class="tag ${up ? "u" : "d"}">NEW 52W ${up ? "HIGH" : "LOW"}</span><span class="${x.change_pct >= 0 ? "u" : "d"}" style="opacity:.8">${pct(x.change_pct)}</span></a>`);
   const items = [];
-  const H = hi.map(s => mk(s, true)).concat(ext(D.w52?.highs, true)), Lo = lo.map(s => mk(s, false)).concat(ext(D.w52?.lows, false));
+  const H = hi.map(s => mk(s, true)), Lo = lo.map(s => mk(s, false)); // small / low-cap NSE stocks are deliberately left out
   for (let i = 0; i < Math.max(H.length, Lo.length); i++) { if (H[i]) items.push(H[i]); if (Lo[i]) items.push(Lo[i]); }
   if (!items.length) { el.innerHTML = '<span class="it">No stocks near their 52-week high or low right now</span>'; el.style.animation = "none"; return; }
   let h = items.join("");
