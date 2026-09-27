@@ -80,7 +80,8 @@ nav.tabs button.on::after{content:"";position:absolute;left:12px;right:12px;bott
 
 /* ---------- pulse band ---------- */
 .band{border-bottom:1px solid var(--line);background:var(--card)}
-.band .in{max-width:1440px;margin:0 auto;display:flex;gap:10px;overflow-x:auto;padding:12px 20px;scrollbar-width:thin}
+.band .in{max-width:1440px;margin:0 auto;display:flex;gap:10px;padding:12px 20px;align-items:stretch}
+.band .tks{display:flex;gap:10px;overflow-x:auto;scrollbar-width:thin;flex:1 1 auto;min-width:0}
 .tk{flex:0 0 auto;min-width:128px;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--paper)}
 .tk .l{font-size:10.5px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.07em}
 .tk .v{font-family:var(--mono);font-size:16px;font-weight:700;letter-spacing:-.03em}
@@ -335,3 +336,23 @@ button.tile{cursor:pointer;font:inherit;width:100%}
 @media(prefers-reduced-motion:reduce){.fcard,.fmore,.drawer,.badge.new{animation:none;transition:none}}
 @media(max-width:1480px){.brand small{display:none}nav.tabs button{padding:8px 9px;font-size:13.5px}.search input{width:150px}}
 @media(max-width:1260px){nav.tabs button{padding:7px 7px;font-size:13px}.mast .in{gap:10px}}
+
+/* ---- market-moving news ---- */
+.live{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--down);margin-right:7px;vertical-align:1px;box-shadow:0 0 0 0 var(--down);animation:livep 1.8s infinite}
+@keyframes livep{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--down) 60%,transparent)}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+.mm{flex:1 0 400px;min-width:400px;max-width:560px;border:1px solid var(--line);border-radius:10px;background:var(--paper);padding:8px 12px;display:flex;flex-direction:column;justify-content:center;gap:4px;overflow:hidden}
+.mmh{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);display:flex;align-items:center}
+.mmdots{margin-left:auto;display:flex;gap:4px}.mmdots i{width:6px;height:6px;border-radius:50%;background:var(--line2);cursor:pointer}.mmdots i.on{background:var(--accent);width:14px;border-radius:3px}
+.mmt{display:flex;flex-direction:column;align-items:stretch;gap:3px;border:0;background:none;padding:0;text-align:left;font:inherit;color:inherit;cursor:pointer;min-width:0;animation:fade .35s ease both}
+.mmt .fsym{font-size:13px}.mmt .num{font-size:12.5px;white-space:nowrap}
+.mmx{min-width:0;font-weight:600;font-size:13px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.mmr1{display:flex;align-items:center;gap:8px}.mmr1 .mma{margin-left:auto}
+.mma{font-size:11.5px;white-space:nowrap}
+.mml{display:flex;flex-direction:column}
+.mmr{display:flex;gap:10px;align-items:flex-start;text-align:left;border:0;border-bottom:1px solid var(--line);background:none;padding:10px 2px;font:inherit;color:inherit;cursor:pointer;width:100%}
+.mmr:hover{background:var(--paper2)}.mmr:last-child{border-bottom:0}
+.mrank{font-family:var(--display);font-weight:800;font-size:20px;color:var(--line2);min-width:22px;text-align:center;line-height:1.3}
+.mmb{flex:1;min-width:0}.mmb .fh{margin:5px 0 4px;font-size:14px;-webkit-line-clamp:2}
+.imp{display:flex;align-items:center;gap:8px;font-size:11.5px}.ib{width:70px;height:5px;border-radius:3px;background:var(--line);flex:none;overflow:hidden}.ib i{display:block;height:100%;background:var(--accent);transition:width .8s cubic-bezier(.2,.7,.2,1)}
+@media(max-width:1100px){.band .in{flex-direction:column}.mm{flex:none;min-width:0;max-width:none}}
+@media(prefers-reduced-motion:reduce){.live{animation:none}}

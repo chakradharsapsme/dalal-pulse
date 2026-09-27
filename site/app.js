@@ -92,8 +92,8 @@ function renderBand() {
     h += `<div class="tk${iid ? " link" : ""}"${iid ? ` data-idx="${iid}" role="button" tabindex="0" title="Open the ${esc(p.label)} chart"` : ""}><div class="l">${esc(p.label)}</div><div class="v">${fmt(p.last, p.last > 1000 ? 0 : 2)}</div><div class="c ${cls(c)}">${pct(p.change_pct)}</div></div>`;
   }
   for (const f of D.fii_dii || []) h += `<div class="tk" title="Net buying in the cash market, ₹ crore, ${esc(f.date)}"><div class="l">${esc(f.category.replace("/FPI", ""))} net · ₹ cr</div><div class="v ${cls(f.net)}">${f.net >= 0 ? "+" : "−"}${fmt(Math.abs(f.net), 0)}</div><div class="c muted">${esc(f.date)}</div></div>`;
-  $("#band").innerHTML = h;
-  countUp($("#band"));
+  $("#band").innerHTML = `<div class="tks">${h}</div><div class="mm" id="mm" aria-live="polite"></div>`;
+  countUp($("#band")); renderMM();
 }
 function countUp(root) {
   root.querySelectorAll("[data-count]").forEach(el => {
@@ -184,9 +184,55 @@ function gaugeSvg(score, label) {
     <text x="110" y="92" text-anchor="middle" font-size="40" font-weight="800" fill="${col}" style="font-family:var(--display)" data-count="${score}">${score}</text>
     <text x="110" y="116" text-anchor="middle" font-size="13" font-weight="700" fill="var(--muted)">${esc(label)}</text></svg>`;
 }
+// ---------- MARKET-MOVING NEWS (top stocks) ----------
+// Approximate Nifty 50 weights (%) of the heaviest stocks: a move in these shifts the whole index.
+const HEAVY = { HDFCBANK: 13, ICICIBANK: 9, RELIANCE: 8.5, INFY: 5, BHARTIARTL: 4.5, LT: 4, ITC: 3.5, TCS: 3, AXISBANK: 3, KOTAKBANK: 2.8, SBIN: 2.8, "M&M": 2.5, BAJFINANCE: 2.2, HINDUNILVR: 2, SUNPHARMA: 1.7, HCLTECH: 1.6, MARUTI: 1.5, NTPC: 1.4, TITAN: 1.3, ULTRACEMCO: 1.2, TMPV: 1.1, TATAMOTORS: 1.1, POWERGRID: 1.1, TATASTEEL: 1, ETERNAL: 1 };
+const BIGWORDS = /\b(results?|Q[1-4]|earnings|profit|revenue|guidance|order|contract|deal|acquir|merger|demerger|stake|block deal|bulk deal|buyback|dividend|bonus|split|upgrade|downgrade|target|rating|penalty|probe|raid|ban|SEBI|RBI|fraud|resign|CEO|MD|default|approval|USFDA|tariff|pledge|QIP|IPO|listing)/i;
+function movers() {
+  if (!D) return [];
+  const out = [], per = {};
+  for (const n of D.news) {
+    const sym = n.symbols.find(s => S[s] && (S[s].nifty50 || HEAVY[s] || isMine(s))); if (!sym) continue;
+    const s = S[sym], ageH = (Date.now() - Date.parse(n.published)) / 3600e3; if (ageH > 48) continue;
+    const w = HEAVY[sym] ? 1.4 + Math.min(1, HEAVY[sym] / 8) : s.nifty50 ? 1.15 : 1.05;
+    const move = Math.min(6, Math.abs(s.change_pct || 0));
+    const big = BIGWORDS.test(n.title);
+    const score = (0.45 + Math.abs(n.tone_score || 0) * 1.4 + (big ? 0.6 : 0)) * (1 + move / 3) * w * (isMine(sym) ? 1.2 : 1) * Math.exp(-ageH / 20);
+    if ((per[sym] = (per[sym] || 0) + 1) > 2) continue; // at most 2 headlines per stock
+    const why = [HEAVY[sym] ? `Nifty heavyweight (~${HEAVY[sym]}%)` : s.nifty50 ? "Nifty 50 stock" : "your stock", move >= 1.5 ? `stock ${pct(s.change_pct)} today` : "", n.tone !== "neutral" ? `${n.tone} tone` : "", big ? "big-event words" : ""].filter(Boolean);
+    out.push({ n, sym, s, score, why, pts: HEAVY[sym] && s.change_pct != null ? HEAVY[sym] / 100 * s.change_pct / 100 * (D.pulse.find(p => p.key === "NIFTY 50")?.last || 0) : null });
+  }
+  out.sort((a, b) => b.score - a.score);
+  const mx = out[0]?.score || 1; out.forEach(m => { m.impact = Math.max(8, Math.round(m.score / mx * 100)); });
+  return out.slice(0, 12);
+}
+let mmI = 0, mmTimer = null, mmPaused = false, mmPrevTop = null;
+function renderMM() {
+  const box = $("#mm"); if (!box) return;
+  const list = movers().slice(0, 8);
+  if (!list.length) { box.innerHTML = `<div class="mmh"><span class="live"></span>Market-moving news · top stocks</div><div class="mmt muted">No big headlines on top stocks right now.</div>`; return; }
+  const fresh = mmPrevTop && list[0].n.id !== mmPrevTop; mmPrevTop = list[0].n.id;
+  if (mmI >= list.length || fresh) mmI = 0;
+  const m = list[mmI], ageMin = (Date.now() - Date.parse(m.n.published)) / 60000;
+  box.innerHTML = `<div class="mmh"><span class="live"></span>Market-moving news<span class="mmdots">${list.map((_, i) => `<i class="${i === mmI ? "on" : ""}" data-mmi="${i}"></i>`).join("")}</span></div>
+    <button class="mmt${fresh ? " flash-up" : ""}" data-go="${esc(m.sym)}" title="${esc(m.why.join(" · "))}"><span class="mmr1"><span class="fsym">${esc(m.sym)}</span><b class="num ${cls(m.s.change_pct)}">${pct(m.s.change_pct)}</b>${m.pts != null && Math.abs(m.pts) >= 1 ? `<span class="muted num" title="Approximate effect on the Nifty 50">≈${m.pts > 0 ? "+" : "−"}${fmt(Math.abs(m.pts), 0)} Nifty pts</span>` : ""}<span class="muted mma">${ageMin < 60 ? '<span class="badge new">NEW</span> ' : ""}${ago(m.n.published)}</span></span>
+      <span class="mmx"><span class="tdot ${m.n.tone}"></span>${esc(m.n.title)}</span></button>`;
+  clearTimeout(mmTimer); mmTimer = setTimeout(() => { if (!mmPaused) mmI = (mmI + 1) % list.length; renderMM(); }, 6500);
+}
+function moversCard() {
+  const list = movers().slice(0, 8);
+  if (!list.length) return "";
+  return `<div class="sect"><h3 style="display:flex;justify-content:space-between;gap:8px"><span><span class="live"></span>Market-moving news · top stocks</span><span class="muted" style="text-transform:none;letter-spacing:0;font-weight:500">updates with every refresh</span></h3>
+    <div class="mml">${list.map((m, i) => `<button class="mmr" data-go="${esc(m.sym)}"><span class="mrank">${i + 1}</span>
+      <div class="mmb"><div class="ft"><span class="fsym">${esc(m.sym)}</span><b class="num ${cls(m.s.change_pct)}">${pct(m.s.change_pct)}</b>${m.pts != null && Math.abs(m.pts) >= 1 ? `<span class="muted num" style="font-size:12px">≈ ${m.pts > 0 ? "+" : "−"}${fmt(Math.abs(m.pts), 0)} Nifty pts</span>` : ""}<span class="muted" style="margin-left:auto;font-size:12px">${Date.now() - Date.parse(m.n.published) < 3600e3 ? '<span class="badge new">NEW</span> ' : ""}${ago(m.n.published)}</span></div>
+      <div class="fh"><span class="tdot ${m.n.tone}"></span>${esc(m.n.title)}</div>
+      <div class="imp"><span class="ib"><i style="width:0" data-w="${m.impact}%"></i></span><span class="muted">${esc(m.why.join(" · "))}</span></div></div></button>`).join("")}</div>
+    <div class="muted" style="font-size:12px;margin-top:6px">Ranked by rule: how big the stock is in the Nifty, today's move, headline tone, event words (results, orders, deals, ratings, regulators) and how recent it is. "Nifty pts" is a rough estimate from approximate index weights.</div></div>`;
+}
+
 function glance() {
   const m = D.mood, top = D.stocks.filter(s => s.news_ids.length).sort((a, b) => b.news_ids.length - a.news_ids.length || Math.abs(b.change_pct) - Math.abs(a.change_pct)).slice(0, 6);
-  return `<div class="sect"><h3>Today on Dalal Street</h3><div class="glance"><div class="gauge">${gaugeSvg(m.score, m.label)}</div><div>${m.lines.map(l => `<p>${esc(l)}</p>`).join("")}</div></div></div>
+  return `${moversCard()}<div class="sect"><h3>Today on Dalal Street</h3><div class="glance"><div class="gauge">${gaugeSvg(m.score, m.label)}</div><div>${m.lines.map(l => `<p>${esc(l)}</p>`).join("")}</div></div></div>
     ${D.topics.length ? `<div class="sect"><h3>Trending in the headlines</h3><div class="topics">${D.topics.map(t => `<span>${esc(t.topic)}<em>${t.n}</em></span>`).join("")}</div></div>` : ""}
     <div class="sect"><h3>Most talked-about stocks</h3><div class="hot">${top.map(s => `<button class="hotc" data-go="${esc(s.symbol)}">
       <div class="top"><b>${esc(s.symbol)}</b><span class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</span></div>
@@ -851,6 +897,7 @@ document.addEventListener("click", async e => {
   if (t.closest("[data-dclose]")) { closeDrawer(); return; }
   const pp = t.closest("[data-pop]"); if (pp) { store.set("dp-pop", pp.dataset.pop); openDrawer(); toast(pp.dataset.pop === "off" ? "News pop-ups are off" : pp.dataset.pop === "mine" ? "Pop-ups only for your watchlist and holdings" : "Pop-ups for news on any stock"); return; }
   if (t.id === "notif2") { try { await Notification.requestPermission(); } catch {} openDrawer(); return; }
+  const mi = t.closest("[data-mmi]"); if (mi) { mmI = +mi.dataset.mmi; renderMM(); return; }
   const ix = t.closest("[data-idx]"); if (ix) { nav("indices", ix.dataset.idx); return; }
   const is = t.closest("[data-isel]"); if (is) { sel = is.dataset.isel; view = "indices"; if (!SNAPSHOT) history.replaceState(null, "", "#indices/" + sel); render(); if (innerWidth <= 900) window.scrollTo({ top: 0 }); return; }
   if (t.closest("[data-back-idx]")) { nav("indices"); return; }
@@ -913,6 +960,7 @@ if (!SNAPSHOT) window.addEventListener("hashchange", () => { readHash(); render(
 
 if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "screener", "signals", "w52", "portfolio", "calendar"].includes(h)) view = h; }
 tickClock(); setInterval(tickClock, 1000);
+document.addEventListener("mouseover", e => { mmPaused = Boolean(e.target.closest("#mm")); });
 load(true);
 if (!SNAPSHOT) { setInterval(() => load(false), 60000); document.addEventListener("visibilitychange", () => { if (!document.hidden) load(false); }); }
 setInterval(() => { if (D) footer(); }, 30000);
