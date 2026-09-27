@@ -1431,21 +1431,25 @@ function paInit() {
   w.innerHTML = PA_DEFS + `<div class="pa-bub" id="paBub" hidden></div>
     <section class="pa-panel" id="paPanel" hidden aria-label="Pulse Agent">
       <div class="pa-h">${PA_ICON}<div><b>Pulse Agent</b><span id="paSt">watching the market</span></div>
-        <button class="pa-ic" id="paSet" title="Pop-up settings" aria-label="Settings">⚙</button><button class="pa-ic" id="paX" aria-label="Close">✕</button></div>
+        <button class="pa-ic" id="paSpk" title="Read answers aloud" aria-label="Read answers aloud">🔇</button><button class="pa-ic" id="paNew" title="New chat (forget context)" aria-label="New chat">🗑</button><button class="pa-ic" id="paSet" title="Pop-up settings" aria-label="Settings">⚙</button><button class="pa-ic" id="paX" aria-label="Close">✕</button></div>
       <div class="pa-setr" id="paSetR" hidden><span>Pop-ups:</span>${[["all", "All advice"], ["high", "Important only"], ["off", "Off"]].map(([k, l]) => `<button data-papop="${k}">${l}</button>`).join("")}</div>
       <div class="pa-body" id="paBody"></div>
       <div class="pa-chips" id="paChips">${[["market", "🧭 Market now"], ["ideas", "📈 Today's setups"], ["open", "🎯 Track my setups"], ["options", "🧮 Options idea"], ["help", "❓ How to use"]].map(([k, l]) => `<button data-paq="${k}">${l}</button>`).join("")}</div>
-      <form class="pa-in" id="paForm"><input id="paQ" placeholder="Ask about a stock (e.g. HDFC Bank) or the market…" autocomplete="off" aria-label="Ask Pulse Agent"><button aria-label="Send">➤</button></form>
+      <form class="pa-in" id="paForm"><button type="button" class="pa-mic" id="paMic" title="Speak your question" aria-label="Speak">🎤</button><input id="paQ" placeholder="Ask anything: Is Tata Steel a buy? · and ITC? · best pharma stocks" autocomplete="off" aria-label="Ask Pulse Agent"><button aria-label="Send">➤</button></form>
       <div class="pa-foot">Rule-based assistant using this site's data. Information only, not investment advice.</div>
     </section>
     <button class="pa-fab" id="paFab" aria-label="Open Pulse Agent" title="Pulse Agent">${PA_ICON}<span class="pa-n" id="paN" hidden></span></button>`;
   document.body.append(w);
   $("#paFab").onclick = () => paToggle();
   $("#paX").onclick = () => paToggle(false);
+  paVoiceInit();
+  $("#paNew").onclick = () => { PA.msgs = []; store.set("dp-pamsgs", []); Object.assign(PAX, { sym: null, syms: [], intent: null, list: null, page: 0 }); paSaveCtx(); $("#paBody").innerHTML = ""; paWelcome(); };
   $("#paSet").onclick = () => { const r = $("#paSetR"); r.hidden = !r.hidden; paSetMark(); };
   w.addEventListener("click", e => {
     const t = e.target;
     const pp = t.closest("[data-papop]"); if (pp) { store.set("dp-agentpop", pp.dataset.papop); paSetMark(); toast(pp.dataset.papop === "off" ? "Agent pop-ups turned off (advice still collects here)" : "Saved"); return; }
+    const qt = t.closest("[data-paqt]"); if (qt) { paAsk(null, qt.dataset.paqt); return; }
+    const bb = t.closest("[data-pabuy]"); if (bb) { const st = S[bb.dataset.pabuy], p = st && paPlan(st); if (p) { const c = agentCfg, r = (RISK[c.risk] || RISK.balanced).pct, q2 = Math.max(1, Math.min(Math.floor(c.capital * r / 100 / (p.entry - p.stop)), Math.floor(c.capital * 0.25 / p.entry))); kiteModal(`Buy ${st.symbol}`, [{ exchange: "NSE", tradingsymbol: st.symbol, transaction_type: "BUY", quantity: q2, order_type: "LIMIT", price: Math.round(st.price * 20) / 20, product: "CNC", variety: "regular" }], `Plan: stop ${px(p.stop)}, target ${px(p.target)}. Place your stop-loss (GTT) in Kite after buying.`); } return; }
     const q = t.closest("[data-paq]"); if (q) { paAsk(q.dataset.paq, q.textContent.replace(/^\S+\s/, "")); return; }
     const g = t.closest("[data-pago]"); if (g) { go(g.dataset.pago); if (innerWidth < 700) paToggle(false); $("#paBub").hidden = true; return; }
     const nv = t.closest("[data-panav]"); if (nv) { nav(nv.dataset.panav); if (innerWidth < 700) paToggle(false); $("#paBub").hidden = true; return; }
@@ -1460,7 +1464,8 @@ function paSetMark() { const p = paPref(); document.querySelectorAll("[data-papo
 const paItems = () => ((D && D.advice && D.advice.items) || []);
 function paToggle(force) {
   const p = $("#paPanel"); PA.open = force ?? p.hidden; p.hidden = !PA.open; $("#pa").classList.toggle("open", PA.open);
-  if (PA.open) { $("#paBub").hidden = true; PA.unread = 0; paBadge(); if (!PA.msgs.length) paWelcome(); setTimeout(() => $("#paQ").focus({ preventScroll: true }), 50); }
+  if (PA.open) { $("#paBub").hidden = true; PA.unread = 0; paBadge();
+    if (!PA.msgs.length) { const old = store.get("dp-pamsgs", []); if (old.length) { old.forEach(m => paSay(m.html, m.who, true)); paSay(`<div class="pa-ctx">Welcome back. I remember our chat${PAX.sym ? ` (last stock: <b>${esc(PAX.sym)}</b>)` : ""}. Tap 🗑 to start fresh.</div>`, "agent", true); } else paWelcome(); } setTimeout(() => $("#paQ").focus({ preventScroll: true }), 50); }
 }
 function paBadge() { const n = $("#paN"); if (!n) return; n.hidden = !PA.unread; n.textContent = PA.unread > 9 ? "9+" : PA.unread; $("#paFab").classList.toggle("ping", PA.unread > 0); }
 function paStance() { const st = D.advice?.stance; return st === "bull" ? ["up", "Market uptrend"] : st === "bear" ? ["down", "Market downtrend"] : ["warn", "Market mixed"]; }
@@ -1483,8 +1488,8 @@ function paCard(a, full) {
     ${full && a.kind === "long" && a.status === "open" ? paSize(a.plan) : ""}
     <div class="pa-act">${a.sym && S[a.sym] ? `<button data-pago="${esc(a.sym)}">Open ${esc(a.sym)} chart ›</button>` : ""}${a.kind === "options" ? `<button data-panav="options">Open Options tab ›</button>` : ""}${full && a.kind === "long" && a.status === "open" ? `<button class="kb" data-pakite="${esc(a.id)}">Buy on Kite</button>` : ""}${!full ? `<button data-paopen="${esc(a.id)}">Details</button>` : ""}</div></div>`;
 }
-function paSay(html, who = "agent") {
-  PA.msgs.push({ who, html }); const b = $("#paBody"); if (!b) return;
+function paSay(html, who = "agent", restore) {
+  PA.msgs.push({ who, html }); if (!restore) store.set("dp-pamsgs", PA.msgs.slice(-30)); const b = $("#paBody"); if (!b) return;
   const el = document.createElement("div"); el.className = "pa-m " + who; el.innerHTML = html; b.append(el);
   while (b.children.length > 40) b.firstElementChild.remove();
   el.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -1495,21 +1500,361 @@ function paWelcome() {
     <div class="pa-stance ${c}">${l}${D.advice?.day ? ` · data of ${esc(D.advice.day)}` : ""}</div>
     ${today.length ? `<div class="muted" style="margin:8px 0 4px">Latest advice (${today.length}):</div>` + today.slice(0, 4).map(a => paCard(a, false)).join("") : `<p class="muted">No new advice yet today. Tap a question below or type a stock name.</p>`}`);
 }
-function paAsk(key, text) {
+// live prices at the moment of asking (Cloudflare /quote → exchange feed), then answer with memory
+async function paLive(syms) {
+  const want = [...new Set(syms.filter(x => S[x] || /^(NIFTY|BANKNIFTY)$/.test(x)).concat("NIFTY"))].slice(0, 8), out = {};
+  try {
+    const r = await fetch("/quote?s=" + encodeURIComponent(want.join(",")), { cache: "no-store", signal: AbortSignal.timeout(6000) });
+    if (r.ok) { const j = await r.json(); for (const [k, v] of Object.entries(j.quotes || {})) if (v && v.price) {
+      out[k] = v; const st = S[k]; if (st) { st.price = v.price; if (v.change_pct != null) st.change_pct = v.change_pct; st.live_at = v.time || j.at; }
+      if (k === "NIFTY") PA.nifty = v; } }
+  } catch {}
+  return out;
+}
+async function paAsk(key, text) {
   paSay(esc(text), "me");
-  const q = (text || "").toLowerCase(), k = key ||
-    (/\b(market|nifty|sensex|today|mood|trend|fii)\b/.test(q) ? "market" : /\b(idea|buy|pick|recommend|setup|suggest)/.test(q) ? "ideas" : /\b(option|f&o|fno|spread|lottery|call|put)\b/.test(q) ? "options" : /\b(exit|stop|target|track|open setup|my setup)/.test(q) ? "open" : /\b(help|how|use|where|what can)/.test(q) ? "help" : "stock");
-  setTimeout(() => paSay(paAnswer(k, text) + paClaude(text)), 250);
+  if (PA.busy) return; PA.busy = true;
+  const b = $("#paBody"), typing = document.createElement("div"); typing.className = "pa-m agent pa-typing"; typing.innerHTML = "<span></span><span></span><span></span> checking the live market…"; b.append(typing); typing.scrollIntoView({ block: "nearest" });
+  try {
+    if (!SNAPSHOT && D && Date.now() - Date.parse(D.generated_at) > 4 * 60e3) { try { await load(false); } catch {} }
+    const q = paSimple(text), found = paFindStocks(q);
+    const subj = (/\b(them|these|those|both|compare)\b/.test(q) && PAX.syms.length ? PAX.syms : []).concat(found.length ? found : PAX.sym ? [PAX.sym] : []);
+    const live = await paLive(subj.concat(/bank ?nifty/.test(q) ? ["BANKNIFTY"] : []));
+    const L = Object.keys(live).filter(k => k !== "NIFTY"), t = live[L[0]]?.time || live.NIFTY?.time;
+    const stamp = Object.keys(live).length ? `<div class="pa-live">● Live ${L.length ? L.map(k => `${esc(k)} ${px(live[k].price)} <b class="${cls(live[k].change_pct)}">${pct(live[k].change_pct)}</b>`).join(" · ") + " · " : ""}Nifty ${live.NIFTY ? fmt(live.NIFTY.price, 0) + ` <b class="${cls(live.NIFTY.change_pct)}">${pct(live.NIFTY.change_pct)}</b>` : "–"}${t ? ` · as of ${new Date(t).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : ""}</div>` : `<div class="pa-live off">Using the site's last update (${ago(D.generated_at)}); live quote unavailable.</div>`;
+    const html = key && ["ideas", "open", "options", "help"].includes(key) ? paAnswer(key, text) + paFollow(key === "ideas" ? ["Strongest stocks", "Market now", "Which sectors are strong?"] : ["Today's setups", "Market now"]) : paRoute(key === "market" ? "market today" : text);
+    typing.remove(); paSay(stamp + html + paClaude(text)); paSpeak(html);
+  } catch (e) { typing.remove(); paSay(`<p>Sorry, something went wrong (${esc(e.message)}). Try again.</p>`); }
+  PA.busy = false;
 }
 function paClaude(text) {
-  const q = `Using my Dalal Pulse connector and the Dalal Pulse Expert skill: ${text}`;
+  const ctx = PAX.sym ? ` (we were discussing ${PAX.sym})` : "";
+  const q = `Using my Dalal Pulse connector and the Dalal Pulse Expert skill${ctx}: ${text}`;
   return `<a class="pa-claude" href="https://claude.ai/new?q=${encodeURIComponent(q)}" target="_blank" rel="noopener">Ask Claude for a deeper view ↗</a>`;
 }
+// ===== Pulse Agent brain: intent + entity parsing, conversation memory, deep rule-based analysis =====
+const PAX = store.get("dp-pactx", { sym: null, syms: [], intent: null, sector: null, page: 0, list: null });
+const paSaveCtx = () => store.set("dp-pactx", PAX);
+const PA_ALIAS = { sbi: "SBIN", "state bank": "SBIN", "l&t": "LT", "l and t": "LT", larsen: "LT", ril: "RELIANCE", hul: "HINDUNILVR", "hindustan unilever": "HINDUNILVR", "m&m": "M&M", mahindra: "M&M", "mahindra and mahindra": "M&M",
+  infosys: "INFY", airtel: "BHARTIARTL", bharti: "BHARTIARTL", maruti: "MARUTI", kotak: "KOTAKBANK", "bajaj finance": "BAJFINANCE", "bajaj finserv": "BAJAJFINSV", "bajaj auto": "BAJAJ-AUTO", "hdfc bank": "HDFCBANK", "hdfc life": "HDFCLIFE", "hdfc amc": "HDFCAMC", "icici bank": "ICICIBANK",
+  "icici pru": "ICICIPRULI", "icici lombard": "ICICIGI", zomato: "ETERNAL", eternal: "ETERNAL", policybazaar: "POLICYBZR", "policy bazaar": "POLICYBZR", "pb fintech": "POLICYBZR", "tata motors": "TMPV", "tata steel": "TATASTEEL", "tata power": "TATAPOWER", "tata consumer": "TATACONSUM", "tata elxsi": "TATAELXSI", "tata comm": "TATACOMM",
+  "adani ent": "ADANIENT", "adani enterprises": "ADANIENT", "adani ports": "ADANIPORTS", "adani power": "ADANIPOWER", "adani green": "ADANIGREEN", "coal india": "COALINDIA", "power grid": "POWERGRID", "sun pharma": "SUNPHARMA", "dr reddy": "DRREDDY", "dr reddys": "DRREDDY", hcl: "HCLTECH", "hcl tech": "HCLTECH",
+  "tech mahindra": "TECHM", ultratech: "ULTRACEMCO", nestle: "NESTLEIND", "asian paints": "ASIANPAINT", "jio financial": "JIOFIN", jio: "JIOFIN", indigo: "INDIGO", interglobe: "INDIGO", vedanta: "VEDL", "jsw steel": "JSWSTEEL", "indian oil": "IOC", ioc: "IOC", zydus: "ZYDUSLIFE", dmart: "DMART", "avenue supermarts": "DMART",
+  "bank of baroda": "BANKBARODA", "canara bank": "CANBK", "punjab national": "PNB", "yes bank": "YESBANK", "idfc first": "IDFCFIRSTB", "indusind": "INDUSINDBK", "axis bank": "AXISBANK", "shriram finance": "SHRIRAMFIN", "eicher": "EICHERMOT", "hero motocorp": "HEROMOTOCO", hero: "HEROMOTOCO", "tvs motor": "TVSMOTOR",
+  "hindustan aeronautics": "HAL", "bharat electronics": "BEL", "divis": "DIVISLAB", "apollo hospital": "APOLLOHOSP", apollo: "APOLLOHOSP", "godrej properties": "GODREJPROP", "godrej consumer": "GODREJCP", "vodafone": "IDEA", "vodafone idea": "IDEA", "ongc": "ONGC", "ntpc": "NTPC", "irctc": "IRCTC", "lic": "LICI", "paytm": "PAYTM", "nykaa": "NYKAA", "naukri": "NAUKRI", "info edge": "NAUKRI" };
+const PA_GROUPS = { tata: /^tata|^titan|^trent|^voltas|^tcs$|^indhotel/i, adani: /^adani|^atgl|^ambujacem|^acc$/i, bajaj: /^bajaj|^bajfinance/i, birla: /^abcapital|^abfrl|^grasim|^hindalco|^ultracemco|^idea$/i, mahindra: /^m&m|^techm|^m&mfin/i, reliance: /^reliance|^jiofin/i };
+const PA_SECTORS = [
+  ["psu bank", s => ["SBIN", "PNB", "BANKBARODA", "CANBK", "UNIONBANK", "INDIANB", "BANKINDIA", "MAHABANK", "IOB", "UCOBANK"].includes(s.symbol)],
+  ["private bank", s => /bank/i.test(s.name) && !["SBIN", "PNB", "BANKBARODA", "CANBK", "UNIONBANK", "INDIANB", "BANKINDIA"].includes(s.symbol)],
+  ["bank", s => /bank/i.test(s.name) && s.industry === "Financial Services"], ["nbfc|finance|financial|insurance|broking|amc", s => s.industry === "Financial Services" && !/bank/i.test(s.name)],
+  ["pharma|healthcare|hospital|health|drug", s => s.industry === "Healthcare"], ["it|tech|software|information technology", s => s.industry === "Information Technology"],
+  ["auto|automobile|car|vehicle|two wheeler|ev", s => /Automobile/.test(s.industry || "")], ["metal|steel|mining|aluminium|copper", s => /Metals/.test(s.industry || "")],
+  ["oil|gas|energy|petroleum|refin", s => /Oil Gas/.test(s.industry || "")], ["power|electric|utility|utilities|renewable", s => s.industry === "Power"],
+  ["fmcg|consumer goods|staples", s => /Fast Moving/.test(s.industry || "")], ["realty|real estate|property|housing", s => s.industry === "Realty"],
+  ["cement|construction material", s => s.industry === "Construction Materials"], ["capital goods|engineering|defence|defense|industrial", s => s.industry === "Capital Goods"],
+  ["telecom", s => s.industry === "Telecommunication"], ["chemical", s => s.industry === "Chemicals"], ["durable|consumer durable", s => s.industry === "Consumer Durables"],
+  ["consumer services|retail|internet|platform", s => s.industry === "Consumer Services"], ["infra|construction", s => /^Construction$|Services/.test(s.industry || "")]];
+let PA_IDX = null;
+function paIndex() {
+  if (PA_IDX && PA_IDX.gen === D.generated_at) return PA_IDX;
+  const m = new Map(), stop = new Set(["india", "indian", "bank", "ltd", "limited", "the", "and", "of", "co", "company", "corporation", "industries", "financial", "services", "finance", "power", "energy", "motors", "steel", "life", "insurance", "capital", "national", "state", "hindustan", "bharat", "tata", "adani", "bajaj", "hdfc", "icici", "jsw", "godrej", "aditya", "birla", "general", "new", "international", "global", "pharma", "pharmaceuticals", "laboratories", "technologies", "systems", "enterprises", "holdings", "infra", "gas", "oil", "cement", "chemicals", "electricals", "electronics", "housing", "products", "foods", "consumer", "retail", "healthcare", "hospitals"]);
+  for (const s of D.stocks) {
+    m.set(s.symbol.toLowerCase(), s.symbol);
+    const nm = (s.name || "").toLowerCase().replace(/\b(ltd|limited)\b\.?/g, "").replace(/[^a-z0-9& ]/g, " ").replace(/\s+/g, " ").trim();
+    if (nm) m.set(nm, s.symbol);
+    const w = nm.split(" ");
+    if (w[0] && w[0].length >= 4 && !stop.has(w[0]) && !m.has(w[0])) m.set(w[0], s.symbol);
+    if (w.length >= 2 && !m.has(w.slice(0, 2).join(" "))) m.set(w.slice(0, 2).join(" "), s.symbol);
+  }
+  for (const [k, v] of Object.entries(PA_ALIAS)) if (S[v]) m.set(k, v);
+  PA_IDX = { gen: D.generated_at, m };
+  return PA_IDX;
+}
+const PA_NOSYM = new Set(["idea", "oil", "all", "one", "top", "best", "good", "buy", "sell", "hold", "it", "its", "and", "or", "for", "the", "vs", "is", "a", "in", "on", "at", "to", "my", "me", "now", "today", "stock", "stocks", "share", "shares", "market", "news", "price", "hal"]);
+function paFindStocks(text) {
+  const idx = paIndex().m, found = [];
+  const clean = text.toLowerCase().replace(/[₹,?!.;:()"']/g, " ").replace(/\s+/g, " ").trim(), w = clean.split(" ");
+  const used = new Array(w.length).fill(false);
+  for (let n = 4; n >= 1; n--) for (let i = 0; i + n <= w.length; i++) {
+    if (used.slice(i, i + n).some(Boolean)) continue;
+    const ph = w.slice(i, i + n).join(" ");
+    if (n === 1 && PA_NOSYM.has(ph) && !new RegExp(`\\b${ph.toUpperCase()}\\b`).test(text)) continue;
+    const sym = idx.get(ph);
+    if (sym && !found.includes(sym)) { found.push(sym); for (let k = i; k < i + n; k++) used[k] = true; }
+  }
+  return found;
+}
+function paSectorOf(q) { for (const [k, f] of PA_SECTORS) if (new RegExp(`\\b(${k})s?\\b`).test(q)) return { name: k.split("|")[0], f }; return null; }
+function paGroupOf(q) { for (const [g, re] of Object.entries(PA_GROUPS)) if (new RegExp(`\\b${g}\\b( group| stocks| shares)?`).test(q) && /group|stocks|shares|companies/.test(q)) return { name: g, f: s => re.test(s.symbol) }; return null; }
+function paNum(q, re) { const m = q.match(re); if (!m) return null; let v = parseFloat(m[1].replace(/,/g, "")); if (/lakh|lac|\bl\b/.test(m[2] || "")) v *= 1e5; else if (/cr|crore/.test(m[2] || "")) v *= 1e7; else if (/k\b|thousand/.test(m[2] || "")) v *= 1e3; return v; }
+
+// ---- scoring: one transparent 0–100 score per stock ----
+function paScore(s) {
+  const t = s.tech || {}, i = s.insight || {}, parts = [];
+  const add = (label, v) => { if (v) parts.push([label, Math.round(v)]); return v || 0; };
+  let sc = 50;
+  sc += add(t.above_50 && t.above_200 ? "Uptrend (above 50 & 200-day avg)" : t.above_200 ? "Above 200-day avg, below 50-day" : t.above_50 ? "Short-term bounce, still below 200-day" : "Downtrend (below 50 & 200-day avg)", t.above_50 && t.above_200 ? 14 : t.above_200 ? 4 : t.above_50 ? -3 : -14);
+  if (t.rs_rating != null) sc += add(`Relative strength ${t.rs_rating}/99`, Math.max(-12, Math.min(12, (t.rs_rating - 50) * 0.25)));
+  if (t.ret_1m != null) sc += add(`1-month return ${pct(t.ret_1m)}`, Math.max(-7, Math.min(7, t.ret_1m * 0.6)));
+  const g = (D.industries || []).find(x => x.name === s.industry);
+  if (g && g.rs_avg != null) sc += add(`Sector ${s.industry} (avg RS ${Math.round(g.rs_avg)})`, Math.max(-5, Math.min(5, (g.rs_avg - 50) * 0.3)));
+  const bu = s.fo?.buildup; if (bu) sc += add(`F&O ${bu}`, { "Long build-up": 6, "Short covering": 3, "Short build-up": -6, "Long unwinding": -3 }[bu]);
+  if (i.news_score != null) sc += add(`News tone (${i.news_score > 0 ? "positive" : i.news_score < 0 ? "negative" : "neutral"})`, Math.max(-6, Math.min(6, i.news_score * 0.08)));
+  if (t.rsi14 > 75) sc += add(`RSI ${Math.round(t.rsi14)}: overbought, chasing is risky`, -5); else if (t.rsi14 < 30 && t.above_200) sc += add(`RSI ${Math.round(t.rsi14)}: oversold in a long-term uptrend`, 4); else if (t.rsi14 < 30) sc += add(`RSI ${Math.round(t.rsi14)}: oversold but in a downtrend (falling knife)`, -2);
+  if (t.from_high_pct != null && t.from_high_pct > -4 && t.above_200) sc += add("Near 52-week high (strength)", 3);
+  if (t.breakout_20d || t.breakout_55d) sc += add(t.breakout_55d ? "Fresh 55-day breakout" : "Fresh 20-day breakout", 3);
+  if (t.vol_surge_up) sc += add("Volume surge on an up day", 2); if (t.vol_surge_down) sc += add("Volume surge on a down day", -3);
+  const v = Math.max(0, Math.min(100, Math.round(sc)));
+  const grade = v >= 72 ? ["Strong", "up"] : v >= 58 ? ["Positive", "up"] : v >= 44 ? ["Neutral", "warn"] : v >= 30 ? ["Weak", "down"] : ["Avoid", "down"];
+  return { v, grade, parts: parts.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])) };
+}
+function paPlan(s) {
+  const t = s.tech || {}, e = s.price; if (!e) return null;
+  let stop = t.support && t.support < e && t.support > e * 0.9 ? t.support * 0.985 : (t.sma50 && t.sma50 < e && t.sma50 > e * 0.9 ? t.sma50 * 0.985 : e * 0.94);
+  stop = Math.min(stop, e * 0.985); const risk = e - stop;
+  let target = t.resistance && t.resistance > e + 1.5 * risk ? t.resistance : e + 2 * risk;
+  return { entry: e, stop: Math.round(stop * 20) / 20, target: Math.round(target * 20) / 20, rr: Math.round((target - e) / risk * 10) / 10, risk_pct: Math.round(risk / e * 1000) / 10 };
+}
+const paGauge = sc => `<div class="pa-gauge"><div class="pa-gbar"><i style="width:${sc.v}%" class="${sc.grade[1]}"></i></div><b class="${sc.grade[1]}">${sc.v}</b><span class="badge ${sc.grade[1] === "up" ? "bullish" : sc.grade[1] === "down" ? "bearish" : "watch"}">${sc.grade[0]}</span></div>`;
+const paFollow = arr => `<div class="pa-fu">${arr.filter(Boolean).map(t => `<button data-paqt="${esc(t)}">${esc(t)}</button>`).join("")}</div>`;
+const paMkt = () => { const st = D.advice?.stance; return st === "bear" ? "The overall market is in a downtrend, so use half your normal size." : st === "bull" ? "The overall market is in an uptrend, which supports long trades." : "The market is mixed, so be selective."; };
+const paHead = s => `<div class="pa-ct"><b>${esc(s.symbol)}</b><span class="muted">${esc((s.name || "").replace(/ Limited$| Ltd\.?$/i, "").slice(0, 32))}</span></div><div class="pa-meta"><span class="num">${px(s.price)}</span><b class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</b>${s.nifty50 ? '<span class="badge n50">N50</span>' : ""}${s.fo ? '<span class="badge neutral">F&O</span>' : ""}</div>`;
+
+// ---- answers ----
+function paStockView(s) {
+  const sc = paScore(s), t = s.tech || {}, i = s.insight || {}, p = paPlan(s), adv = paItems().find(x => x.sym === s.symbol && x.kind === "long" && x.status === "open");
+  const pros = sc.parts.filter(x => x[1] > 0).slice(0, 4), cons = sc.parts.filter(x => x[1] < 0).slice(0, 4);
+  const ev = (s.events || [])[0];
+  const verdict = adv ? `✅ This is one of my active setups (${adv.conf} confidence).` :
+    sc.v >= 72 ? "🟢 Strong: a buy candidate on dips toward support, with a stop." : sc.v >= 58 ? "🟢 Positive, but no clean entry trigger yet. Wait for a pullback to support or a breakout on volume." :
+    sc.v >= 44 ? "🟡 Neutral: no clear edge. Better opportunities exist." : sc.v >= 30 ? "🔴 Weak: avoid fresh buying. If you hold, keep a stop." : "🔴 Avoid: the trend and signals are negative.";
+  return `<div class="pa-card neutral">${paHead(s)}${paGauge(sc)}<p><b>${verdict}</b></p>
+    ${pros.length ? `<div class="pa-pc"><div><b class="up">For</b><ul>${pros.map(x => `<li>${esc(x[0])}</li>`).join("")}</ul></div>` : "<div class=\"pa-pc\">"}${cons.length ? `<div><b class="down">Against</b><ul>${cons.map(x => `<li>${esc(x[0])}</li>`).join("")}</ul></div>` : ""}</div>
+    ${sc.v >= 50 && p ? `<p class="muted" style="margin-bottom:0">If you buy, a sensible plan:</p>${paPlanRow(adv ? adv.plan : p)}` : ""}
+    ${ev ? `<div class="pa-note">📅 ${esc(ev.type)} on ${esc(ev.date)}: ${esc((ev.detail || "").slice(0, 90))}</div>` : ""}
+    <p class="muted">${paMkt()}</p><div class="pa-act"><button data-pago="${esc(s.symbol)}">Open chart ›</button>${sc.v >= 50 ? `<button class="kb" data-pabuy="${esc(s.symbol)}">Buy on Kite</button>` : ""}</div></div>`
+    + paFollow([`Why this score?`, `Key levels`, `Latest news`, s.fo ? `F&O / options view` : `Technicals`, `How many shares for ₹${fmt((agentCfg || {}).capital || 200000, 0)}?`, `Compare with peers`]);
+}
+function paWhy(s) {
+  const sc = paScore(s);
+  return `<div class="pa-card neutral">${paHead(s)}${paGauge(sc)}<p>Every stock starts at 50; each signal adds or subtracts points:</p><table class="pa-t">${sc.parts.map(x => `<tr><td>${esc(x[0])}</td><td class="num ${x[1] > 0 ? "up" : "down"}">${x[1] > 0 ? "+" : ""}${x[1]}</td></tr>`).join("")}<tr><td><b>Score</b></td><td class="num"><b>${sc.v}</b></td></tr></table>
+    <p class="muted">5-year backtest reminder: signals like golden cross or MACD cross had no real edge on their own. Trend + relative strength + a clear stop is what matters.</p></div>` + paFollow(["Key levels", "Latest news", "Compare with peers"]);
+}
+function paLevels(s) {
+  const t = s.tech || {}, p = paPlan(s), o = (D.options?.stocks || []).find(x => x.symbol === s.symbol);
+  const row = (l, v, extra) => v ? `<tr><td>${l}</td><td class="num">${px(v)}</td><td class="num ${cls((v / s.price - 1) * 100)}">${pct((v / s.price - 1) * 100)}</td><td class="muted">${extra || ""}</td></tr>` : "";
+  return `<div class="pa-card neutral">${paHead(s)}<table class="pa-t">${row("Resistance", t.resistance, t.resistance_touches ? `tested ${t.resistance_touches}×` : "")}${row("52-week high", t.high52)}${row("200-day avg", t.sma200, t.above_200 ? "support" : "resistance")}${row("50-day avg", t.sma50, t.above_50 ? "support" : "resistance")}${row("20-day avg", t.sma20)}${row("Support", t.support, t.support_touches ? `tested ${t.support_touches}×` : "")}${row("52-week low", t.low52)}</table>
+    ${p ? `<p class="muted" style="margin-bottom:0">Trade plan from these levels:</p>${paPlanRow(p)}` : ""}${o ? `<p class="muted">Options market expects ±${o.exp_move_pct}% by ${esc(o.expiry)} (${fmt(o.range_lo, 0)}–${fmt(o.range_hi, 0)}); biggest call wall ${o.call_wall}, put wall ${o.put_wall}.</p>` : ""}</div>` + paFollow(["Latest news", "Is it a buy?", "How many shares?"]);
+}
+function paNewsA(s) {
+  const n = (s.news_ids || []).map(id => NEWS[id]).filter(Boolean).slice(0, 6);
+  return `<div class="pa-card neutral">${paHead(s)}${n.length ? `<ul class="pa-news">${n.map(x => `<li><span class="tdot ${x.tone}"></span>${esc(x.title)} <span class="muted">· ${x.official ? "🏛 NSE filing" : esc(x.source)} · ${ago(x.published)}</span></li>`).join("")}</ul>` : "<p>No fresh stories in the last few days. Price action is driven by the market and sector.</p>"}
+    ${(s.events || []).length ? `<div class="pa-note">📅 ${(s.events || []).map(e => `${esc(e.type)} ${esc(e.date)}`).join(" · ")}</div>` : ""}</div>` + paFollow(["Is it a buy?", "Key levels", "Compare with peers"]);
+}
+function paTech(s) {
+  const t = s.tech || {};
+  const lines = [[`Trend: ${t.trend || "–"}`, t.above_50 && t.above_200 ? "Price above both averages: buyers in control." : !t.above_200 ? "Below the 200-day average: long-term sellers in control." : "Mixed: above the 200-day but below the 50-day."],
+    [`RSI ${fmt(t.rsi14, 0)}`, t.rsi14 > 70 ? "Overbought: strong, but late to chase." : t.rsi14 < 30 ? "Oversold: a bounce is likely, but not a trend change." : t.rsi14 > 55 ? "Healthy momentum." : "Soft momentum."],
+    [`MACD ${t.macd_state === "bull" ? "bullish" : "bearish"}${t.macd_cross ? " (fresh cross)" : ""}`, "Short-term momentum direction (no real edge alone in the backtest)."],
+    [`Bollinger position ${fmt((t.bb_pos || 0) * 100, 0)}%`, t.bb_squeeze ? "Squeeze: a big move is building." : t.bb_pos > 1 ? "Above the upper band: stretched." : t.bb_pos < 0 ? "Below the lower band: stretched down." : "Inside the bands."],
+    [`Volume ${fmt(t.vol_ratio, 1)}× average`, t.vol_ratio > 1.5 ? "Heavy: institutions active." : "Normal."],
+    [`Relative strength ${t.rs_rating ?? "–"}/99`, t.rs_rating >= 80 ? "A market leader." : t.rs_rating <= 30 ? "A laggard." : "Middle of the pack."],
+    [`Returns 1W ${pct(t.ret_1w)} · 1M ${pct(t.ret_1m)} · 3M ${pct(t.ret_3m)} · 1Y ${pct(t.ret_1y)}`, `vs Nifty 3M ${pct(t.rel_3m)}, 1Y ${pct(t.rel_1y)}`]];
+  return `<div class="pa-card neutral">${paHead(s)}<table class="pa-t">${lines.map(l => `<tr><td><b>${esc(l[0])}</b></td><td class="muted">${esc(l[1])}</td></tr>`).join("")}</table></div>` + paFollow(["Key levels", "Is it a buy?", s.fo ? "F&O / options view" : null]);
+}
+function paFno(s) {
+  const o = (D.options?.stocks || []).find(x => x.symbol === s.symbol) || (D.options?.indices || []).find(x => x.symbol === s.symbol), idea = [...(D.options?.ideas || []), ...(D.options?.index_ideas || [])].find(x => x.symbol === s.symbol);
+  if (!s.fo && !o) return `<p>${esc(s.symbol)} is not in the F&O segment.</p>` + paFollow(["Is it a buy?", "Key levels"]);
+  const bu = s.fo?.buildup, bum = { "Long build-up": "fresh buying (bullish)", "Short build-up": "fresh selling (bearish)", "Short covering": "shorts exiting (a bounce, often short-lived)", "Long unwinding": "longs exiting (weak)" };
+  return `<div class="pa-card neutral">${paHead(s)}${bu ? `<p><b>Futures:</b> ${esc(bu)}: ${bum[bu] || ""}. Open interest ${pct(s.fo.oi_chg_pct)}.</p>` : ""}
+    ${o ? `<table class="pa-t"><tr><td>Put-call ratio</td><td class="num">${o.pcr}</td><td class="muted">${o.pcr > 1.2 ? "put-heavy (support below)" : o.pcr < 0.7 ? "call-heavy (resistance above)" : "balanced"}</td></tr><tr><td>Max pain</td><td class="num">${fmt(o.max_pain, 0)}</td><td class="muted">price often drifts here by expiry</td></tr><tr><td>Call wall / Put wall</td><td class="num">${fmt(o.call_wall, 0)} / ${fmt(o.put_wall, 0)}</td><td class="muted">resistance / support from OI</td></tr><tr><td>Implied volatility</td><td class="num">${o.atm_iv}%</td><td class="muted">expected ±${o.exp_move_pct}% by ${esc(o.expiry)}</td></tr></table>` : ""}
+    ${idea ? `<p><b>Defined-risk idea:</b> ${esc(idea.strategy)}: ${idea.legs.map(g => `${g.action} ${g.strike} ${g.type}`).join(" + ")} · max loss ₹${fmt(idea.max_loss_lot, 0)}/lot · chance of profit ~${idea.pop}%</p>` : `<p class="muted">No spread idea passes my filters for ${esc(s.symbol)} right now.</p>`}
+    <div class="pa-note">About 9 in 10 individual F&O traders lose money (SEBI). Prefer spreads, size small.</div></div>` + paFollow(["Is it a buy?", "Key levels", "Options idea"]);
+}
+function paSizeA(s, capital) {
+  const c = { ...(agentCfg || { capital: 200000, risk: "balanced" }) }; if (capital) c.capital = capital;
+  const p = (paItems().find(x => x.sym === s.symbol && x.kind === "long" && x.status === "open") || {}).plan || paPlan(s); if (!p) return "<p>No price data.</p>";
+  const out = ["careful", "balanced", "bold"].map(k => { const r = RISK[k].pct, q = Math.min(Math.floor(c.capital * r / 100 / (p.entry - p.stop)), Math.floor(c.capital * 0.25 / p.entry)); return `<tr${k === c.risk ? ' class="on"' : ""}><td>${RISK[k].name} (${r}% risk)</td><td class="num"><b>${q}</b> sh</td><td class="num">${px(q * p.entry)}</td><td class="num down">−${px(q * (p.entry - p.stop))}</td></tr>`; }).join("");
+  return `<div class="pa-card neutral">${paHead(s)}<p>For capital <b>₹${fmt(c.capital, 0)}</b>, with a stop at ${px(p.stop)} (−${p.risk_pct || fmt((1 - p.stop / p.entry) * 100, 1)}%):</p><table class="pa-t"><tr><th>Style</th><th>Qty</th><th>Cost</th><th>If stopped</th></tr>${out}</table><p class="muted">Capped at 25% of capital in one stock. ${paMkt()} Say "my capital is 5 lakh" to change it.</p></div>` + paFollow(["Is it a buy?", "Key levels"]);
+}
+function paHold(s, buy, qty) {
+  PAX.buy = PAX.buy || {}; if (buy) PAX.buy[s.symbol] = { buy, qty }; const mem = PAX.buy[s.symbol] || {};
+  const h = my.holdings.find(x => x.symbol === s.symbol); buy = buy || mem.buy || h?.avg; qty = qty || mem.qty || h?.qty;
+  const sc = paScore(s), t = s.tech || {}, p = paPlan(s);
+  const pl = buy ? (s.price / buy - 1) * 100 : null;
+  let adv;
+  if (sc.v >= 58 && t.above_50) adv = `🟢 Hold. The trend is intact. Trail your stop to ${px(Math.max(t.support || 0, (t.sma50 || 0) * 0.985) || p.stop)} (below support / 50-day average).`;
+  else if (sc.v >= 44) adv = `🟡 Hold with a strict stop at ${px(p?.stop)}. No reason to add more now.`;
+  else adv = `🔴 Weak setup. Consider reducing or exiting on bounces toward ${px(t.resistance || t.sma20)}; exit if it closes below ${px(t.support || p?.stop)}.`;
+  if (pl != null && pl > 15 && (t.rsi14 > 70 || (t.to_resistance_pct != null && t.to_resistance_pct < 2))) adv += " You have a good profit near resistance / overbought: consider booking part.";
+  if (pl != null && pl < -8 && sc.v < 44) adv += " Averaging down into a downtrend usually makes losses bigger. Don't add.";
+  return `<div class="pa-card neutral">${paHead(s)}${paGauge(sc)}${buy ? `<p>Your buy price ${px(buy)}${qty ? ` × ${qty}` : ""} → <b class="${cls(pl)}">${pct(pl)}</b>${qty ? ` (${inr((s.price - buy) * qty)})` : ""}</p>` : `<p class="muted">Tip: tell me your buy price (e.g. "I bought at 1200") for a P&L-based view.</p>`}<p><b>${adv}</b></p></div>` + paFollow(["Why this score?", "Key levels", "Latest news"]);
+}
+function paCompare(list) {
+  const rows = list.slice(0, 5).map(s => ({ s, sc: paScore(s) })).sort((a, b) => b.sc.v - a.sc.v);
+  const w = rows[0];
+  PAX.syms = rows.map(r => r.s.symbol);
+  return `<div class="pa-card neutral"><table class="pa-t pa-cmp"><tr><th></th>${rows.map(r => `<th><button class="sy" data-pago="${esc(r.s.symbol)}">${esc(r.s.symbol)}</button></th>`).join("")}</tr>
+    ${[["Score", r => `<b class="${r.sc.grade[1]}">${r.sc.v}</b>`], ["Today", r => `<span class="${cls(r.s.change_pct)}">${pct(r.s.change_pct)}</span>`], ["1 month", r => `<span class="${cls(r.s.tech?.ret_1m)}">${pct(r.s.tech?.ret_1m)}</span>`], ["1 year", r => `<span class="${cls(r.s.tech?.ret_1y)}">${pct(r.s.tech?.ret_1y)}</span>`], ["Rel. strength", r => r.s.tech?.rs_rating ?? "–"], ["Trend", r => esc(r.s.tech?.trend || "–")], ["RSI", r => fmt(r.s.tech?.rsi14, 0)], ["From 52W high", r => pct(r.s.tech?.from_high_pct)], ["F&O", r => esc(r.s.fo?.buildup || "–")], ["News", r => r.s.insight?.news_score > 10 ? "🟢" : r.s.insight?.news_score < -10 ? "🔴" : "⚪"]]
+      .map(([l, f]) => `<tr><td>${l}</td>${rows.map(r => `<td class="num">${f(r)}</td>`).join("")}</tr>`).join("")}</table>
+    <p><b>${esc(w.s.symbol)} looks strongest (${w.sc.v})</b>: ${esc(w.sc.parts.filter(x => x[1] > 0).slice(0, 2).map(x => x[0].toLowerCase()).join(", ") || "fewer negatives")}.${rows.length > 1 && rows[0].sc.v - rows[1].sc.v < 5 ? " It's close. Pick the one with the cleaner entry near support." : ""}</p></div>` + paFollow([`Is ${w.s.symbol} a buy?`, `Key levels for ${w.s.symbol}`]);
+}
+function paScreen(q, sector, group) {
+  let L = D.stocks.filter(s => s.tech && s.price), label = [], sortBy = s => paScore(s).v;
+  if (sector) { L = L.filter(sector.f); label.push(sector.name); }
+  if (group) { L = L.filter(group.f); label.push(group.name + " group"); }
+  const f = (re, fn, l, sb) => { if (re.test(q)) { L = L.filter(fn); label.push(l); if (sb) sortBy = sb; } };
+  f(/oversold/, s => s.tech.rsi14 < 32, "oversold (RSI < 32)", s => -s.tech.rsi14);
+  f(/overbought/, s => s.tech.rsi14 > 70, "overbought (RSI > 70)", s => s.tech.rsi14);
+  f(/break ?out/, s => s.tech.breakout_20d || s.tech.breakout_55d || s.tech.vol_surge_up, "breaking out");
+  f(/52.?w(ee)?k? high|all.?time high|near high/, s => s.tech.from_high_pct > -3, "near 52-week high", s => s.tech.from_high_pct);
+  f(/52.?w(ee)?k? low|near low/, s => s.tech.from_low_pct < 5, "near 52-week low", s => -s.tech.from_low_pct);
+  f(/gainer|up most|top up|rising/, s => s.change_pct > 0, "gainers today", s => s.change_pct);
+  f(/loser|down most|falling|fell/, s => s.change_pct < 0, "losers today", s => -s.change_pct);
+  f(/long build/, s => s.fo?.buildup === "Long build-up", "long build-up", s => s.fo.oi_chg_pct);
+  f(/short build/, s => s.fo?.buildup === "Short build-up", "short build-up", s => s.fo.oi_chg_pct);
+  f(/short cover/, s => s.fo?.buildup === "Short covering", "short covering");
+  f(/leader|strong|strongest|momentum|relative strength/, s => (s.tech.rs_rating || 0) >= 75 && s.tech.above_200, "leaders (RS ≥ 75)");
+  f(/weak|weakest|laggard|avoid/, s => paScore(s).v < 40, "weakest", s => -paScore(s).v);
+  f(/positive news|good news/, s => (s.insight?.news_score || 0) > 10, "positive news");
+  f(/negative news|bad news/, s => (s.insight?.news_score || 0) < -10, "negative news");
+  f(/pull ?back|dip|near support|support/, s => s.tech.above_200 && s.tech.to_support_pct != null && s.tech.to_support_pct >= -3, "near support in an uptrend");
+  f(/nifty ?50|large ?cap|blue ?chip/, s => s.nifty50, "Nifty 50");
+  f(/\bf&o\b|\bfno\b|futures/, s => s.fo, "F&O");
+  f(/dividend|result|earning/, s => (s.events || []).length, "with upcoming events");
+  const under = paNum(q, /(?:under|below|less than|cheaper than|within)\s*₹?\s*([\d,.]+)\s*(k|thousand)?(?!\s*%)/); if (under && !/rsi/.test(q)) { L = L.filter(s => s.price <= under); label.push(`price ≤ ₹${fmt(under, 0)}`); }
+  const above = paNum(q, /(?:above|over|more than)\s*₹?\s*([\d,.]+)/); if (above && !/rsi/.test(q)) { L = L.filter(s => s.price >= above); label.push(`price ≥ ₹${fmt(above, 0)}`); }
+  const rsiU = paNum(q, /rsi\s*(?:below|under|<)\s*(\d+)/); if (rsiU) { L = L.filter(s => s.tech.rsi14 < rsiU); label.push(`RSI < ${rsiU}`); }
+  const rsiA = paNum(q, /rsi\s*(?:above|over|>)\s*(\d+)/); if (rsiA) { L = L.filter(s => s.tech.rsi14 > rsiA); label.push(`RSI > ${rsiA}`); }
+  L.sort((a, b) => sortBy(b) - sortBy(a));
+  PAX.list = L.map(s => s.symbol); PAX.page = 0; PAX.syms = PAX.list.slice(0, 6); PAX.label = label.join(", ") || "best overall";
+  return paList();
+}
+function paList() {
+  const L = (PAX.list || []).map(x => S[x]).filter(Boolean), from = PAX.page * 6, sl = L.slice(from, from + 6);
+  if (!L.length) return `<p>No stocks match <b>${esc(PAX.label)}</b> right now.</p>` + paFollow(["Today's setups", "Strongest stocks", "Market now"]);
+  PAX.syms = sl.map(s => s.symbol);
+  return `<p><b>${L.length}</b> stock${L.length > 1 ? "s" : ""}: ${esc(PAX.label)}${from ? ` (showing ${from + 1}–${from + sl.length})` : ""}</p>` + sl.map(s => { const sc = paScore(s); return `<button class="pa-row" data-paqt="${esc(s.symbol)}"><b>${esc(s.symbol)}</b><span>${esc(s.tech?.trend || "")} · RSI ${fmt(s.tech?.rsi14, 0)} · RS ${s.tech?.rs_rating ?? "–"}</span><b class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</b><em class="pa-sc ${sc.grade[1]}">${sc.v}</em></button>`; }).join("")
+    + paFollow([L.length > from + 6 ? "Show more" : null, sl.length > 1 ? "Compare these" : null, `Is ${sl[0].symbol} a buy?`]);
+}
+function paSectorA(sec) {
+  const L = D.stocks.filter(s => s.tech && sec.f(s)); if (!L.length) return `<p>No tracked stocks in ${esc(sec.name)}.</p>`;
+  const avg = k => L.reduce((a, s) => a + (s.tech[k] || 0), 0) / L.length, up = L.filter(s => s.tech.above_200).length;
+  const sorted = [...L].sort((a, b) => paScore(b).v - paScore(a).v);
+  PAX.list = sorted.map(s => s.symbol); PAX.page = 0; PAX.label = `${sec.name} stocks by score`;
+  const tone = avg("ret_1m") > 1 && up / L.length > 0.55 ? ["up", "Strong sector"] : avg("ret_1m") < -2 && up / L.length < 0.45 ? ["down", "Weak sector"] : ["warn", "Mixed sector"];
+  return `<div class="pa-card neutral"><div class="pa-ct"><b style="text-transform:capitalize">${esc(sec.name)}</b><span class="pa-stance ${tone[0]}" style="margin:0">${tone[1]}</span></div><p>${L.length} stocks · ${up} above their 200-day average · avg 1M ${pct(avg("ret_1m"))} · avg 3M ${pct(avg("ret_3m"))} · avg RS ${fmt(avg("rs_rating"), 0)}</p></div>` + paList().replace(/^<p>.*?<\/p>/, "<p>Ranked by score:</p>");
+}
+function paMarketA() {
+  const m = D.mood || {}, a = paItems().find(x => x.kind === "market"), [c, l] = paStance(), iv = (D.options?.indices || []).find(x => x.symbol === "NIFTY");
+  const secs = [...(D.sectors || [])].sort((x, y) => (y.change_pct ?? 0) - (x.change_pct ?? 0));
+  const nv = PA.nifty, lines = (m.lines || []).slice(0, 5).filter(x => !(nv && /^Nifty 50 is/.test(x)));
+  return `<div class="pa-stance ${c}">${l}</div>${nv ? `<p><b>Right now Nifty is ${fmt(nv.price, 0)} (${pct(nv.change_pct)} today${nv.high ? `, range ${fmt(nv.low, 0)}–${fmt(nv.high, 0)}` : ""}).</b></p>` : ""}${a ? `<p><b>${esc(a.title)}.</b> ${esc(a.text)}</p>` : ""}<ul class="pa-why">${lines.map(x => `<li>${esc(x)}</li>`).join("")}</ul>
+    ${secs.length ? `<p class="muted">Leading sectors today: ${secs.slice(0, 3).map(x => `${esc(x.name.toLowerCase())} ${pct(x.change_pct)}`).join(", ")}. Lagging: ${secs.slice(-3).reverse().map(x => `${esc(x.name.toLowerCase())} ${pct(x.change_pct)}`).join(", ")}.</p>` : ""}
+    ${iv ? `<p class="muted">Nifty options price a ±${iv.exp_move_pct}% move by ${esc(iv.expiry)} (${fmt(iv.range_lo, 0)}–${fmt(iv.range_hi, 0)}); max pain ${fmt(iv.max_pain, 0)}, PCR ${iv.pcr}.</p>` : ""}`
+    + paFollow(["Today's setups", "Strongest stocks", "Which sectors are strong?", "Options idea"]);
+}
+function paSectorsAll() {
+  const ind = [...(D.industries || [])].sort((a, b) => (b.rs_avg ?? 0) - (a.rs_avg ?? 0));
+  return `<p>Sectors ranked by average relative strength:</p><table class="pa-t">${ind.slice(0, 10).map(x => `<tr><td>${esc(x.name)}</td><td class="num">RS ${fmt(x.rs_avg, 0)}</td><td class="num ${cls(x.ret_1m)}">1M ${pct(x.ret_1m)}</td><td class="muted">${(x.top || []).slice(0, 2).join(", ")}</td></tr>`).join("")}</table>` + paFollow([ind[0] ? `Best ${ind[0].name.split(" ")[0].toLowerCase()} stocks` : null, "Today's setups"]);
+}
+function paEvents(s) {
+  const ev = (D.calendar || []).filter(e => e.tracked && (!s || e.symbol === s.symbol)).slice(0, 10);
+  return ev.length ? `<p>Upcoming${s ? ` for ${esc(s.symbol)}` : " events for tracked stocks"}:</p><table class="pa-t">${ev.map(e => `<tr><td>${esc(e.date)}</td><td><b>${esc(e.symbol)}</b></td><td class="muted">${esc(e.type)}: ${esc((e.detail || "").slice(0, 60))}</td></tr>`).join("")}</table><p class="muted">Stocks can gap on results: avoid buying options just before them.</p>` : "<p>No upcoming events found.</p>";
+}
+function paPortfolio() {
+  const hs = my.holdings.filter(h => S[h.symbol]), ws = my.watch.filter(x => S[x] && !hs.some(h => h.symbol === x));
+  if (!hs.length && !ws.length) return `<p>You haven't added holdings or a watchlist yet. Open any stock and use <b>Add to portfolio</b> or ☆, then ask me "check my portfolio".</p>`;
+  const rows = hs.map(h => { const s = S[h.symbol], sc = paScore(s), pl = (s.price / h.avg - 1) * 100; return `<button class="pa-row" data-paqt="Should I hold ${esc(h.symbol)}?"><b>${esc(h.symbol)}</b><span>${h.qty} @ ${px(h.avg)} · ${sc.grade[0]}${sc.v < 40 ? " ⚠️" : ""}</span><b class="num ${cls(pl)}">${pct(pl)}</b><em class="pa-sc ${sc.grade[1]}">${sc.v}</em></button>`; }).join("");
+  const tot = hs.reduce((a, h) => a + (S[h.symbol].price - h.avg) * h.qty, 0), val = hs.reduce((a, h) => a + S[h.symbol].price * h.qty, 0);
+  const weak = hs.filter(h => paScore(S[h.symbol]).v < 40).map(h => h.symbol);
+  PAX.syms = hs.map(h => h.symbol).concat(ws).slice(0, 6);
+  return `${hs.length ? `<p>Holdings value <b>${inr(val)}</b>, P&L <b class="${cls(tot)}">${inr(tot)}</b>.${weak.length ? ` ⚠️ Weak now: <b>${weak.join(", ")}</b>. Check their stops.` : " No holding is flashing weak."}</p>` + rows : ""}${ws.length ? `<p class="muted">Watchlist:</p>` + ws.map(x => { const s = S[x], sc = paScore(s); return `<button class="pa-row" data-paqt="${esc(x)}"><b>${esc(x)}</b><span>${esc(s.tech?.trend || "")}</span><b class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</b><em class="pa-sc ${sc.grade[1]}">${sc.v}</em></button>`; }).join("") : ""}` + paFollow(["Compare these", weak[0] ? `Should I hold ${weak[0]}?` : null]);
+}
+
+// ---- router ----
+function paSimple(t) {
+  return (" " + t.toLowerCase() + " ").replace(/\b(kharid(u|o|na|ein|e)?|khareed\w*|lena|lelu|le lu|lu kya|lun)\b/g, " buy ").replace(/\b(bech(u|o|na|na chahiye|dena)?|nikal(na|u|o)?)\b/g, " sell ")
+    .replace(/\b(aaj|aj)\b/g, " today ").replace(/\b(bazaar|bazar|share bazaar)\b/g, " market ").replace(/\b(kaisa hai|kaisa|kaise|kya haal)\b/g, " how is ").replace(/\b(acha|accha|achha|badhiya)\b/g, " good ")
+    .replace(/\b(kitne|kitna|kitni)\b/g, " how many ").replace(/\b(khabar|samachar)\b/g, " news ").replace(/\b(sabse acche|sabse achhe|best wale)\b/g, " best ").replace(/\b(kyun|kyon|kyu)\b/g, " why ")
+    .replace(/\b(rakhu|rakhna|hold karu|rakhun)\b/g, " hold ").replace(/\b(isko|iska|ye|yeh|woh|wo|uska|usko)\b/g, " it ").replace(/\b(lakh|lac)s?\b/g, " lakh ").replace(/\s+/g, " ").trim();
+}
+function paRoute(text) {
+  text = paSimple(text);
+  const q = " " + text.toLowerCase().replace(/[’']/g, "'") + " ";
+  const syms = paFindStocks(text), sector = paSectorOf(q), group = paGroupOf(q);
+  const cap = paNum(q, /₹?\s*([\d,.]+)\s*(lakh|cr|crore|k\b|thousand)/) || paNum(q, /(?:capital|fund|funds|budget|invest(?:ment)?|have|with|for)\s*(?:is|of|=)?\s*₹\s*([\d,.]+)()/) || paNum(q, /(?:capital|fund|budget)\s*(?:is|of|=)?\s*([\d,.]{5,})()/);
+  if (cap && cap >= 5000 && /capital|fund|budget|my|have|for|with|invest/.test(q)) { agentCfg.capital = Math.round(cap); store.set("dp-agent", agentCfg); }
+  const buyAt = paNum(q, /(?:bought|purchased|buy price|avg|average|entry|got it)(?:\s+[a-z&]+){0,3}?\s*(?:at|@|price|of|is|for)\s*₹?\s*([\d,.]+)/) || (/\b(bought|purchased|holding|hold)\b/.test(q) ? paNum(q, /(?:\bat|@)\s*₹?\s*([\d,.]+)/) : null), qty = paNum(q, /(\d+)\s*(?:shares|qty|quantity)/);
+  const pron = /\b(it|its|it's|this|that|same|the stock|the share|him|this one|that one)\b/.test(q), plural = /\b(them|these|those|both|all of them|the list)\b/.test(q);
+  const has = re => re.test(q);
+  let I = has(/\b(compare|vs|versus|better|which one|or)\b/) && (syms.length >= 2 || plural) ? "compare"
+    : has(/\b(why|reason|explain|score)\b/) ? "why"
+    : has(/\b(how many|quantity|position size|how much|size)\b/) ? "size"
+    : has(/\b(hold|sell|exit|book|holding|loss|average down|avg down|stuck|bought|purchased)\b/) ? "hold"
+    : has(/\b(level|levels|stop|stoploss|stop loss|sl|target|support|resistance|entry)\b/) ? "levels"
+    : has(/\b(buy|good|invest|worth|accumulate|should i|view|opinion|outlook on|analy[sz]e|analysis)\b/) && (syms.length || pron) ? "stock"
+    : has(/\b(news|headline|update|filing|announcement|happening)\b/) ? "news"
+    : has(/\b(option|options|f&o|fno|oi|open interest|build ?up|futures|pcr|max pain|call|put|ce|pe|strike|expiry|spread|lottery)\b/) ? "fno"
+    : has(/\b(rsi|macd|technical|technicals|chart|bollinger|moving average|trend|volume|momentum)\b/) && (syms.length || pron || PAX.sym) ? "tech"
+    : has(/\b(result|results|dividend|bonus|split|earnings|calendar|event|events)\b/) ? "events"
+    : has(/\b(peer|peers|similar|same sector|alternative|alternatives|instead)\b/) ? "peers"
+    : has(/\b(my portfolio|my holdings|my stocks|portfolio|holdings|watchlist)\b/) ? "portfolio"
+    : has(/\b(more|next|others|rest|show more)\b/) && PAX.list && !syms.length ? "more"
+    : has(/\b(setups?|ideas?|recommend|suggest|what to buy|which (stock|share)s? to buy|pick|picks)\b/) && !syms.length && !sector ? "ideas"
+    : has(/\b(track|my setups|open setups|active setups)\b/) ? "open"
+    : has(/\b(sectors?|industries)\b/) && !sector && !syms.length ? "sectors"
+    : has(/\b(market|nifty|sensex|fii|dii|mood|outlook|today|bank nifty)\b/) && !syms.length && !sector && !has(/\b(top|best|list|show|stocks|shares)\b/) ? "market"
+    : has(/\b(help|what can you|how to use|how do i use)\b/) ? "help"
+    : has(/\b(top|best|list|show|find|screen|which|stocks|shares|leaders|gainers|losers|oversold|overbought|breakouts?|52|cheap|under|below|rsi)\b/) && !syms.length ? "screen"
+    : syms.length ? (PAX.intent && ["levels", "news", "fno", "tech", "why", "size", "hold", "stock"].includes(PAX.intent) && q.trim().split(/\s+/).length <= 4 && /^\s*(and|what about|how about|also|now)?\b/.test(q) && q.trim().split(/\s+/).length <= syms.length + 2 ? PAX.intent : "stock")
+    : sector ? "sector" : (pron || plural) && (PAX.sym || PAX.syms.length) ? (PAX.intent || "stock") : "unknown";
+  if (I === "options" ) I = "fno";
+  // resolve the subject stock(s) with memory
+  let list = syms.map(x => S[x]).filter(Boolean);
+  if (/\b(compare|vs|versus|better than)\b/.test(q) && list.length === 1 && PAX.sym && PAX.sym !== list[0].symbol && S[PAX.sym]) { list = [S[PAX.sym], list[0]]; I = "compare"; }
+  if (!list.length && (plural || I === "compare") && PAX.syms.length) list = PAX.syms.map(x => S[x]).filter(Boolean);
+  if (!list.length && PAX.sym && S[PAX.sym] && ["why", "size", "hold", "levels", "news", "fno", "tech", "peers", "stock"].includes(I) && !(I === "fno" && /\b(nifty|bank ?nifty|index)\b/.test(q))) list = [S[PAX.sym]];
+  if (I === "fno" && !list.length && /\b(nifty|bank ?nifty|index)\b/.test(q)) { const sym = /bank/.test(q) ? "BANKNIFTY" : "NIFTY", o = (D.options?.indices || []).find(x => x.symbol === sym); if (o) list = [{ symbol: sym, name: sym === "NIFTY" ? "Nifty 50 index" : "Bank Nifty index", price: o.spot, fo: null, tech: {} }]; }
+  const s = list[0];
+  if (s && S[s.symbol]) PAX.sym = s.symbol;
+  if (list.length > 1) PAX.syms = list.map(x => x.symbol);
+  if (!["more", "unknown", "help"].includes(I)) PAX.intent = I;
+  let html;
+  switch (I) {
+    case "compare": html = list.length >= 2 ? paCompare(list) : (s ? paCompare([s, ...D.stocks.filter(x => x.industry === s.industry && x.symbol !== s.symbol).sort((a, b) => paScore(b).v - paScore(a).v).slice(0, 2)]) : "<p>Tell me two stocks, e.g. <b>compare HDFC Bank and ICICI Bank</b>.</p>"); break;
+    case "why": html = s ? paWhy(s) : "<p>Which stock? e.g. <b>why is Infosys weak?</b></p>"; break;
+    case "size": html = s ? paSizeA(s, cap) : `<p>Which stock? e.g. <b>how many shares of ITC for 2 lakh?</b></p>`; break;
+    case "hold": html = s ? paHold(s, buyAt, qty) : paPortfolio(); break;
+    case "levels": html = s ? paLevels(s) : "<p>Which stock? e.g. <b>levels for TCS</b>.</p>"; break;
+    case "news": html = s ? paNewsA(s) : paAnswer("market"); break;
+    case "fno": html = s ? (s.tech && S[s.symbol] ? paFno(s) : paFno({ ...s, symbol: s.symbol })) : paAnswer("options"); break;
+    case "tech": html = s ? paTech(s) : "<p>Which stock?</p>"; break;
+    case "events": html = paEvents(s && syms.length ? s : null); break;
+    case "peers": html = s ? paCompare([s, ...D.stocks.filter(x => x.industry === s.industry && x.symbol !== s.symbol).sort((a, b) => paScore(b).v - paScore(a).v).slice(0, 3)]) : "<p>Peers of which stock?</p>"; break;
+    case "portfolio": html = paPortfolio(); break;
+    case "more": PAX.page++; html = paList(); break;
+    case "ideas": html = paAnswer("ideas"); break;
+    case "open": html = paAnswer("open"); break;
+    case "sectors": html = paSectorsAll(); break;
+    case "market": html = paMarketA(); break;
+    case "help": html = paAnswer("help"); break;
+    case "screen": html = paScreen(q, sector, group); break;
+    case "sector": html = /\b(top|best|list|show|oversold|breakout|weak|strong|leaders|under|below)\b/.test(q) ? paScreen(q, sector, group) : paSectorA(sector); break;
+    case "stock": html = paStockView(s); break;
+    default: html = group ? paScreen(q, null, group) : `<p>I didn't catch that. I can help with:</p><ul class="pa-why"><li>a stock: "Is Tata Steel a buy?", "levels for ITC", "news on Infosys"</li><li>follow-ups: "why?", "and TCS?", "compare with ICICI", "how many shares for 2 lakh?"</li><li>screens: "best pharma stocks", "oversold Nifty 50 stocks", "breakouts under 500"</li><li>"market today", "my portfolio", "options idea"</li></ul>`;
+  }
+  paSaveCtx();
+  const subj = s && S[s.symbol] ? `<div class="pa-ctx">🧠 Talking about <b>${esc(s.symbol)}</b>${list.length > 1 ? ` + ${list.length - 1} more` : ""}. Say "it" or "and X?" to continue.</div>` : "";
+  return subj + html;
+}
+
 function paAnswer(k, text) {
   const adv = paItems();
   if (k === "market") {
     const m = D.mood || {}, a = adv.find(x => x.kind === "market"), [c, l] = paStance();
-    return `<div class="pa-stance ${c}">${l}</div>${a ? `<p><b>${esc(a.title)}.</b> ${esc(a.text)}</p>` : ""}<ul class="pa-why">${(m.lines || []).slice(0, 5).map(x => `<li>${esc(x)}</li>`).join("")}</ul>`;
+    const nv = PA.nifty, lines = (m.lines || []).slice(0, 5).filter(x => !(nv && /^Nifty 50 is/.test(x)));
+  return `<div class="pa-stance ${c}">${l}</div>${nv ? `<p><b>Right now Nifty is ${fmt(nv.price, 0)} (${pct(nv.change_pct)} today${nv.high ? `, range ${fmt(nv.low, 0)}–${fmt(nv.high, 0)}` : ""}).</b></p>` : ""}${a ? `<p><b>${esc(a.title)}.</b> ${esc(a.text)}</p>` : ""}<ul class="pa-why">${lines.map(x => `<li>${esc(x)}</li>`).join("")}</ul>`;
   }
   if (k === "ideas") {
     const l = adv.filter(a => a.kind === "long" && a.status === "open");
@@ -1546,6 +1891,39 @@ function paKite(id) {
   const live = S[a.sym]?.price || p.entry;
   kiteModal(`Buy ${a.sym} (Pulse Agent setup)`, [{ exchange: "NSE", tradingsymbol: a.sym, transaction_type: "BUY", quantity: q, order_type: "LIMIT", price: Math.round(live * 20) / 20, product: "CNC", variety: "regular" }],
     `Plan: stop ${px(p.stop)}, target ${px(p.target)}. After buying, place your stop-loss in Kite (GTT) yourself. Quantity uses your ${RISK[c.risk]?.name || "Balanced"} risk on ₹${fmt(c.capital, 0)}.`);
+}
+
+// ---- voice: speak a question (speech-to-text) and hear answers (text-to-speech); browser built-ins, free ----
+function paVoiceInit() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition, mic = $("#paMic");
+  if (!SR) { mic.title = "Voice input works in Chrome / Edge / Android"; mic.onclick = () => toast("Voice input needs Chrome or Edge (or the Google app on phone)"); }
+  else mic.onclick = () => {
+    if (PA.rec) { PA.rec.stop(); return; }
+    const r = new SR(); PA.rec = r; r.lang = store.get("dp-palang", "en-IN"); r.interimResults = true; r.maxAlternatives = 1;
+    const inp = $("#paQ"); mic.classList.add("on"); inp.placeholder = "Listening… speak now (e.g. \"Is Tata Steel good to buy?\")";
+    let final = "";
+    r.onresult = e => { let t = ""; for (const x of e.results) { t += x[0].transcript; if (x.isFinal) final = t; } inp.value = t; };
+    r.onerror = e => { if (e.error === "not-allowed") toast("Please allow the microphone for this site"); else if (e.error !== "aborted" && e.error !== "no-speech") toast("Voice error: " + e.error); };
+    r.onend = () => { mic.classList.remove("on"); PA.rec = null; inp.placeholder = "Ask anything: Is Tata Steel a buy? · and ITC? · best pharma stocks"; const v = (final || inp.value).trim(); if (v) { inp.value = ""; paAsk(null, v); } };
+    try { r.start(); } catch { mic.classList.remove("on"); PA.rec = null; }
+  };
+  const spk = $("#paSpk"), on = () => store.get("dp-paspeak", false);
+  const mark = () => { spk.textContent = on() ? "🔊" : "🔇"; spk.title = on() ? "Reading answers aloud (tap to mute)" : "Read answers aloud"; };
+  if (!("speechSynthesis" in window)) spk.hidden = true;
+  spk.onclick = () => { store.set("dp-paspeak", !on()); if (!on()) speechSynthesis.cancel(); mark(); toast(on() ? "I'll read my answers aloud" : "Muted"); };
+  mark();
+}
+function paSpeak(html) {
+  if (!store.get("dp-paspeak", false) || !("speechSynthesis" in window)) return;
+  const d = document.createElement("div"); d.innerHTML = html;
+  d.querySelectorAll(".pa-fu,.pa-act,.pa-ctx,.pa-live,.pa-claude,table,.pa-plan,.muted").forEach(x => x.remove());
+  let t = (d.querySelector("p b") || d.querySelector("p") || d).textContent.trim();
+  const plan = html.match(/Buy near <b>([^<]+)<\/b>.*?Stop <b[^>]*>([^<]+)<\/b>.*?Target <b[^>]*>([^<]+)<\/b>/s);
+  if (plan) t += `. Plan: buy near ${plan[1]}, stop loss ${plan[2]}, target ${plan[3]}.`;
+  t = t.replace(/[🟢🟡🔴✅⚠️📅🧭📈🎯🧮🏛💡●]/gu, "").replace(/₹/g, "rupees ").replace(/−/g, "minus ").replace(/\bR:R\b/g, "reward to risk").slice(0, 400);
+  speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(t); u.lang = "en-IN"; u.rate = 1;
+  const v = speechSynthesis.getVoices().find(x => /en[-_]IN/i.test(x.lang)); if (v) u.voice = v;
+  speechSynthesis.speak(u);
 }
 function paShowBub() {
   const b = $("#paBub"), a = PA.queue[0]; if (!b) return;

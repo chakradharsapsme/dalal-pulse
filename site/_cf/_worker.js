@@ -119,10 +119,33 @@ async function mcp(request) {
   return new Response(JSON.stringify(batch ? out : out[0]), { status: 200, headers: { ...cors, "Content-Type": "application/json" } });
 }
 
+// ---------- /quote: live prices at the moment of asking (Yahoo Finance, fetched server-side; cached 15 s) ----------
+const YMAP = { NIFTY: "^NSEI", BANKNIFTY: "^NSEBANK", SENSEX: "^BSESN", FINNIFTY: "NIFTY_FIN_SERVICE.NS", VIX: "^INDIAVIX" };
+async function quote1(sym) {
+  const y = YMAP[sym] || `${sym}.NS`;
+  for (const host of ["query1", "query2"]) {
+    try {
+      const r = await fetch(`https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(y)}?range=1d&interval=5m`, { headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" }, cf: { cacheEverything: true, cacheTtl: 15 } });
+      if (!r.ok) continue;
+      const j = await r.json(), m = j?.chart?.result?.[0]?.meta; if (!m || m.regularMarketPrice == null) continue;
+      const prev = m.chartPreviousClose ?? m.previousClose;
+      return { price: m.regularMarketPrice, prev, change_pct: prev ? Math.round((m.regularMarketPrice / prev - 1) * 10000) / 100 : null, high: m.regularMarketDayHigh, low: m.regularMarketDayLow, time: m.regularMarketTime ? new Date(m.regularMarketTime * 1000).toISOString() : null };
+    } catch {}
+  }
+  return null;
+}
+async function quotes(request) {
+  const url = new URL(request.url);
+  const syms = [...new Set((url.searchParams.get("s") || "").toUpperCase().split(",").map(x => x.trim()).filter(x => /^[A-Z0-9&_^.-]{1,24}$/.test(x)))].slice(0, 8);
+  const out = {}; await Promise.all(syms.map(async s => { out[s] = await quote1(s); }));
+  return new Response(JSON.stringify({ at: new Date().toISOString(), quotes: out }), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*" } });
+}
+
 export default {
   async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname === "/mcp" || url.pathname === "/mcp/") return mcp(request);
+    if (url.pathname === "/quote") return quotes(request);
     if (url.pathname.startsWith("/_cf")) return new Response("Not found", { status: 404 });
     const target = ORIGIN + (url.pathname === "/" ? "/" : url.pathname) + url.search;
     const isData = url.pathname.startsWith("/data/");
