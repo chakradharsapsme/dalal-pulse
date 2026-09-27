@@ -1551,7 +1551,7 @@ async function paAsk(key, text) {
       try {
         const holdings = my.holdings.slice(0, 12).map(h => `${h.symbol} ${h.qty}@${h.avg}`).join(", ");
         const r = await fetch("/agent", { method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(45000),
-          body: JSON.stringify({ question: text, symbols: syms, intent: PA.lastIntent || key || "", history: PA_HIST.slice(-8), user: { capital: agentCfg?.capital, risk: agentCfg?.risk, holdings } }) });
+          body: JSON.stringify({ question: text, symbols: syms, intent: PA.lastIntent || key || "", history: PA_HIST.slice(-8), user: { capital: agentCfg?.capital, risk: agentCfg?.risk, holdings }, desk: paDesk(syms) }) });
         const j = await r.json().catch(() => ({})); if (r.ok && j.answer) ai = j; else err = j.error || r.status;
       } catch (e) { err = e.name === "TimeoutError" ? "timeout" : e.message; }
     }
@@ -1574,6 +1574,11 @@ async function paAsk(key, text) {
     paSay(html + paClaude(text)); paSpeak(ai ? `<p>${esc(ai.answer.replace(/[#*|`]/g, " ").split(/\n\s*\n/).slice(0, 2).join(". "))}</p>` : cardHtml);
   } catch (e) { clearInterval(iv); think.remove(); paSay(`<p>Sorry, something went wrong (${esc(e.message)}). Please try again.</p>`); }
   PA.busy = false;
+}
+function paDesk(syms) {
+  return syms.filter(x => S[x]).map(x => { const st = S[x], sc = paScore(st), t = st.tech || {}, adv = paItems().find(a => a.sym === x && a.kind === "long" && a.status === "open"), p = adv ? adv.plan : paPlan(st);
+    const rating = adv ? "Buy (active setup)" : sc.v >= 72 && t.above_50 ? "Buy on dips" : sc.v >= 58 ? "Accumulate / wait for entry" : sc.v >= 44 ? "Hold / Neutral" : sc.v >= 30 ? "Reduce" : "Avoid";
+    return { sym: x, score: sc.v, rating, entry: p?.entry && Math.round(p.entry * 100) / 100, stop: p?.stop, target: p?.target, pros: sc.parts.filter(y => y[1] > 0).map(y => y[0]).join("; "), cons: sc.parts.filter(y => y[1] < 0).map(y => y[0]).join("; ") }; });
 }
 function paNext(intent, syms) {
   const s = syms[0];

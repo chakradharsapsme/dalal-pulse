@@ -149,8 +149,9 @@ const AGENT_SYSTEM = `You are "Pulse Agent", the senior equity research analyst 
 
 RULES
 - Use ONLY the DATA provided in this conversation (live quotes + Dalal Pulse research files). Never invent prices, levels, news, targets or numbers. If something is missing, say so plainly.
-- Quote the live price and its time when you discuss a stock. Mention if the market is closed.
+- Quote the live price and its IST time when you discuss a stock (write times like "25 Sep, 15:15 IST", never raw ISO timestamps). Mention if the market is closed.
 - Respect the backtest: signals marked "No real edge" must not be the main reason for a call.
+- When a DESK QUANT MODEL is provided, your rating must match it and your trade plan must use its exact entry/stop/target/reward:risk numbers (you may explain or add context, never change the arithmetic).
 - Give a clear, decisive view with a rating from: Buy on dips / Accumulate / Hold / Reduce / Avoid (for stocks), or Bullish / Neutral / Bearish (for the market/indices).
 - For any trade idea give: entry zone, stop-loss (below support/structure), target (next resistance), reward:risk, and what would invalidate it. Suggest position sizing as a % risk of capital (1–2%), never "all in".
 - Options: prefer defined-risk spreads; warn that ~9 in 10 individual F&O traders lose money (SEBI) when relevant. Never suggest naked option selling.
@@ -193,6 +194,8 @@ async function agent(request, env) {
   const steps = [], t0 = Date.now(), step = (k, d) => steps.push({ k, d, ms: Date.now() - t0 });
   let syms = (Array.isArray(body.symbols) ? body.symbols : []).map(x => String(x).toUpperCase()).filter(x => /^[A-Z0-9&-]{1,20}$/.test(x)).slice(0, 4);
   const intent = String(body.intent || "").slice(0, 20);
+  const desk = (Array.isArray(body.desk) ? body.desk : []).slice(0, 4).map(d => { const n = x => Number.isFinite(+x) ? +x : null; const e = n(d.entry), st = n(d.stop), tg = n(d.target);
+    return /^[A-Z0-9&-]{1,20}$/.test(String(d.sym || "")) ? `${d.sym}: score ${n(d.score)}/100 → rating "${String(d.rating || "").slice(0, 40)}"${e && st && tg && e > st ? `; plan entry ₹${e}, stop ₹${st} (−${((1 - st / e) * 100).toFixed(1)}%), target ₹${tg} (+${((tg / e - 1) * 100).toFixed(1)}%), reward:risk ${((tg - e) / (e - st)).toFixed(1)}` : ""}; for: ${String(d.pros || "").slice(0, 200)}; against: ${String(d.cons || "").slice(0, 200)}` : ""; }).filter(Boolean).join("\n");
   step("understand", syms.length ? `Question is about ${syms.join(", ")}` : "Reading your question");
   // PLAN: if the site's parser found no stock, let a small model resolve names from the conversation
   if (!syms.length && !/^(market|ideas|screen|sector|sectors|options|portfolio|open|help|events)$/.test(intent)) {
@@ -225,7 +228,8 @@ async function agent(request, env) {
   const open = wd >= 1 && wd <= 5 && hh >= 555 && hh <= 930;
   const ctx = [
     `NOW: ${ist.toISOString().slice(0, 16).replace("T", " ")} IST · NSE market ${open ? "OPEN" : "CLOSED"}`,
-    `LIVE QUOTES (exchange feed):\n${Object.entries(live).map(([k, v]) => `${k}: ₹${v.price} (${v.change_pct > 0 ? "+" : ""}${v.change_pct}% vs prev close ${v.prev}; day ${v.low}–${v.high}; at ${v.time})`).join("\n") || "unavailable"}`,
+    `LIVE QUOTES (exchange feed):\n${Object.entries(live).map(([k, v]) => `${k}: ₹${v.price} (${v.change_pct > 0 ? "+" : ""}${v.change_pct}% vs prev close ${v.prev}; day ${v.low}–${v.high}; as of ${v.time ? new Date(Date.parse(v.time) + 5.5 * 3600e3).toISOString().slice(0, 16).replace("T", " ") + " IST" : "?"})`).join("\n") || "unavailable"}`,
+    desk ? `DESK QUANT MODEL (pre-computed and arithmetically checked — use these exact numbers for rating and trade plan; do not recompute reward:risk):\n${desk}` : "",
     body.user ? `USER PROFILE: capital ₹${body.user.capital || "unknown"}, risk style ${body.user.risk || "balanced"}${body.user.holdings ? `; holdings: ${String(body.user.holdings).slice(0, 400)}` : ""}` : "",
     `MARKET BRIEF:\n${clip(market, 6500)}`,
     ...stockDocs.map((d, i) => d ? `STOCK RESEARCH ${syms[i]}:\n${clip(d, 3500)}` : `STOCK RESEARCH ${syms[i]}: not available`),
