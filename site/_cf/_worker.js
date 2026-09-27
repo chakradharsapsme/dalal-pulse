@@ -285,7 +285,7 @@ async function agent(request, env) {
 async function agentProbe(request, env) {
   const c = agentCors(request); if (!c.ok || !env?.AI) return new Response("no", { status: 403 });
   const res = {};
-  for (const m of [...new Set(BIG.concat(SMALL))]) { const t0 = Date.now(); try { const r = await runAI(env, [m], [{ role: "system", content: "Reply with one word." }, { role: "user", content: "Say OK" }], 20); res[m] = `ok ${Date.now() - t0}ms: ${r.text.slice(0, 20)}`; } catch (e) { res[m] = "ERR " + String(e.message || e).slice(0, 120); } }
+  for (const m of [...new Set(BIG.concat(SMALL))]) { const t0 = Date.now(); try { const r = await runAI(env, [m], [{ role: "system", content: "You are a helpful assistant." }, { role: "user", content: "Which is bigger, 9.11 or 9.9? Answer in one short sentence." }], 600); res[m] = `ok ${Date.now() - t0}ms: ${r.text.slice(0, 80)}`; } catch (e) { let raw = ""; try { raw = JSON.stringify(await env.AI.run(m, m.includes("gpt-oss") ? { input: "Say OK", max_output_tokens: 600 } : { messages: [{ role: "user", content: "Say OK" }], max_tokens: 600 })).slice(0, 300); } catch (e2) { raw = "raw err " + String(e2.message || e2).slice(0, 150); } res[m] = "ERR " + String(e.message || e).slice(0, 80) + " | " + raw; } }
   return new Response(JSON.stringify(res, null, 1), { headers: { ...c.h, "Content-Type": "application/json" } });
 }
 
