@@ -1515,7 +1515,7 @@ async function paLive(syms) {
 }
 const PA_HIST = store.get("dp-pahist", []);
 function paMd(md) {
-  const inl = t => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g, "$1<i>$2</i>").replace(/`([^`]+)`/g, "<code>$1</code>");
+  const inl = t => esc(t).replace(/&lt;br\s*\/?&gt;/gi, "<br>").replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g, "$1<i>$2</i>").replace(/`([^`]+)`/g, "<code>$1</code>");
   const L = String(md).replace(/\r/g, "").split("\n"), out = []; let list = null, tbl = null;
   const flush = () => { if (list) { out.push(`<${list.t}>${list.i.map(x => `<li>${inl(x)}</li>`).join("")}</${list.t}>`); list = null; } if (tbl) { const rows = tbl.filter(r => !/^\s*\|?\s*:?-{2,}/.test(r)).map(r => r.replace(/^\s*\||\|\s*$/g, "").split("|").map(c => c.trim()));
       out.push(`<table class="pa-t">${rows.map((r, i) => `<tr>${r.map(c => i ? `<td>${inl(c)}</td>` : `<th>${inl(c)}</th>`).join("")}</tr>`).join("")}</table>`); tbl = null; } };
@@ -1599,6 +1599,8 @@ async function paAsk(key, text) {
     }
     const wait = Math.max(0, 2600 - (Date.now() - t0)); if (wait) await new Promise(r => setTimeout(r, wait)); // take a moment: no instant canned replies
     clearInterval(iv); think.remove();
+    if (ai && ai.live) for (const [k, v] of Object.entries(ai.live)) if (v && v.price) { live[k] = v; if (S[k]) { S[k].price = v.price; if (v.change_pct != null) S[k].change_pct = v.change_pct; } }
+    if (ai && ai.symbols && ai.symbols.length) { PAX.sym = ai.symbols[0]; PAX.syms = ai.symbols; PA.lastSyms = ai.symbols; paSaveCtx(); }
     const L = Object.keys(live).filter(k => k !== "NIFTY"), tt = live[L[0]]?.time || live.NIFTY?.time;
     const stamp = Object.keys(live).length ? `<div class="pa-live">● Live ${L.length ? L.map(k => `${esc(k)} ${px(live[k].price)} <b class="${cls(live[k].change_pct)}">${pct(live[k].change_pct)}</b>`).join(" · ") + " · " : ""}Nifty ${live.NIFTY ? fmt(live.NIFTY.price, 0) + ` <b class="${cls(live.NIFTY.change_pct)}">${pct(live.NIFTY.change_pct)}</b>` : "–"}${tt ? ` · as of ${new Date(tt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", ...(Date.now() - Date.parse(tt) > 18 * 3600e3 ? { weekday: "short", day: "numeric", month: "short" } : {}), hour: "2-digit", minute: "2-digit" })} IST${Date.now() - Date.parse(tt) > 18 * 3600e3 ? " (market closed)" : ""}` : ""}</div>` : "";
     let html;
@@ -1607,7 +1609,7 @@ async function paAsk(key, text) {
       ai.answer = ai.answer.replace(/(the |our )?DESK QUANT MODEL/gi, "our quant model").replace(/Based on our quant model/g, "Per our quant model");
       html = stamp + `<div class="pa-ai">${paMd(ai.answer)}</div>
         <details class="pa-work"><summary>Worked for ${secs}s · ${(ai.steps || []).length} steps · ${esc(ai.model || "AI")}</summary><ol>${(ai.steps || []).map(x => `<li>${esc(x.d)}</li>`).join("")}</ol></details>
-        <details class="pa-data"><summary>Data snapshot used</summary>${cardHtml}</details>` + paFollow(paNext(PA.lastIntent, syms));
+        <details class="pa-data"><summary>Data snapshot used</summary>${cardHtml}</details>` + paFollow(paNext(PA.lastIntent, (ai.symbols && ai.symbols.length) ? ai.symbols : syms));
       PA_HIST.push({ role: "user", content: text }, { role: "assistant", content: ai.answer.slice(0, 1500) });
     } else {
       html = stamp + (err && err !== "ai_not_configured" ? `<div class="pa-ctx">AI analyst is busy (${esc(String(err))}); showing the rule-based analysis.</div>` : "") + cardHtml;
