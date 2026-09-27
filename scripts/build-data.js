@@ -283,6 +283,12 @@ async function main() {
     stocks, news: newsOut, w52, calendar: upcoming.slice(0, 600).map(e => ({ ...e, tracked: Boolean(universe[e.symbol]), nifty50: Boolean(universe[e.symbol]?.nifty50) })),
   };
   fs.writeFileSync(path.join(OUT, "latest.json"), JSON.stringify(out));
+  // small plain-text briefs for the "Dalal Pulse Expert" AI agent / connector (data/ai/*.txt)
+  try {
+    const ai = require("./lib/aibrief").build(out, { siteUrl: cfg.custom_domain ? `https://${cfg.custom_domain.trim()}/` : cfg.public_url || undefined });
+    for (const [rel, text] of Object.entries(ai)) { const fp = path.join(OUT, "ai", rel); fs.mkdirSync(path.dirname(fp), { recursive: true }); fs.writeFileSync(fp, text); }
+    log(`[ai] ${Object.keys(ai).length} brief files`);
+  } catch (e) { log("[ai] " + e.message); }
   // the site's public address: custom domain (config.json "custom_domain", e.g. dalalpulse.com) or the GitHub Pages address
   try {
     const [o, r] = (process.env.GITHUB_REPOSITORY || "chakradharsapsme/dalal-pulse").split("/");
