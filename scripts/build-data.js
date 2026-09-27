@@ -123,6 +123,7 @@ async function main() {
   ]);
   status.technicals = `${Object.keys(techs).length}/${syms.length}`;
   const indices = await attempt("indices", () => loadIndices({ universe, nseIndices: pulse.raw, outDir: path.join(OUT, "indices"), cacheDir: path.join(CACHE, "idx"), log }), []);
+  status.indices_detail = loadIndices.report || null;
 
   // relative strength vs Nifty 50 + RS rating (1-99 percentile of weighted 3/6/9/12-month returns)
   const nRows = nifty?.rows || [];

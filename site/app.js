@@ -572,7 +572,8 @@ function indexDetail(id) {
     <div class="sect"><h3>News for ${esc(x.name)} · ${news.length}</h3><p class="muted" style="font-size:12.5px;margin:-4px 0 8px">Headlines about the index itself or any of its stocks.</p>${news.map(newsItem).join("") || '<div class="muted">No recent headlines.</div>'}</div>`;
 }
 function compareDetail() {
-  const pickable = IDX().filter(x => x.id !== "vix");
+  const pickable = IDX().filter(x => x.id !== "vix" && !x.nochart);
+  ui.icmp = ui.icmp.filter(id => pickable.some(x => x.id === id));
   if (!ui.icmp.length) ui.icmp = ["nifty50", "bank", "it", "midcap", "smallcap"].filter(id => idxById(id));
   const range = ui.crange;
   const rows = pickable.map(x => ({ x, r: range === "21" ? x.tech.ret_1m : range === "63" ? x.tech.ret_3m : range === "126" ? x.tech.ret_6m : range === "252" ? x.tech.ret_1y : x.tech.ret_5y })).sort((a, b) => (b.r ?? -1e9) - (a.r ?? -1e9));
@@ -597,6 +598,7 @@ function svgHover(svg, W, L, R, n, x, tipHtml) {
 }
 async function drawIndexChart(id) {
   const box = $("#ichart"); if (!box) return;
+  if (idxById(id)?.nochart) { box.innerHTML = '<div class="empty" style="padding:30px"><b>Chart not available in this update</b>The live value above is from NSE. The chart usually returns with the next refresh.</div>'; $("#ilegend").innerHTML = ""; return; }
   let d; try { d = await loadIdx(id); } catch { box.innerHTML = '<div class="muted">Chart unavailable.</div>'; return; }
   if (!$("#ichart") || sel !== id) return;
   const x0 = idxById(id), vix = id === "vix", range = ui.irange, intra = range === "1d";

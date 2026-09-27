@@ -13,25 +13,28 @@ const INDICES = [
   { id: "sensex", name: "Sensex", group: "Broad market", yahoo: ["^BSESN"], nse: null, csv: null,
     list: ["ADANIPORTS", "ASIANPAINT", "AXISBANK", "BAJFINANCE", "BAJAJFINSV", "BEL", "BHARTIARTL", "ETERNAL", "HCLTECH", "HDFCBANK", "HINDUNILVR", "ICICIBANK", "INFY", "ITC", "KOTAKBANK", "LT", "M&M", "MARUTI", "NTPC", "POWERGRID", "RELIANCE", "SBIN", "SUNPHARMA", "TMPV", "TATAMOTORS", "TATASTEEL", "TCS", "TECHM", "TITAN", "TRENT", "ULTRACEMCO"] },
   { id: "next50", name: "Nifty Next 50", group: "Broad market", yahoo: ["^NSMIDCP"], nse: "NIFTY NEXT 50", csv: "ind_niftynext50list.csv", fb: null },
-  { id: "midcap", name: "Nifty Midcap 100", group: "Broad market", yahoo: ["NIFTY_MIDCAP_100.NS", "^CNXMIDCAP"], nse: "NIFTY MIDCAP 100", csv: "ind_niftymidcap100list.csv", fb: null },
-  { id: "smallcap", name: "Nifty Smallcap 100", group: "Broad market", yahoo: ["^CNXSC", "NIFTY_SMLCAP_100.NS"], nse: "NIFTY SMALLCAP 100", csv: "ind_niftysmallcap100list.csv", fb: null },
+  { id: "midcap", name: "Nifty Midcap 100", group: "Broad market", yahoo: ["NIFTY_MIDCAP_100.NS", "^CNXMIDCAP", "^NSEMDCP50"], nse: "NIFTY MIDCAP 100", csv: "ind_niftymidcap100list.csv", fb: null },
+  { id: "smallcap", name: "Nifty Smallcap 100", group: "Broad market", yahoo: ["^CNXSC", "NIFTY_SMLCAP_100.NS", "^CNXSMALLCAP"], nse: "NIFTY SMALLCAP 100", csv: "ind_niftysmallcap100list.csv", fb: null },
   { id: "bank", name: "Nifty Bank", group: "Sectors", yahoo: ["^NSEBANK"], nse: "NIFTY BANK", csv: "ind_niftybanklist.csv", fb: (i, n) => /Financial/i.test(i) && /bank/i.test(n) },
   { id: "fin", name: "Nifty Financial Services", group: "Sectors", yahoo: ["NIFTY_FIN_SERVICE.NS", "^CNXFIN"], nse: "NIFTY FINANCIAL SERVICES", csv: "ind_niftyfinancelist.csv", fb: (i) => /Financial/i.test(i) },
-  { id: "psubank", name: "Nifty PSU Bank", group: "Sectors", yahoo: ["^CNXPSUBANK"], nse: "NIFTY PSU BANK", csv: "ind_niftypsubanklist.csv", fb: (i, n) => /State Bank|Bank of Baroda|Bank of India|Punjab National|Canara|Union Bank|Indian Bank|Bank of Maharashtra|Indian Overseas|UCO Bank|Central Bank/i.test(n) },
+  { id: "psubank", name: "Nifty PSU Bank", group: "Sectors", yahoo: ["^CNXPSUBANK", "NIFTY_PSU_BANK.NS"], nse: "NIFTY PSU BANK", csv: "ind_niftypsubanklist.csv", fb: (i, n) => /State Bank|Bank of Baroda|Bank of India|Punjab National|Canara|Union Bank|Indian Bank|Bank of Maharashtra|Indian Overseas|UCO Bank|Central Bank/i.test(n) },
   { id: "it", name: "Nifty IT", group: "Sectors", yahoo: ["^CNXIT"], nse: "NIFTY IT", csv: "ind_niftyitlist.csv", fb: (i) => /Information Technology/i.test(i) },
-  { id: "auto", name: "Nifty Auto", group: "Sectors", yahoo: ["^CNXAUTO"], nse: "NIFTY AUTO", csv: "ind_niftyautolist.csv", fb: (i) => /Automobile/i.test(i) },
+  { id: "auto", name: "Nifty Auto", group: "Sectors", yahoo: ["^CNXAUTO", "NIFTY_AUTO.NS"], nse: "NIFTY AUTO", csv: "ind_niftyautolist.csv", fb: (i) => /Automobile/i.test(i) },
   { id: "pharma", name: "Nifty Pharma", group: "Sectors", yahoo: ["^CNXPHARMA"], nse: "NIFTY PHARMA", csv: "ind_niftypharmalist.csv", fb: (i) => /Healthcare/i.test(i) },
-  { id: "fmcg", name: "Nifty FMCG", group: "Sectors", yahoo: ["^CNXFMCG"], nse: "NIFTY FMCG", csv: "ind_niftyfmcglist.csv", fb: (i) => /Fast Moving/i.test(i) },
-  { id: "metal", name: "Nifty Metal", group: "Sectors", yahoo: ["^CNXMETAL"], nse: "NIFTY METAL", csv: "ind_niftymetallist.csv", fb: (i) => /Metals/i.test(i) },
-  { id: "energy", name: "Nifty Energy", group: "Sectors", yahoo: ["^CNXENERGY"], nse: "NIFTY ENERGY", csv: "ind_niftyenergylist.csv", fb: (i) => /Oil Gas|Power/i.test(i) },
-  { id: "realty", name: "Nifty Realty", group: "Sectors", yahoo: ["^CNXREALTY"], nse: "NIFTY REALTY", csv: "ind_niftyrealtylist.csv", fb: (i) => /Realty/i.test(i) },
-  { id: "infra", name: "Nifty Infrastructure", group: "Sectors", yahoo: ["^CNXINFRA"], nse: "NIFTY INFRASTRUCTURE", csv: "ind_niftyinfralist.csv", fb: (i) => /Construction|Power|Telecommunication/i.test(i) },
-  { id: "media", name: "Nifty Media", group: "Sectors", yahoo: ["^CNXMEDIA"], nse: "NIFTY MEDIA", csv: "ind_niftymedialist.csv", fb: (i) => /Media/i.test(i) },
+  { id: "fmcg", name: "Nifty FMCG", group: "Sectors", yahoo: ["^CNXFMCG", "NIFTY_FMCG.NS"], nse: "NIFTY FMCG", csv: "ind_niftyfmcglist.csv", fb: (i) => /Fast Moving/i.test(i) },
+  { id: "metal", name: "Nifty Metal", group: "Sectors", yahoo: ["^CNXMETAL", "NIFTY_METAL.NS"], nse: "NIFTY METAL", csv: "ind_niftymetallist.csv", fb: (i) => /Metals/i.test(i) },
+  { id: "energy", name: "Nifty Energy", group: "Sectors", yahoo: ["^CNXENERGY", "NIFTY_ENERGY.NS"], nse: "NIFTY ENERGY", csv: "ind_niftyenergylist.csv", fb: (i) => /Oil Gas|Power/i.test(i) },
+  { id: "realty", name: "Nifty Realty", group: "Sectors", yahoo: ["^CNXREALTY", "NIFTY_REALTY.NS"], nse: "NIFTY REALTY", csv: "ind_niftyrealtylist.csv", fb: (i) => /Realty/i.test(i) },
+  { id: "infra", name: "Nifty Infrastructure", group: "Sectors", yahoo: ["^CNXINFRA", "NIFTY_INFRA.NS"], nse: "NIFTY INFRASTRUCTURE", csv: "ind_niftyinfralist.csv", fb: (i) => /Construction|Power|Telecommunication/i.test(i) },
+  { id: "media", name: "Nifty Media", group: "Sectors", yahoo: ["^CNXMEDIA", "NIFTY_MEDIA.NS"], nse: "NIFTY MEDIA", csv: "ind_niftymedialist.csv", fb: (i) => /Media/i.test(i) },
   { id: "vix", name: "India VIX", group: "Volatility", yahoo: ["^INDIAVIX"], nse: "INDIA VIX", csv: null, fb: null },
 ];
 
 async function intraday(sym) {
-  const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=1d&interval=5m`, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(15000) });
+  for (let a = 0; a < 3; a++) { try { return await intraday1(sym, a); } catch (e) { if (a === 2) throw e; await new Promise(r => setTimeout(r, 900 * (a + 1))); } }
+}
+async function intraday1(sym, a) {
+  const r = await fetch(`https://query${a % 2 ? 2 : 1}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=1d&interval=5m`, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(15000) });
   if (!r.ok) throw new Error("HTTP " + r.status);
   const res = (await r.json())?.chart?.result?.[0]; if (!res) throw new Error("no data");
   const q = res.indicators.quote[0], m = res.meta;
@@ -63,11 +66,24 @@ async function constituents(def, universe, cacheDir, log) {
 async function loadIndices({ universe, nseIndices, outDir, cacheDir, log }) {
   fs.mkdirSync(outDir, { recursive: true });
   const byNse = Object.fromEntries((nseIndices || []).map(x => [x.name, x]));
-  const out = [];
-  await Promise.all(INDICES.map(async def => {
+  const out = [], report = {};
+  const queue = [...INDICES];
+  const worker = async () => { while (queue.length) { const def = queue.shift(); await one(def); await new Promise(r => setTimeout(r, 250)); } };
+  const one = async def => {
     let hist = null, used = null;
-    for (const y of def.yahoo) { try { hist = await history(y, "5y"); used = y; break; } catch {} }
-    if (!hist || hist.rows.length < 30) { log(`[indices] ${def.name}: no data`); return; }
+    const errs = [];
+    for (const y of def.yahoo) { try { hist = await history(y, "5y"); used = y; break; } catch (e) { errs.push(`${y}: ${String(e.message).slice(0, 40)}`); } }
+    report[def.id] = used ? "ok " + used : "failed (" + errs.join("; ") + ")";
+    if (!hist || hist.rows.length < 30) {
+      // no chart data: still show the live value from NSE, with members, so the index isn't missing
+      const n = byNse[def.nse]; log(`[indices] ${def.name}: no chart data${n ? " (NSE value only)" : ""}`);
+      if (!n) return;
+      const cons = await constituents(def, universe, cacheDir, log);
+      out.push({ id: def.id, name: def.name, group: def.group, last: r2(n.last), change: r2(n.change), change_pct: r2(n.change_pct), prev: r2(n.last - n.change), nse_adv: n.advances, nse_dec: n.declines, pe: n.pe || null,
+        tech: { high52: n.year_high, low52: n.year_low, ret_1m: n.ch30d != null ? r2(+n.ch30d) : null, ret_1y: n.ch365d != null ? r2(+n.ch365d) : null }, spark: [], nochart: true,
+        members: cons.syms, members_total: cons.total, members_source: cons.source });
+      return;
+    }
     let intra = null; try { intra = await intraday(used); } catch {}
     const rows = hist.rows, ind = indicators(rows);
     const tech = compute(rows, hist.meta.regularMarketPrice);
@@ -94,10 +110,12 @@ async function loadIndices({ universe, nseIndices, outDir, cacheDir, log }) {
       spark_intraday: Boolean(intra && intra.pts.length > 5),
       members: cons.syms, members_total: cons.total, members_source: cons.source,
     });
-  }));
+  };
+  await Promise.all([worker(), worker(), worker()]);
   const order = Object.fromEntries(INDICES.map((d, i) => [d.id, i]));
   out.sort((a, b) => order[a.id] - order[b.id]);
   log(`[indices] ${out.length}/${INDICES.length} indices`);
+  loadIndices.report = report;
   return out;
 }
 

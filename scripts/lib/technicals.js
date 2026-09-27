@@ -5,9 +5,9 @@ const RANGE = "5y";
 const CHART_BARS = 252; // bars kept in each stock's chart file (1 year)
 
 async function history(yahooSymbol, range = RANGE) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?range=${range}&interval=1d`;
   let lastErr;
-  for (let a = 0; a < 2; a++) {
+  for (let a = 0; a < 3; a++) {
+    const url = `https://query${a % 2 ? 2 : 1}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?range=${range}&interval=1d`;
     try {
       const r = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" }, signal: AbortSignal.timeout(20000) });
       if (!r.ok) throw new Error("HTTP " + r.status);
@@ -16,7 +16,7 @@ async function history(yahooSymbol, range = RANGE) {
       const q = res.indicators.quote[0];
       const rows = res.timestamp.map((t, i) => ({ t: t * 1000, c: q.close[i], v: q.volume[i] || 0, h: q.high[i] ?? q.close[i], l: q.low[i] ?? q.close[i] })).filter(r => r.c != null);
       return { rows, meta: res.meta };
-    } catch (e) { lastErr = e; await new Promise(r => setTimeout(r, 800)); }
+    } catch (e) { lastErr = e; await new Promise(r => setTimeout(r, 900 * (a + 1))); }
   }
   throw lastErr;
 }
