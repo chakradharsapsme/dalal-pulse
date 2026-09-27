@@ -130,7 +130,20 @@ function lottery(a, symbol) {
   return out.sort((x, y) => y.vol - x.vol).slice(0, 4);
 }
 
-async function loadOptions({ stocks, foList, outDir, cacheDir, log }) {
+// index view: trend + momentum + put-call ratio + FII flows
+function indexView(a, tech, fiiNet) {
+  let sc = 0; const why = [];
+  if (tech) {
+    if (tech.above_50 && tech.above_200) { sc += 0.8; why.push("index above its 50- and 200-day averages"); } else if (tech.above_50 === false && tech.above_200 === false) { sc -= 0.8; why.push("index below its 50- and 200-day averages"); }
+    if (tech.macd_state) { sc += tech.macd_state === "bull" ? 0.4 : -0.4; why.push(`MACD ${tech.macd_state === "bull" ? "bullish" : "bearish"}`); }
+    if (tech.ret_1m != null && Math.abs(tech.ret_1m) > 2) { sc += tech.ret_1m > 0 ? 0.3 : -0.3; why.push(`1-month ${tech.ret_1m > 0 ? "+" : ""}${tech.ret_1m}%`); }
+  }
+  const pcr = a.summary.pcr; if (pcr != null) { if (pcr > 1.2) { sc += 0.4; why.push(`put-call ratio ${pcr}`); } else if (pcr < 0.75) { sc -= 0.4; why.push(`put-call ratio ${pcr}`); } }
+  if (fiiNet != null && Math.abs(fiiNet) > 1500) { sc += fiiNet > 0 ? 0.3 : -0.3; why.push(`FIIs net ${fiiNet > 0 ? "buyers" : "sellers"} ₹${Math.round(Math.abs(fiiNet))} cr`); }
+  return { score: r2(sc), dir: sc >= 1 ? "bullish" : sc <= -1 ? "bearish" : "neutral", why };
+}
+
+async function loadOptions({ stocks, indices, fiiNet, outDir, cacheDir, log }) {
   fs.mkdirSync(outDir, { recursive: true });
   const lots = await lotSizes(cacheDir);
   const S = Object.fromEntries(stocks.map(s => [s.symbol, s]));
@@ -139,7 +152,7 @@ async function loadOptions({ stocks, foList, outDir, cacheDir, log }) {
   const active = stocks.filter(s => s.fo).sort((a, b) => (Math.abs(b.fo.oi_chg_pct || 0) + (b.news_ids.length * 3) + Math.abs(b.change_pct || 0) * 4) - (Math.abs(a.fo.oi_chg_pct || 0) + (a.news_ids.length * 3) + Math.abs(a.change_pct || 0) * 4)).map(s => s.symbol);
   const list = [...new Set([...heavy.filter(s => S[s]?.fo), ...active])].slice(0, 36);
   const underlyings = [["NIFTY", true], ["BANKNIFTY", true], ...list.map(s => [s, false])];
-  const out = { indices: [], stocks: [], ideas: [], lottery: [], failed: 0 };
+  const out = { indices: [], stocks: [], ideas: [], index_ideas: [], lottery: [], failed: 0 };
   const q = [...underlyings];
   const worker = async () => {
     while (q.length) {
@@ -149,9 +162,13 @@ async function loadOptions({ stocks, foList, outDir, cacheDir, log }) {
         const a = analyse(c, isIdx ? INDEX_LOTS[sym] : lots[sym] || null);
         fs.writeFileSync(path.join(outDir, sym.replace(/[^A-Z0-9&-]/gi, "_") + ".json"), JSON.stringify({ ...a.summary, chain: a.window }));
         if (isIdx) {
-          const v = { score: 0, why: [] }; const pcr = a.summary.pcr;
+          const pcr = a.summary.pcr;
           a.summary.mood = pcr == null ? "neutral" : pcr > 1.2 ? "bullish" : pcr < 0.8 ? "bearish" : "neutral";
+          const it = (indices || []).find(x => x.id === (sym === "NIFTY" ? "nifty50" : "bank"));
+          const v = indexView(a, it?.tech, fiiNet);
+          a.summary.view = v.dir; a.summary.view_score = v.score; a.summary.view_why = v.why;
           out.indices.push(a.summary);
+          const idea = spreadIdea(a, v); if (idea) out.index_ideas.push({ symbol: sym, index: true, spot: a.summary.spot, expiry: c.expiry, days: a.summary.days, iv: a.summary.atm_iv, ...idea });
         } else {
           const v = view(a, S[sym]);
           out.stocks.push({ ...a.summary, view: v.dir, view_score: v.score });

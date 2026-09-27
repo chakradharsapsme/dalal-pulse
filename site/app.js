@@ -270,7 +270,8 @@ function impactNews() {
   }
   return out.sort((a, b) => b.score - a.score).slice(0, 6);
 }
-let btI = 0, btTop = null, btFlash = false;
+let btI = 0, btTop = null, btFlash = false, btHover = false;
+setInterval(() => { if (!D || btHover || store.get("dp-bt-min", false) || document.hidden) return; const n = impactNews().length; if (n > 1) { btI = (btI + 1) % n; renderTicker(); } }, 9000);
 function renderTicker() {
   const bar = $("#bticker"); if (!bar || !D) return;
   const collapsed = store.get("dp-bt-min", false);
@@ -1001,6 +1002,72 @@ function circuitsView() {
   <div class="muted" style="font-size:12.5px;margin-top:12px">NSE sets each stock's daily limit at 2%, 5%, 10% or 20% (there is no 30% band). F&O stocks have no fixed circuit, so large companies rarely appear here. ${C.hidden_small ? `${C.hidden_small.upper + C.hidden_small.lower} small-cap circuit hits today are hidden. ` : ""}T2T (trade-to-trade) stocks must be delivered, with no intraday trading. "Days in a row" counts from when this site started logging circuits. For information only, not investment advice.</div></div>`;
 }
 
+// ---------- OPTIONS EXPERT (rule-based agent) ----------
+const RISK = { careful: { pct: 1, cap: 5, name: "Careful" }, balanced: { pct: 2, cap: 8, name: "Balanced" }, bold: { pct: 3, cap: 12, name: "Bold" } };
+let agentCfg = store.get("dp-agent", { capital: 200000, risk: "balanced" });
+function agentPlan() {
+  const O = D.options, cfg = agentCfg, R = RISK[cfg.risk] || RISK.balanced;
+  const N = O.indices.find(x => x.symbol === "NIFTY"), B = O.indices.find(x => x.symbol === "BANKNIFTY");
+  const nT = (D.indices || []).find(x => x.id === "nifty50")?.tech || {};
+  const vix = D.pulse.find(p => p.key === "INDIA VIX")?.last, fii = (D.fii_dii || []).find(f => /FII/i.test(f.category))?.net;
+  const bias = N?.view || "neutral";
+  const ivRegime = vix == null ? "normal" : vix < 12.5 ? "cheap" : vix > 18 ? "expensive" : "normal";
+  const expT = e => { const m = String(e).match(/(\d+)-(\w{3})-(\d{4})/); return m ? new Date(`${m[2]} ${m[1]} ${m[3]}`).getTime() : null; };
+  // candidate plays: index + stock spreads
+  const cands = [...(O.index_ideas || []), ...O.ideas].map(i => {
+    const s = S[i.symbol], ev = (s?.events || []).filter(e => /Result|Board/i.test(e.type) && expT(i.expiry) && Date.parse(e.date) <= expT(i.expiry));
+    const withBias = bias === "neutral" ? 0 : i.dir === bias ? 1 : -1;
+    const conf = i.why.length + (withBias > 0 ? 1 : 0) + (i.pop >= 40 ? 1 : 0) + (i.rr >= 1.5 ? 1 : 0) - (withBias < 0 ? 2 : 0) - (ev.length ? 2 : 0);
+    const conviction = conf >= 6 ? "High" : conf >= 4 ? "Medium" : "Low";
+    const budget = cfg.capital * R.pct / 100, lots = i.max_loss_lot ? Math.floor(budget / i.max_loss_lot) : 0;
+    const width = Math.abs(i.legs[1].strike - i.legs[0].strike), up = i.dir === "bullish";
+    const support = i.index ? (i.symbol === "NIFTY" ? N : B)?.put_wall : s?.tech?.support, resist = i.index ? (i.symbol === "NIFTY" ? N : B)?.call_wall : s?.tech?.resistance;
+    const invalid = up ? (support && support < i.spot ? support : i.spot * 0.97) : (resist && resist > i.spot ? resist : i.spot * 1.03);
+    return { ...i, ev, withBias, conf, conviction, lots, budget, target_val: r2x(i.debit + 0.6 * (width - i.debit)), stop_val: r2x(i.debit * 0.5), invalid, width };
+  }).sort((a, b) => b.conf - a.conf || b.pop - a.pop);
+  const picks = [], cap = cfg.capital * R.cap / 100; let used = 0;
+  const ordered = [...cands.filter(c => c.lots > 0), ...cands.filter(c => !(c.lots > 0))]; // ideas that fit your budget first
+  for (const c of ordered) { if (picks.length >= 3 || c.conviction === "Low" || c.ev.length || c.withBias < 0 && Math.abs(c.score) < 3) continue; const cost = c.lots * (c.max_loss_lot || 0); if (c.lots && used + cost > cap) c.lots = Math.max(0, Math.floor((cap - used) / c.max_loss_lot)); used += c.lots * (c.max_loss_lot || 0); picks.push(c); }
+  const avoid = cands.filter(c => c.ev.length).slice(0, 4);
+  return { N, B, nT, vix, fii, bias, ivRegime, picks, avoid, R, used, cap, cands };
+}
+const r2x = x => Math.round(x * 100) / 100;
+function agentView() {
+  const O = D.options; if (!O || !O.indices.length) return "";
+  const P = agentPlan(), { N, B, nT, vix, fii, bias, ivRegime, picks, avoid, R } = P, cfg = agentCfg;
+  const lvl = x => x ? `support ${fmt(x.put_wall, 0)}, resistance ${fmt(x.call_wall, 0)}` : "";
+  const read = [];
+  if (N) read.push(`<b>Nifty ${fmt(N.spot, 0)}</b> sits between ${lvl(N)} (where the biggest option positions are). Option sellers are pricing about <b>±${N.exp_move_pct}%</b> by ${esc(N.expiry)}, so a range of roughly ${fmt(N.range_lo, 0)}–${fmt(N.range_hi, 0)}.`);
+  if (N) read.push(`Trend check: ${N.view_why?.length ? esc(N.view_why.join(", ")) : "no strong trend signals"}. Put-call ratio ${N.pcr} is ${N.pcr > 1.2 ? "supportive (put sellers are confident)" : N.pcr < 0.8 ? "heavy (call sellers are capping rallies)" : "balanced"}. Max pain is ${fmt(N.max_pain, 0)}: prices often drift toward it in the last two days before expiry.`);
+  if (B) read.push(`<b>Bank Nifty ${fmt(B.spot, 0)}</b>: ${lvl(B)}, view <b>${B.view}</b>, expected move ±${B.exp_move_pct}% by ${esc(B.expiry)}.`);
+  read.push(`Volatility: India VIX ${vix != null ? fmt(vix, 1) : "–"}, so options are <b>${ivRegime}</b>. ${ivRegime === "expensive" ? "When options are expensive I don't buy them outright; spreads cut the cost and the damage when volatility cools." : ivRegime === "cheap" ? "Cheap options favour buying, but time decay still works against you every day, so I keep positions small and exit early." : "Normal pricing: spreads still give the best risk-to-reward for a directional view."}${fii != null ? ` FIIs were net ${fii >= 0 ? "buyers" : "sellers"} of ₹${fmt(Math.abs(fii), 0)} cr last session.` : ""}`);
+  const verdict = bias === "bullish" ? "My read: <b class='up'>mildly bullish</b>. I'd lean towards call spreads on strong stocks and avoid fighting the trend with puts." : bias === "bearish" ? "My read: <b class='down'>bearish</b>. I'd lean towards put spreads on weak stocks, and keep any bullish bets small." : "My read: <b>no clear direction for the index</b>. In a sideways market I only trade stocks with their own strong story, and I size smaller.";
+  const pick = (c, i) => { const [b, s] = c.legs, up = c.dir === "bullish";
+    return `<div class="apick ${c.dir}"><div class="aph"><span class="anum">${i + 1}</span><div><b class="sym">${esc(c.symbol === "BANKNIFTY" ? "Bank Nifty" : c.symbol === "NIFTY" ? "Nifty 50" : c.symbol)}</b> · ${esc(c.strategy)} <span class="badge ${c.conviction === "High" ? "bullish" : "watch"}">${c.conviction} conviction</span></div></div>
+      <ol class="asteps">
+        <li><b>Why:</b> ${esc(c.why.join(", "))}${c.withBias > 0 ? ", and it agrees with the index trend" : c.withBias < 0 ? ". <span class='down'>It goes against the index trend, so size it smaller.</span>" : ""}.</li>
+        <li><b>Setup:</b> buy ${fmt(b.strike, 0)} ${b.type}, sell ${fmt(s.strike, 0)} ${s.type} (expiry ${esc(c.expiry)}). Enter only if the net cost is ₹${fmt(c.debit, 2)} or less per share${c.lot ? ` (₹${fmt(c.max_loss_lot, 0)} per lot of ${c.lot})` : ""}.</li>
+        <li><b>Size for you:</b> ${c.max_loss_lot ? (c.lots > 0 ? `<b>${c.lots} lot${c.lots > 1 ? "s" : ""}</b>. Worst case you lose <b class="down">₹${fmt(c.lots * c.max_loss_lot, 0)}</b> (${fmt(c.lots * c.max_loss_lot / cfg.capital * 100, 1)}% of your capital); best case you make <b class="up">₹${fmt(c.lots * c.max_gain_lot, 0)}</b>.` : `<span class="down">doesn't fit your limit</span>. One lot risks ₹${fmt(c.max_loss_lot, 0)}, more than your per-trade limit of ₹${fmt(c.budget, 0)}. It suits capital of about ₹${fmt(Math.ceil(c.max_loss_lot / (R.pct / 100) / 10000) * 10000, 0)} or more at your risk level.`) : "lot size unavailable, so size it yourself at no more than " + R.pct + "% of capital."}</li>
+        <li><b>Take profit:</b> close when the spread is worth about ₹${fmt(c.target_val, 2)} (roughly 60% of the maximum gain). Don't wait for the last rupee.</li>
+        <li><b>Cut the loss:</b> close if the spread drops to ₹${fmt(c.stop_val, 2)} (half the cost), or if ${esc(c.symbol === "NIFTY" ? "Nifty" : c.symbol === "BANKNIFTY" ? "Bank Nifty" : c.symbol)} closes ${up ? "below" : "above"} <b>${fmt(c.invalid, 0)}</b>, the level that proves the idea wrong.</li>
+        <li><b>Time rule:</b> exit at least 2 days before expiry; the last days are a coin toss.</li>
+      </ol><div class="aodds">Estimated chance of profit <b>${c.pop}%</b> · reward ${fmt(c.rr, 1)}× risk · break-even ${fmt(c.breakeven, 2)}</div></div>`; };
+  return `<div class="card agent"><div class="hd"><h2><span class="abot">🧑‍💼</span> Options Expert <span class="muted" style="font-size:12.5px;font-weight:500">rule-based agent · refreshes with every update</span></h2>
+    <div class="acfg"><label>Capital ₹ <input type="number" id="acap" min="10000" step="10000" value="${cfg.capital}"></label>
+      <div class="seg">${Object.entries(RISK).map(([k, r]) => `<button data-arisk="${k}" class="${cfg.risk === k ? "on" : ""}" title="Risk ${r.pct}% of capital per trade, ${r.cap}% in total">${r.name}</button>`).join("")}</div></div></div>
+    <div class="bd"><div class="aread"><h3>1 · Market read</h3>${read.map(x => `<p>${x}</p>`).join("")}<p class="averdict">${verdict}</p></div>
+      <h3>2 · What I'd look at today <span class="muted" style="font-weight:500;text-transform:none;letter-spacing:0">(${R.name}: max ${R.pct}% of capital at risk per trade, ${R.cap}% in total)</span></h3>
+      ${picks.length ? `<div class="apicks">${picks.map(pick).join("")}</div><p class="muted" style="font-size:12.5px">Total at risk across these: ₹${fmt(P.used, 0)} of your ₹${fmt(cfg.capital, 0)} (limit ₹${fmt(P.cap, 0)}).</p>`
+        : `<div class="empty" style="padding:18px"><b>Nothing meets my bar right now.</b>Signals disagree or the setups are weak. Sitting out is a position too; capital kept is capital you can use when the odds are clearer.</div>`}
+      <h3>3 · What I'd avoid</h3><ul class="aavoid">
+        ${avoid.map(c => `<li><b>${esc(c.symbol)}</b>: ${esc(c.ev[0].type)} on ${esc(c.ev[0].date)}, before expiry. Option prices usually collapse right after results (volatility crush), even when you guess the direction right.</li>`).join("")}
+        <li>The lottery-style list below: cheap far-away options usually expire worthless. If you must, use money you can lose completely, never more than 0.5% of capital.</li>
+        <li>Selling naked options: the loss is unlimited. Everything here has a fixed maximum loss.</li>
+        <li>Averaging down on a losing option, or holding to expiry hoping it comes back.</li></ul>
+      <p class="adiscl">I'm a set of rules written from how experienced option traders manage risk, applied to NSE's live data. I'm not a SEBI-registered adviser and I can be wrong. Prices move between updates, so check the live quote before entering. About 9 in 10 F&O traders lose money.</p>
+    </div></div>`;
+}
+
 // ---------- OPTIONS ----------
 const optData = {};
 async function loadOpt(sym) {
@@ -1049,7 +1116,8 @@ function optionsView() {
   const lot = O.lottery;
   return `<div class="fade"><h1 class="page">Options</h1>
   <div class="owarn"><b>⚠ Read first:</b> SEBI's study found about <b>9 in 10</b> individual F&O traders lost money. Most options bought expire worthless. Everything here comes from rules applied to NSE's live option chain: <b>ideas to study, not advice or a promise</b>. Only trade money you can afford to lose.</div>
-  <div class="grid g2">${idx}</div>
+  ${agentView()}
+  <div class="grid g2" style="margin-top:16px">${idx}</div>
   <div class="card" style="margin-top:16px"><div class="hd"><h2>Risk-limited setup ideas</h2><div class="seg">${[["all", "All"], ["bullish", "▲ Bullish"], ["bearish", "▼ Bearish"]].map(([k, l]) => `<button data-odir="${k}" class="${ui.odir === k ? "on" : ""}">${l}</button>`).join("")}</div></div><div class="bd">
     <p class="muted" style="font-size:13px;margin:0 0 12px">Only where trend, news, open-interest build-up and put-call ratio point the same way. Each idea is a <b>spread</b>: you buy one option and sell a further one, so <b>the most you can lose is what you pay</b>, and it costs less than buying the option alone. Prices use the current buy/sell quotes; chances come from the option's own implied volatility.</p>
     ${ideas.length ? `<div class="oideas">${ideas.slice(0, ui.olimit).map(ideaCard).join("")}</div>${ideas.length > ui.olimit ? `<div style="text-align:center;margin-top:12px"><button class="btn" data-olimit>Show ${ideas.length - ui.olimit} more ideas</button></div>` : ""}` : '<div class="empty"><b>No clear setups right now</b>When signals disagree, the best trade is often no trade.</div>'}</div></div>
@@ -1220,6 +1288,7 @@ document.addEventListener("click", async e => {
   const pp = t.closest("[data-pop]"); if (pp) { store.set("dp-pop", pp.dataset.pop); openDrawer(); toast(pp.dataset.pop === "off" ? "News pop-ups are off" : pp.dataset.pop === "mine" ? "Pop-ups only for your watchlist and holdings" : "Pop-ups for news on any stock"); return; }
   if (t.id === "notif2") { try { await Notification.requestPermission(); } catch {} openDrawer(); return; }
   const os = t.closest("[data-osym]"); if (os) { ui.osym = os.dataset.osym; const sl = $("#osel"); if (sl) sl.value = ui.osym; drawChain(); $("#ochainCard")?.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" }); return; }
+  const ar = t.closest("[data-arisk]"); if (ar) { agentCfg.risk = ar.dataset.arisk; store.set("dp-agent", agentCfg); render(); return; }
   if (t.closest("[data-olimit]")) { ui.olimit += 12; render(); return; }
   const od = t.closest("[data-odir]"); if (od) { ui.odir = od.dataset.odir; render(); return; }
   const cs = t.closest("[data-cside]"); if (cs) { ui.cside = cs.dataset.cside; ui.climit = 60; render(); return; }
@@ -1276,6 +1345,7 @@ document.addEventListener("click", async e => {
   if (!t.closest(".search")) $("#gsugg").hidden = true;
 });
 document.addEventListener("change", e => {
+  if (e.target.id === "acap") { const v = Math.max(10000, Math.round(+e.target.value || 0)); agentCfg.capital = v; store.set("dp-agent", agentCfg); render(); return; }
   if (e.target.id === "osel") { ui.osym = e.target.value; drawChain(); return; }
   if (e.target.id === "csort") { ui.csort = e.target.value; render(); return; }
   if (e.target.matches("[data-cmain]")) { ui.cmain = e.target.checked; render(); return; }
@@ -1307,7 +1377,7 @@ if (!SNAPSHOT) window.addEventListener("hashchange", () => { readHash(); render(
 
 if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "fno", "options", "circuits", "screener", "w52", "portfolio", "calendar"].includes(h)) view = h; }
 tickClock(); setInterval(tickClock, 1000);
-document.addEventListener("mouseover", e => { mmPaused = Boolean(e.target.closest("#mm")); });
+document.addEventListener("mouseover", e => { mmPaused = Boolean(e.target.closest("#mm")); btHover = Boolean(e.target.closest("#bticker")); });
 load(true);
 // auto-update: if a newer version of the site has been published, reload once to pick it up
 async function checkVersion() {

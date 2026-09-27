@@ -248,7 +248,7 @@ async function main() {
   }, null);
 
   // options: live option chains, risk-limited setup ideas, lottery-style unusual activity
-  const options = await attempt("options", () => loadOptions({ stocks, outDir: path.join(OUT, "options"), cacheDir: CACHE, log }), null);
+  const options = await attempt("options", () => loadOptions({ stocks, indices, fiiNet: (fii || []).find(f => /FII/i.test(f.category))?.net ?? null, outDir: path.join(OUT, "options"), cacheDir: CACHE, log }), null);
 
   // circuits: names, tracked flag, and how many trading days in a row each stock has hit its band
   const circuits = await (async () => {
