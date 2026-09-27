@@ -279,7 +279,7 @@ async function main() {
   const out = {
     generated_at: new Date().toISOString(), build_seconds: Math.round((Date.now() - t0) / 1000), status,
     pulse: pulse.items, sectors: pulse.sectors, industries, nifty_pe: pulse.nifty_pe, fii_dii: fii, mood, topics,
-    nifty_returns: Object.fromEntries(Object.entries(nr).map(([k, v]) => [k, r2(v)])), backtest: bt.summary, live_record: liveRecord, indices, circuits, news_speed: newsSpeed, options,
+    nifty_returns: Object.fromEntries(Object.entries(nr).map(([k, v]) => [k, r2(v)])), backtest: bt.summary, live_record: liveRecord, indices, circuits, news_speed: newsSpeed, options, kite_api_key: cfg.kite_publisher_api_key || null,
     stocks, news: newsOut, w52, calendar: upcoming.slice(0, 600).map(e => ({ ...e, tracked: Boolean(universe[e.symbol]), nifty50: Boolean(universe[e.symbol]?.nifty50) })),
   };
   fs.writeFileSync(path.join(OUT, "latest.json"), JSON.stringify(out));

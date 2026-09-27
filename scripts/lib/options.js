@@ -39,11 +39,14 @@ async function chain(symbol, isIndex) {
   // nearest expiry that still has at least 2 days left (very short expiries are close to gambling)
   const pick = exps.find(x => x.t - Date.now() > 2 * 86400e3) || exps[0];
   if (!pick) throw new Error("no expiry");
+  // monthly expiry = the last expiry in its calendar month (Zerodha writes monthly and weekly symbols differently)
+  const ym = t => new Date(t).toISOString().slice(0, 7);
+  pick.monthly = !exps.some(x => x.t > pick.t && ym(x.t) === ym(pick.t));
   const j = await nseGet(`/api/option-chain-v3?type=${isIndex ? "Indices" : "Equity"}&symbol=${encodeURIComponent(symbol)}&expiry=${pick.e}`, "/option-chain");
   const rows = (j.records?.data || []).filter(d => d.strikePrice);
   const spot = j.records?.underlyingValue || rows.find(d => d.CE?.underlyingValue)?.CE.underlyingValue;
   if (!spot || rows.length < 5) throw new Error("empty chain");
-  return { symbol, expiry: pick.e, expiryT: pick.t, spot, timestamp: j.records?.timestamp, rows };
+  return { symbol, expiry: pick.e, expiryT: pick.t, monthly: pick.monthly, spot, timestamp: j.records?.timestamp, rows };
 }
 
 function analyse(c, lot) {
@@ -65,12 +68,20 @@ function analyse(c, lot) {
   const move = atmIV ? S * atmIV / 100 * Math.sqrt(T) : null;
   const liquid = l => l && l.oi > 0 && (l.bid > 0 || l.ltp > 0);
   const window = strikes.slice(Math.max(0, atmI - 15), atmI + 16).map(s => ({ k: s.k, ce: s.ce && { ltp: r2(s.ce.ltp), oi: s.ce.oi, chg: s.ce.chg, vol: s.ce.vol, iv: r2(s.ce.iv) }, pe: s.pe && { ltp: r2(s.pe.ltp), oi: s.pe.oi, chg: s.pe.chg, vol: s.pe.vol, iv: r2(s.pe.iv) } }));
-  return { S, T, days: Math.round(T * 365), strikes, atm, atmI, atmIV, move, lot, liquid,
+  return { und: c.symbol, expiryT: c.expiryT, monthly: c.monthly, S, T, days: Math.round(T * 365), strikes, atm, atmI, atmIV, move, lot, liquid,
     summary: { symbol: c.symbol, spot: r2(S), expiry: c.expiry, days: Math.round(T * 365 * 10) / 10, timestamp: c.timestamp, lot,
       pcr: ceOI ? r2(peOI / ceOI) : null, pcr_chg: ceChg ? r2(peChg / Math.abs(ceChg)) : null, ce_oi: ceOI, pe_oi: peOI, ce_chg: ceChg, pe_chg: peChg,
       max_pain: maxPain, call_wall: callWall?.k ?? null, put_wall: putWall?.k ?? null, atm: atm.k, atm_iv: r2(atmIV),
       exp_move: r2(move), exp_move_pct: move ? r2(move / S * 100) : null, range_lo: move ? r2(S - move) : null, range_hi: move ? r2(S + move) : null },
     window };
+}
+
+// Zerodha (Kite) trading symbol for an NFO option: monthly NIFTY26OCT23150PE, weekly NIFTY2610623150PE (YY + M + DD, M = 1-9,O,N,D)
+const MONS3 = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+function kiteSymbol(und, expiryT, monthly, strike, type) {
+  const d = new Date(expiryT + 5.5 * 3600e3), yy = String(d.getUTCFullYear()).slice(2), m = d.getUTCMonth();
+  const k = Number.isInteger(strike) ? String(strike) : String(+strike.toFixed(2));
+  return monthly ? `${und}${yy}${MONS3[m]}${k}${type}` : `${und}${yy}${m < 9 ? m + 1 : "OND"[m - 9]}${String(d.getUTCDate()).padStart(2, "0")}${k}${type}`;
 }
 
 // view from everything we know about the stock: trend + news + OI build-up + PCR + where max pain sits
@@ -107,7 +118,8 @@ function spreadIdea(a, v) {
   if (rr < 0.8 || pop == null || pop < 0.3) return null;
   const lot = a.lot || null;
   return { strategy: up ? "Bull call spread" : "Bear put spread", dir: v.dir,
-    legs: [{ action: "BUY", type: up ? "CE" : "PE", strike: st[buyI].k, price: r2(pay) }, { action: "SELL", type: up ? "CE" : "PE", strike: st[sellI].k, price: r2(get) }],
+    legs: [{ action: "BUY", type: up ? "CE" : "PE", strike: st[buyI].k, price: r2(pay), ts: kiteSymbol(a.und, a.expiryT, a.monthly, st[buyI].k, up ? "CE" : "PE") },
+      { action: "SELL", type: up ? "CE" : "PE", strike: st[sellI].k, price: r2(get), ts: kiteSymbol(a.und, a.expiryT, a.monthly, st[sellI].k, up ? "CE" : "PE") }],
     debit: r2(debit), max_loss: r2(debit), max_gain: r2(width - debit), breakeven: r2(be), rr: r2(rr), pop: Math.round(pop * 100), p_full: pFull == null ? null : Math.round(pFull * 100),
     lot, max_loss_lot: lot ? Math.round(debit * lot) : null, max_gain_lot: lot ? Math.round((width - debit) * lot) : null, score: v.score, why: v.why };
 }
@@ -123,7 +135,7 @@ function lottery(a, symbol) {
     const unusual = o.vol >= Math.max(3 * Math.max(o.oi, 1), 1) || (o.chg > 0 && o.chg >= o.oi * 0.5);
     if (!unusual) continue;
     const p = probAbove(a.S, s.k + (side === "ce" ? o.ltp : -o.ltp), a.atmIV, a.T); const pITM = p == null ? null : side === "ce" ? p : 1 - p;
-    out.push({ symbol, type: side.toUpperCase(), strike: s.k, ltp: r2(o.ltp), vol: o.vol, oi: o.oi, oi_chg: o.chg, dist_pct: r2(dist / a.S * 100),
+    out.push({ symbol, ts: kiteSymbol(a.und, a.expiryT, a.monthly, s.k, side.toUpperCase()), type: side.toUpperCase(), strike: s.k, ltp: r2(o.ltp), vol: o.vol, oi: o.oi, oi_chg: o.chg, dist_pct: r2(dist / a.S * 100),
       p_profit: pITM == null ? null : r2(pITM * 100), lot: a.lot, cost_lot: a.lot ? Math.round(o.ltp * a.lot) : null,
       x10_price: r2(side === "ce" ? s.k + o.ltp * 10 : s.k - o.ltp * 10) }); // price the stock must reach by expiry for a 10x payoff
   }
@@ -187,4 +199,4 @@ async function loadOptions({ stocks, indices, fiiNet, outDir, cacheDir, log }) {
   return out;
 }
 
-module.exports = { loadOptions, probAbove };
+module.exports = { loadOptions, probAbove, kiteSymbol };

@@ -359,7 +359,7 @@ function stockDetail(sym) {
         <button class="btn${my.watch.includes(sym) ? " primary" : ""}" data-star="${esc(sym)}">${my.watch.includes(sym) ? "★ Watching" : "☆ Watch"}</button>
         <a class="btn" href="https://www.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(sym)}" target="_blank" rel="noopener">TradingView ↗</a>
         <a class="btn" href="https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(sym)}" target="_blank" rel="noopener">NSE ↗</a>
-        <a class="btn" href="https://kite.zerodha.com/" target="_blank" rel="noopener">Trade on Kite ↗</a>
+        <button class="btn kbtn" data-kbuy="${esc(sym)}"><span class="kz">K</span> Buy</button><button class="btn kbtn sell" data-ksell="${esc(sym)}"><span class="kz">K</span> Sell</button>
       </div>
     </div>
     <div class="insight">
@@ -1002,6 +1002,39 @@ function circuitsView() {
   <div class="muted" style="font-size:12.5px;margin-top:12px">NSE sets each stock's daily limit at 2%, 5%, 10% or 20% (there is no 30% band). F&O stocks have no fixed circuit, so large companies rarely appear here. ${C.hidden_small ? `${C.hidden_small.upper + C.hidden_small.lower} small-cap circuit hits today are hidden. ` : ""}T2T (trade-to-trade) stocks must be delivered, with no intraday trading. "Days in a row" counts from when this site started logging circuits. For information only, not investment advice.</div></div>`;
 }
 
+// ---------- KITE (Zerodha) ORDERING via Kite Publisher ----------
+// The site only PREPARES an order basket. Kite opens, you log in there and confirm; nothing is placed without your click in Kite.
+const KITE_KEY = () => D?.kite_api_key || store.get("dp-kite-key", null);
+function kiteModal(title, orders, note) {
+  const key = KITE_KEY();
+  document.querySelector(".kmodal")?.remove();
+  const el = document.createElement("div"); el.className = "kmodal";
+  el.innerHTML = `<div class="kbox" role="dialog" aria-modal="true" aria-label="Review order"><button class="fx" data-kclose aria-label="Close">✕</button>
+    <h2>${esc(title)}</h2>
+    <table class="tbl kord"><thead><tr><th class="l">Side</th><th class="l">Instrument</th><th>Qty</th><th>Type</th><th>Price</th></tr></thead><tbody>
+      ${orders.map(o => `<tr><td class="l"><b class="${o.transaction_type === "BUY" ? "up" : "down"}">${o.transaction_type}</b></td><td class="l"><span class="sym">${esc(o.tradingsymbol)}</span> <span class="muted">${esc(o.exchange)} · ${esc(o.product)}</span></td><td class="num">${fmt(o.quantity, 0)}</td><td>${esc(o.order_type)}</td><td class="num">${o.price ? "₹" + fmt(o.price, 2) : "market"}</td></tr>`).join("")}</tbody></table>
+    ${note ? `<div class="knote">${note}</div>` : ""}
+    <div class="kwarn">Kite opens in a new tab. <b>Nothing is placed until you review it and press the button in Kite yourself.</b> Check the live price there first; it may have moved since this site's last update. You can change the quantity or price in Kite.</div>
+    ${key ? `<div class="kact"><button class="btn" data-kclose>Cancel</button><button class="btn primary" data-kgo>Review in Kite →</button></div>`
+      : `<div class="kset"><b>One-time setup needed:</b> this site needs a free Kite Publisher key from Zerodha before it can hand orders to Kite. Until then, <a href="https://kite.zerodha.com/" target="_blank" rel="noopener">open Kite ↗</a> and enter the order above yourself.</div>`}
+  </div>`;
+  el.addEventListener("click", e => {
+    if (e.target === el || e.target.closest("[data-kclose]")) { el.remove(); return; }
+    if (e.target.closest("[data-kgo]")) {
+      const f = document.createElement("form"); f.method = "POST"; f.action = "https://kite.zerodha.com/connect/basket"; f.target = "_blank";
+      const add = (n, v) => { const i = document.createElement("input"); i.type = "hidden"; i.name = n; i.value = v; f.append(i); };
+      add("api_key", key); add("data", JSON.stringify(orders.map(o => ({ ...o, tag: "dalalpls" }))));
+      document.body.append(f); f.submit(); f.remove(); el.remove(); toast("Kite opened in a new tab. Review and confirm there.");
+    }
+  });
+  document.body.append(el);
+}
+function kiteSpread(i, lots) {
+  const qty = Math.max(1, lots || 1) * (i.lot || 1);
+  // buy leg first (margin benefit), both as LIMIT orders at the quoted prices, NRML so they can be held to exit
+  return i.legs.filter(l => l.ts).map(l => ({ exchange: "NFO", tradingsymbol: l.ts, transaction_type: l.action, quantity: qty, order_type: "LIMIT", price: l.price, product: "NRML", variety: "regular" }));
+}
+
 // ---------- OPTIONS EXPERT (rule-based agent) ----------
 const RISK = { careful: { pct: 1, cap: 5, name: "Careful" }, balanced: { pct: 2, cap: 8, name: "Balanced" }, bold: { pct: 3, cap: 12, name: "Bold" } };
 let agentCfg = store.get("dp-agent", { capital: 200000, risk: "balanced" });
@@ -1051,7 +1084,8 @@ function agentView() {
         <li><b>Take profit:</b> close when the spread is worth about ₹${fmt(c.target_val, 2)} (roughly 60% of the maximum gain). Don't wait for the last rupee.</li>
         <li><b>Cut the loss:</b> close if the spread drops to ₹${fmt(c.stop_val, 2)} (half the cost), or if ${esc(c.symbol === "NIFTY" ? "Nifty" : c.symbol === "BANKNIFTY" ? "Bank Nifty" : c.symbol)} closes ${up ? "below" : "above"} <b>${fmt(c.invalid, 0)}</b>, the level that proves the idea wrong.</li>
         <li><b>Time rule:</b> exit at least 2 days before expiry; the last days are a coin toss.</li>
-      </ol><div class="aodds">Estimated chance of profit <b>${c.pop}%</b> · reward ${fmt(c.rr, 1)}× risk · break-even ${fmt(c.breakeven, 2)}</div></div>`; };
+      </ol><div class="aodds">Estimated chance of profit <b>${c.pop}%</b> · reward ${fmt(c.rr, 1)}× risk · break-even ${fmt(c.breakeven, 2)}</div>
+      ${c.legs[0].ts ? `<button class="btn kbtn" data-kagent="${esc(c.symbol)}"><span class="kz">K</span> ${c.lots > 0 ? `Place ${c.lots} lot${c.lots > 1 ? "s" : ""} on Kite` : "Review 1 lot on Kite"}</button>` : ""}</div>`; };
   return `<div class="card agent"><div class="hd"><h2><span class="abot">🧑‍💼</span> Options Expert <span class="muted" style="font-size:12.5px;font-weight:500">rule-based agent · refreshes with every update</span></h2>
     <div class="acfg"><label>Capital ₹ <input type="number" id="acap" min="10000" step="10000" value="${cfg.capital}"></label>
       <div class="seg">${Object.entries(RISK).map(([k, r]) => `<button data-arisk="${k}" class="${cfg.risk === k ? "on" : ""}" title="Risk ${r.pct}% of capital per trade, ${r.cap}% in total">${r.name}</button>`).join("")}</div></div></div>
@@ -1112,7 +1146,8 @@ function optionsView() {
       <div class="okpi"><div><em>Max loss</em><b class="down">${i.max_loss_lot != null ? rs(i.max_loss_lot) : "₹" + fmt(i.max_loss, 2) + "/sh"}</b>${i.lot ? `<small>1 lot = ${i.lot} sh</small>` : ""}</div><div><em>Max gain</em><b class="up">${i.max_gain_lot != null ? rs(i.max_gain_lot) : "₹" + fmt(i.max_gain, 2) + "/sh"}</b><small>reward ${fmt(i.rr, 1)}× risk</small></div>
         <div><em>Break-even</em><b class="num">${fmt(i.breakeven, 2)}</b></div><div><em>Chance of profit</em><b>${i.pop}%</b><small>full profit ~${i.p_full}%</small></div></div>
       <div class="popbar"><i style="width:0" data-w="${i.pop}%"></i></div>
-      <div class="owhy">${i.why.map(w => `<span>✓ ${esc(w)}</span>`).join("")}</div></div></div>`; };
+      <div class="owhy">${i.why.map(w => `<span>✓ ${esc(w)}</span>`).join("")}</div>
+      ${i.legs[0].ts ? `<button class="btn kbtn sm" data-kidea="${esc(i.symbol)}"><span class="kz">K</span> Place 1 lot on Kite</button>` : ""}</div></div>`; };
   const lot = O.lottery;
   return `<div class="fade"><h1 class="page">Options</h1>
   <div class="owarn"><b>⚠ Read first:</b> SEBI's study found about <b>9 in 10</b> individual F&O traders lost money. Most options bought expire worthless. Everything here comes from rules applied to NSE's live option chain: <b>ideas to study, not advice or a promise</b>. Only trade money you can afford to lose.</div>
@@ -1288,6 +1323,11 @@ document.addEventListener("click", async e => {
   const pp = t.closest("[data-pop]"); if (pp) { store.set("dp-pop", pp.dataset.pop); openDrawer(); toast(pp.dataset.pop === "off" ? "News pop-ups are off" : pp.dataset.pop === "mine" ? "Pop-ups only for your watchlist and holdings" : "Pop-ups for news on any stock"); return; }
   if (t.id === "notif2") { try { await Notification.requestPermission(); } catch {} openDrawer(); return; }
   const os = t.closest("[data-osym]"); if (os) { ui.osym = os.dataset.osym; const sl = $("#osel"); if (sl) sl.value = ui.osym; drawChain(); $("#ochainCard")?.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" }); return; }
+  const ka = t.closest("[data-kagent]"); if (ka) { const c = agentPlan().picks.find(p => p.symbol === ka.dataset.kagent); if (c) kiteModal(`${c.symbol} · ${c.strategy}`, kiteSpread(c, c.lots), c.lots > 0 ? `Sized for your capital: worst case <b class="down">₹${fmt(c.lots * c.max_loss_lot, 0)}</b>, best case <b class="up">₹${fmt(c.lots * c.max_gain_lot, 0)}</b>. Take profit near ₹${fmt(c.target_val, 2)} spread value, cut at ₹${fmt(c.stop_val, 2)}.` : `<span class="down">1 lot risks ₹${fmt(c.max_loss_lot, 0)}, more than your per-trade limit (₹${fmt(c.budget, 0)}).</span> Consider skipping it.`); return; }
+  const ki = t.closest("[data-kidea]"); if (ki) { const i = [...(D.options.index_ideas || []), ...D.options.ideas].find(x => x.symbol === ki.dataset.kidea); if (i) kiteModal(`${i.symbol} · ${i.strategy}`, kiteSpread(i, 1), i.max_loss_lot ? `Maximum loss for 1 lot: <b class="down">₹${fmt(i.max_loss_lot, 0)}</b> · maximum gain <b class="up">₹${fmt(i.max_gain_lot, 0)}</b>.` : ""); return; }
+  const kb = t.closest("[data-kbuy],[data-ksell]"); if (kb) { const sy = kb.dataset.kbuy || kb.dataset.ksell, st = S[sy], buy = Boolean(kb.dataset.kbuy);
+    kiteModal(`${buy ? "Buy" : "Sell"} ${sy}`, [{ exchange: "NSE", tradingsymbol: sy, transaction_type: buy ? "BUY" : "SELL", quantity: 1, order_type: "LIMIT", price: st?.price || 0, product: "CNC", variety: "regular" }],
+      `Delivery (CNC) order for 1 share at the last price ₹${fmt(st?.price, 2)}. Set your quantity in Kite.${st?.insight ? ` This site's current read: <b>${esc(st.insight.label)}</b>.` : ""}`); return; }
   const ar = t.closest("[data-arisk]"); if (ar) { agentCfg.risk = ar.dataset.arisk; store.set("dp-agent", agentCfg); render(); return; }
   if (t.closest("[data-olimit]")) { ui.olimit += 12; render(); return; }
   const od = t.closest("[data-odir]"); if (od) { ui.odir = od.dataset.odir; render(); return; }
