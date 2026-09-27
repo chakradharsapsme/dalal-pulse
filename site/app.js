@@ -22,7 +22,7 @@ let my = store.get("dp-my", { holdings: [], watch: [], alerts: [] });
 const saveMy = () => store.set("dp-my", my);
 const isMine = s => my.watch.includes(s) || my.holdings.some(h => h.symbol === s);
 const ui = { nf: "withnews", q: "", preset: "all", sort: { k: "change_pct", d: -1 }, w52: "highs", w52s: "all", cal: "tracked", range: 252, sq: "",
-  ov: { ma: true, bb: false, sr: true, sig: true }, sub: "vol", hp: "change_pct", hm: "ind", bh: 20, bdir: "all", irange: "1d", crange: "252", icmp: [], fq: "", ff: "all", fsort: { k: "score", d: -1 }, bm: "fo", bsize: "turnover", sgrp: "Popular", suni: "n200", sview: "cards", slimit: 60, smore: false, cside: "upper", cband: "all", csort: "turnover", ccap: "all", climit: 60 };
+  ov: { ma: true, bb: false, sr: true, sig: true }, sub: "vol", hp: "change_pct", hm: "ind", bh: 20, bdir: "all", irange: "1d", crange: "252", icmp: [], fq: "", ff: "all", fsort: { k: "score", d: -1 }, bm: "fo", bsize: "turnover", sgrp: "Popular", suni: "n200", sview: "cards", slimit: 60, smore: false, cside: "upper", cband: "all", csort: "turnover", ccap: "all", climit: 60, odir: "all", osym: "NIFTY", olimit: 9 };
 const charts = window.__DP_CHARTS__ || {};
 
 // ---------- data ----------
@@ -132,7 +132,7 @@ function nav(v, s) {
 }
 function readHash() {
   const [v, s] = location.hash.replace(/^#\/?/, "").split("/");
-  if (["news", "markets", "indices", "fno", "circuits", "screener", "w52", "portfolio", "calendar"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
+  if (["news", "markets", "indices", "fno", "options", "circuits", "screener", "w52", "portfolio", "calendar"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
 }
 const go = sym => nav("news", sym);
 
@@ -140,9 +140,10 @@ function render() {
   if (!D) return;
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.nav === view));
   const keep = document.querySelector(".list")?.scrollTop;
-  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "fno" ? fnoView() : view === "circuits" ? circuitsView() : view === "screener" ? screener() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : newsView();
+  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "fno" ? fnoView() : view === "circuits" ? circuitsView() : view === "options" ? optionsView() : view === "screener" ? screener() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : newsView();
   if (keep && document.querySelector(".list")) document.querySelector(".list").scrollTop = keep;
   if (view === "news") { if (sel && S[sel]) drawChart(sel); document.querySelector(".row.on")?.scrollIntoView({ block: "nearest" }); }
+  if (view === "options") drawChain();
   if (view === "indices") { if (sel && sel !== "compare") drawIndexChart(sel); else drawCompare(); document.querySelector(".row.on")?.scrollIntoView({ block: "nearest" }); }
   animateBars(); countUp($("#view"));
 }
@@ -992,6 +993,92 @@ function circuitsView() {
   <div class="muted" style="font-size:12.5px;margin-top:12px">NSE sets each stock's daily limit at 2%, 5%, 10% or 20% (there is no 30% band). F&O stocks have no fixed circuit, so large companies rarely appear here. ${C.hidden_small ? `${C.hidden_small.upper + C.hidden_small.lower} small-cap circuit hits today are hidden. ` : ""}T2T (trade-to-trade) stocks must be delivered, with no intraday trading. "Days in a row" counts from when this site started logging circuits. For information only, not investment advice.</div></div>`;
 }
 
+// ---------- OPTIONS ----------
+const optData = {};
+async function loadOpt(sym) {
+  if (optData[sym]) return optData[sym];
+  const r = await fetch(`data/options/${sym.replace(/[^A-Z0-9&-]/gi, "_")}.json?t=${D.generated_at}`); if (!r.ok) throw new Error(r.status);
+  return (optData[sym] = await r.json());
+}
+const rs = (n, d = 0) => n == null ? "–" : "₹" + fmt(n, d);
+function payoffSvg(i) {
+  // payoff at expiry per share for a debit spread
+  const [b, s] = i.legs, up = i.dir === "bullish", lo = Math.min(b.strike, s.strike, i.spot) * 0.93, hi = Math.max(b.strike, s.strike, i.spot) * 1.07;
+  const pay = x => (up ? Math.min(Math.max(x - b.strike, 0), s.strike - b.strike) : Math.min(Math.max(b.strike - x, 0), b.strike - s.strike)) - i.debit;
+  const W = 260, H = 90, xs = x => (x - lo) / (hi - lo) * W, mx = i.max_gain, mn = -i.max_loss, ys = y => 8 + (mx - y) / (mx - mn) * (H - 16);
+  const pts = []; for (let k = 0; k <= 60; k++) { const x = lo + (hi - lo) * k / 60; pts.push([xs(x), ys(pay(x))]); }
+  const d = pts.map((p, k) => (k ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" class="payoff" aria-label="Profit or loss at expiry"><line x1="0" x2="${W}" y1="${ys(0)}" y2="${ys(0)}" stroke="var(--line2)"/>
+    <clipPath id="cu${esc(i.symbol)}"><rect x="0" y="0" width="${W}" height="${ys(0)}"/></clipPath><clipPath id="cd${esc(i.symbol)}"><rect x="0" y="${ys(0)}" width="${W}" height="${H}"/></clipPath>
+    <path d="${d}L${W} ${ys(0)}L0 ${ys(0)}Z" fill="var(--up)" opacity=".18" clip-path="url(#cu${esc(i.symbol)})"/><path d="${d}L${W} ${ys(0)}L0 ${ys(0)}Z" fill="var(--down)" opacity=".18" clip-path="url(#cd${esc(i.symbol)})"/>
+    <path d="${d}" fill="none" stroke="var(--ink)" stroke-width="1.8"/>
+    <line x1="${xs(i.spot)}" x2="${xs(i.spot)}" y1="0" y2="${H}" stroke="var(--s1)" stroke-dasharray="3 3"/><text x="${xs(i.spot) + 3}" y="10" font-size="9" fill="var(--s1)">now ${fmt(i.spot, 0)}</text>
+    <text x="${xs(i.breakeven)}" y="${H - 1}" font-size="9" fill="var(--muted)" text-anchor="middle">BE ${fmt(i.breakeven, 0)}</text></svg>`;
+}
+function optionsView() {
+  const O = D.options;
+  if (!O) return `<div class="fade"><h1 class="page">Options</h1><div class="card"><div class="empty"><b>Option data arrives with the next update</b>It refreshes every few minutes during market hours.</div></div></div>`;
+  const ideas = O.ideas.filter(i => ui.odir === "all" || i.dir === ui.odir);
+  const idx = O.indices.map(x => { const lo = Math.min(x.range_lo ?? x.spot, x.put_wall ?? x.spot, x.max_pain ?? x.spot), hi = Math.max(x.range_hi ?? x.spot, x.call_wall ?? x.spot, x.max_pain ?? x.spot), p = v => v == null ? null : ((v - lo) / (hi - lo || 1) * 100).toFixed(1);
+    return `<div class="card oidx"><div class="hd"><h2>${esc(x.symbol === "BANKNIFTY" ? "Bank Nifty" : "Nifty 50")}</h2><span class="muted" style="font-size:12.5px">expiry ${esc(x.expiry)} · ${x.days} days</span></div><div class="bd">
+      <div class="oim"><div><div class="l">Spot</div><b class="num">${fmt(x.spot, 2)}</b></div><div><div class="l">Put-call ratio</div><b class="num ${x.pcr > 1.2 ? "up" : x.pcr < 0.8 ? "down" : ""}">${x.pcr ?? "–"}</b><div class="s">${x.pcr > 1.2 ? "put writers confident (support)" : x.pcr < 0.8 ? "call writers confident (cap)" : "balanced"}</div></div>
+        <div><div class="l">Max pain</div><b class="num">${fmt(x.max_pain, 0)}</b></div><div><div class="l">ATM implied volatility</div><b class="num">${x.atm_iv ?? "–"}%</b></div></div>
+      <div class="orange"><div class="bar"><i class="rng" style="left:${p(x.range_lo)}%;width:${(p(x.range_hi) - p(x.range_lo)).toFixed(1)}%"></i>
+        ${x.put_wall ? `<em class="pw" style="left:${p(x.put_wall)}%" title="Biggest put open interest: support">▲ ${fmt(x.put_wall, 0)}</em>` : ""}${x.call_wall ? `<em class="cw" style="left:${p(x.call_wall)}%" title="Biggest call open interest: resistance">▼ ${fmt(x.call_wall, 0)}</em>` : ""}
+        <b class="sp" style="left:${p(x.spot)}%" title="Now"></b></div>
+        <div class="muted" style="font-size:12.5px;margin-top:22px">Options are pricing a move of about <b>±${fmt(x.exp_move, 0)} (${x.exp_move_pct}%)</b> by expiry: roughly <b class="num">${fmt(x.range_lo, 0)}–${fmt(x.range_hi, 0)}</b>. Support (largest put OI) ${fmt(x.put_wall, 0)}, resistance (largest call OI) ${fmt(x.call_wall, 0)}.</div></div>
+      <button class="sy" data-osym="${esc(x.symbol)}">Open option chain →</button></div></div>`; }).join("");
+  const ideaCard = i => { const [b, s] = i.legs;
+    return `<div class="card oidea ${i.dir}"><div class="bd">
+      <div class="oih"><button class="sy big" data-go="${esc(i.symbol)}">${esc(i.symbol)}</button><span class="badge ${i.dir}">${i.dir === "bullish" ? "▲ Bullish view" : "▼ Bearish view"}</span><span class="muted num" style="margin-left:auto">₹${fmt(i.spot, 2)}</span></div>
+      <div class="ostrat">${esc(i.strategy)} <span class="muted">· expiry ${esc(i.expiry)} (${i.days} days)</span></div>
+      <table class="olegs"><tr><td><b class="up">BUY</b></td><td class="num">${fmt(b.strike, 0)} ${b.type}</td><td class="num">@ ₹${fmt(b.price, 2)}</td></tr><tr><td><b class="down">SELL</b></td><td class="num">${fmt(s.strike, 0)} ${s.type}</td><td class="num">@ ₹${fmt(s.price, 2)}</td></tr></table>
+      ${payoffSvg(i)}
+      <div class="okpi"><div><em>Max loss</em><b class="down">${i.max_loss_lot != null ? rs(i.max_loss_lot) : "₹" + fmt(i.max_loss, 2) + "/sh"}</b>${i.lot ? `<small>1 lot = ${i.lot} sh</small>` : ""}</div><div><em>Max gain</em><b class="up">${i.max_gain_lot != null ? rs(i.max_gain_lot) : "₹" + fmt(i.max_gain, 2) + "/sh"}</b><small>reward ${fmt(i.rr, 1)}× risk</small></div>
+        <div><em>Break-even</em><b class="num">${fmt(i.breakeven, 2)}</b></div><div><em>Chance of profit</em><b>${i.pop}%</b><small>full profit ~${i.p_full}%</small></div></div>
+      <div class="popbar"><i style="width:0" data-w="${i.pop}%"></i></div>
+      <div class="owhy">${i.why.map(w => `<span>✓ ${esc(w)}</span>`).join("")}</div></div></div>`; };
+  const lot = O.lottery;
+  return `<div class="fade"><h1 class="page">Options</h1>
+  <div class="owarn"><b>⚠ Read first:</b> SEBI's study found about <b>9 in 10</b> individual F&O traders lost money. Most options bought expire worthless. Everything here comes from rules applied to NSE's live option chain: <b>ideas to study, not advice or a promise</b>. Only trade money you can afford to lose.</div>
+  <div class="grid g2">${idx}</div>
+  <div class="card" style="margin-top:16px"><div class="hd"><h2>Risk-limited setup ideas</h2><div class="seg">${[["all", "All"], ["bullish", "▲ Bullish"], ["bearish", "▼ Bearish"]].map(([k, l]) => `<button data-odir="${k}" class="${ui.odir === k ? "on" : ""}">${l}</button>`).join("")}</div></div><div class="bd">
+    <p class="muted" style="font-size:13px;margin:0 0 12px">Only where trend, news, open-interest build-up and put-call ratio point the same way. Each idea is a <b>spread</b>: you buy one option and sell a further one, so <b>the most you can lose is what you pay</b>, and it costs less than buying the option alone. Prices use the current buy/sell quotes; chances come from the option's own implied volatility.</p>
+    ${ideas.length ? `<div class="oideas">${ideas.slice(0, ui.olimit).map(ideaCard).join("")}</div>${ideas.length > ui.olimit ? `<div style="text-align:center;margin-top:12px"><button class="btn" data-olimit>Show ${ideas.length - ui.olimit} more ideas</button></div>` : ""}` : '<div class="empty"><b>No clear setups right now</b>When signals disagree, the best trade is often no trade.</div>'}</div></div>
+  <div class="card" style="margin-top:16px" id="ochainCard"><div class="hd"><h2>Option chain</h2>
+    <select id="osel" aria-label="Choose underlying">${["NIFTY", "BANKNIFTY", ...O.stocks.map(x => x.symbol)].map(sy => `<option value="${esc(sy)}"${ui.osym === sy ? " selected" : ""}>${esc(sy === "BANKNIFTY" ? "Bank Nifty" : sy === "NIFTY" ? "Nifty 50" : sy)}</option>`).join("")}</select></div>
+    <div class="bd" id="ochain"><div class="skeleton" style="height:300px"></div></div></div>
+  <div class="card" style="margin-top:16px"><div class="hd"><h2>F&O stocks: options view</h2><span class="muted" style="font-size:12.5px">tap a row for its option chain</span></div>
+    <div class="tblwrap"><table class="tbl"><thead><tr><th class="l">Stock</th><th>Spot</th><th class="l">View</th><th>Put-call ratio</th><th>Max pain</th><th>Support (put OI)</th><th>Resistance (call OI)</th><th>IV</th><th>Expected move</th><th class="l">Expiry</th></tr></thead><tbody>
+    ${O.stocks.map(x => `<tr data-osym="${esc(x.symbol)}"><td class="l"><span class="sym">${esc(x.symbol)}</span></td><td class="num">${fmt(x.spot, 2)}</td><td class="l"><span class="badge ${x.view}">${x.view}</span></td><td class="num ${x.pcr > 1.2 ? "up" : x.pcr < 0.7 ? "down" : ""}">${x.pcr ?? "–"}</td><td class="num">${fmt(x.max_pain, 0)}</td><td class="num">${fmt(x.put_wall, 0)}</td><td class="num">${fmt(x.call_wall, 0)}</td><td class="num">${x.atm_iv ?? "–"}%</td><td class="num">±${x.exp_move_pct ?? "–"}%</td><td class="l muted">${esc(x.expiry)}</td></tr>`).join("")}
+    </tbody></table></div></div>
+  <div class="card olot" style="margin-top:16px"><div class="hd"><h2>🎲 Lottery-style: cheap far-away options with unusual volume</h2></div><div class="bd">
+    <div class="owarn red"><b>High risk. This is where most money is lost.</b> These options are cheap because the stock would need a very big move before expiry. They hit big only rarely: the "estimated chance" column is usually in single digits, so they are much more likely to expire at zero. Unusual volume can mean someone expects news, or just speculation. Never put in more than you can lose completely.</div>
+    ${lot.length ? `<div class="tblwrap"><table class="tbl"><thead><tr><th class="l">Option</th><th>Premium</th><th>Cost / lot</th><th>Volume</th><th>Open interest</th><th>Stock must move</th><th>Estimated chance of profit</th><th>Price needed for 10×</th><th class="l">Expiry</th></tr></thead><tbody>
+      ${lot.map(x => `<tr data-osym="${esc(x.symbol)}"><td class="l"><span class="sym">${esc(x.symbol)}</span> <b class="${x.type === "CE" ? "up" : "down"}">${fmt(x.strike, 0)} ${x.type}</b></td><td class="num">₹${fmt(x.ltp, 2)}</td><td class="num">${x.cost_lot != null ? rs(x.cost_lot) : "–"}</td><td class="num">${fmt(x.vol, 0)}</td><td class="num">${fmt(x.oi, 0)}</td><td class="num">${x.type === "CE" ? "+" : "−"}${fmt(x.dist_pct, 1)}%</td>
+        <td class="num"><b class="${x.p_profit < 5 ? "down" : ""}">${x.p_profit ?? "–"}%</b></td><td class="num">${fmt(x.x10_price, 0)}</td><td class="l muted">${esc(x.expiry)}</td></tr>`).join("")}</tbody></table></div>` : '<div class="muted">No unusual far-away option activity right now.</div>'}
+  </div></div>
+  <div class="muted" style="font-size:12.5px;margin-top:12px">Data: NSE option chain (the nearest expiry at least 2 days away), updated every few minutes in market hours. Put-call ratio = put open interest ÷ call open interest. Max pain = the expiry price at which option buyers together lose the most. Chances assume prices move randomly with the volatility the market is pricing in, so they are estimates, not forecasts. Brokerage, taxes and slippage are not included. Updated ${ago(O.updated)}.</div></div>`;
+}
+async function drawChain() {
+  const box = $("#ochain"); if (!box) return;
+  const sym = ui.osym; let d;
+  try { d = await loadOpt(sym); } catch { box.innerHTML = '<div class="muted">Option chain unavailable for this one.</div>'; return; }
+  if (!$("#ochain") || ui.osym !== sym) return;
+  const mxO = Math.max(1, ...d.chain.flatMap(r => [r.ce?.oi || 0, r.pe?.oi || 0]));
+  const atm = d.atm;
+  box.innerHTML = `<div class="ocsum"><span>Spot <b class="num">${fmt(d.spot, 2)}</b></span><span>Expiry <b>${esc(d.expiry)}</b> (${d.days} days)</span><span>Put-call ratio <b class="num">${d.pcr ?? "–"}</b></span><span>Max pain <b class="num">${fmt(d.max_pain, 0)}</b></span><span>ATM IV <b class="num">${d.atm_iv ?? "–"}%</b></span><span>Expected move <b class="num">±${d.exp_move_pct ?? "–"}%</b></span>${d.lot ? `<span>Lot <b class="num">${d.lot}</b></span>` : ""}</div>
+    <div class="tblwrap" style="max-height:560px"><table class="tbl ochain"><thead><tr><th colspan="5" class="cehd">CALLS</th><th></th><th colspan="5" class="pehd">PUTS</th></tr>
+      <tr><th>OI</th><th>Chg OI</th><th>Volume</th><th>IV</th><th>LTP</th><th class="stk">Strike</th><th>LTP</th><th>IV</th><th>Volume</th><th>Chg OI</th><th>OI</th></tr></thead><tbody>
+    ${d.chain.map(r => { const itmC = r.k < d.spot, itmP = r.k > d.spot, c = r.ce || {}, p = r.pe || {};
+      const tag = [r.k === d.call_wall ? '<i class="ot cw">resistance</i>' : "", r.k === d.put_wall ? '<i class="ot pw">support</i>' : "", r.k === d.max_pain ? '<i class="ot mp">max pain</i>' : ""].join("");
+      return `<tr class="${r.k === atm ? "atm" : ""}"><td class="num oib ${itmC ? "itm" : ""}"><span style="width:${((c.oi || 0) / mxO * 100).toFixed(1)}%" class="ce"></span>${fmt(c.oi, 0)}</td><td class="num ${cls(c.chg)}">${fmt(c.chg, 0)}</td><td class="num ${itmC ? "itm" : ""}">${fmt(c.vol, 0)}</td><td class="num ${itmC ? "itm" : ""}">${c.iv || "–"}</td><td class="num ${itmC ? "itm" : ""}"><b>${fmt(c.ltp, 2)}</b></td>
+        <td class="stk num"><b>${fmt(r.k, 0)}</b>${tag}</td>
+        <td class="num ${itmP ? "itm" : ""}"><b>${fmt(p.ltp, 2)}</b></td><td class="num ${itmP ? "itm" : ""}">${p.iv || "–"}</td><td class="num ${itmP ? "itm" : ""}">${fmt(p.vol, 0)}</td><td class="num ${cls(p.chg)}">${fmt(p.chg, 0)}</td><td class="num oib ${itmP ? "itm" : ""}"><span style="width:${((p.oi || 0) / mxO * 100).toFixed(1)}%" class="pe"></span>${fmt(p.oi, 0)}</td></tr>`; }).join("")}
+    </tbody></table></div><div class="muted" style="font-size:12px;margin-top:6px">Shaded cells are in-the-money. OI = open interest (contracts outstanding); Chg OI = change today. The highlighted row is at-the-money.</div>`;
+  const a = box.querySelector("tr.atm"), w = box.querySelector(".tblwrap"); if (a && w) w.scrollTop = Math.max(0, a.offsetTop - w.clientHeight / 2); // centre the at-the-money row inside the table only
+}
+
 // ---------- SIGNALS (track record) ----------
 function hitBar(v, base) {
   if (v == null) return "–";
@@ -1124,6 +1211,9 @@ document.addEventListener("click", async e => {
   if (t.closest("[data-dclose]")) { closeDrawer(); return; }
   const pp = t.closest("[data-pop]"); if (pp) { store.set("dp-pop", pp.dataset.pop); openDrawer(); toast(pp.dataset.pop === "off" ? "News pop-ups are off" : pp.dataset.pop === "mine" ? "Pop-ups only for your watchlist and holdings" : "Pop-ups for news on any stock"); return; }
   if (t.id === "notif2") { try { await Notification.requestPermission(); } catch {} openDrawer(); return; }
+  const os = t.closest("[data-osym]"); if (os) { ui.osym = os.dataset.osym; const sl = $("#osel"); if (sl) sl.value = ui.osym; drawChain(); $("#ochainCard")?.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" }); return; }
+  if (t.closest("[data-olimit]")) { ui.olimit += 12; render(); return; }
+  const od = t.closest("[data-odir]"); if (od) { ui.odir = od.dataset.odir; render(); return; }
   const cs = t.closest("[data-cside]"); if (cs) { ui.cside = cs.dataset.cside; ui.climit = 60; render(); return; }
   const cc = t.closest("[data-ccap]"); if (cc) { ui.ccap = cc.dataset.ccap; render(); return; }
   const cb = t.closest("[data-cband]"); if (cb) { ui.cband = cb.dataset.cband; ui.climit = 60; render(); return; }
@@ -1177,6 +1267,7 @@ document.addEventListener("click", async e => {
   if (!t.closest(".search")) $("#gsugg").hidden = true;
 });
 document.addEventListener("change", e => {
+  if (e.target.id === "osel") { ui.osym = e.target.value; drawChain(); return; }
   if (e.target.id === "csort") { ui.csort = e.target.value; render(); return; }
   if (e.target.matches("[data-cmain]")) { ui.cmain = e.target.checked; render(); return; }
   if (e.target.matches("[data-cpenny]")) { ui.cpenny = e.target.checked; render(); return; }
@@ -1205,7 +1296,7 @@ $("#theme").addEventListener("click", () => {
 });
 if (!SNAPSHOT) window.addEventListener("hashchange", () => { readHash(); render(); });
 
-if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "fno", "circuits", "screener", "w52", "portfolio", "calendar"].includes(h)) view = h; }
+if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "fno", "options", "circuits", "screener", "w52", "portfolio", "calendar"].includes(h)) view = h; }
 tickClock(); setInterval(tickClock, 1000);
 document.addEventListener("mouseover", e => { mmPaused = Boolean(e.target.closest("#mm")); });
 load(true);

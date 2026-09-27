@@ -9,6 +9,7 @@ const { KEYWORDS, compileMatchers, matchSymbols, deriveKeywords } = require("./l
 const { headlineTone, stockInsight, marketMood, trendingTopics } = require("./lib/insights");
 const backtest = require("./lib/backtest");
 const { loadIndices } = require("./lib/indices");
+const { loadOptions } = require("./lib/options");
 
 const ROOT = path.join(__dirname, "..");
 const OUT = path.join(ROOT, "site", "data");
@@ -246,6 +247,9 @@ async function main() {
     return backtest.scoreLog(slog, closes, { idx: nIdx, closes: nRows.map(r => r.c) });
   }, null);
 
+  // options: live option chains, risk-limited setup ideas, lottery-style unusual activity
+  const options = await attempt("options", () => loadOptions({ stocks, outDir: path.join(OUT, "options"), cacheDir: CACHE, log }), null);
+
   // circuits: names, tracked flag, and how many trading days in a row each stock has hit its band
   const circuits = await (async () => {
     const c = await circuitsP; if (!c) return null;
@@ -275,7 +279,7 @@ async function main() {
   const out = {
     generated_at: new Date().toISOString(), build_seconds: Math.round((Date.now() - t0) / 1000), status,
     pulse: pulse.items, sectors: pulse.sectors, industries, nifty_pe: pulse.nifty_pe, fii_dii: fii, mood, topics,
-    nifty_returns: Object.fromEntries(Object.entries(nr).map(([k, v]) => [k, r2(v)])), backtest: bt.summary, live_record: liveRecord, indices, circuits, news_speed: newsSpeed,
+    nifty_returns: Object.fromEntries(Object.entries(nr).map(([k, v]) => [k, r2(v)])), backtest: bt.summary, live_record: liveRecord, indices, circuits, news_speed: newsSpeed, options,
     stocks, news: newsOut, w52, calendar: upcoming.slice(0, 600).map(e => ({ ...e, tracked: Boolean(universe[e.symbol]), nifty50: Boolean(universe[e.symbol]?.nifty50) })),
   };
   fs.writeFileSync(path.join(OUT, "latest.json"), JSON.stringify(out));

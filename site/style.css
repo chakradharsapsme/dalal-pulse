@@ -468,3 +468,32 @@ body.bt-on .toast{bottom:calc(60px + env(safe-area-inset-bottom,0px))}
 .dspeed{padding:10px 16px;border-bottom:1px solid var(--line);font-size:12.5px}
 .dspeed div{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.dspeed div span{border:1px solid var(--line);border-radius:6px;padding:2px 8px}.dspeed div span.top{border-color:var(--accent);background:var(--accentbg)}
 .dspeed em{font-style:normal;color:var(--muted);margin-left:5px;font-size:11.5px}
+
+/* ---- options ---- */
+.owarn{background:var(--warnbg);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent);border-left:5px solid var(--warn);border-radius:10px;padding:11px 14px;font-size:13.5px;color:var(--ink2);margin:0 0 16px}
+.owarn.red{background:var(--downbg);border-color:color-mix(in srgb,var(--down) 40%,transparent);border-left-color:var(--down);margin-bottom:12px}
+.oim{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.oim .l{font-size:11.5px;color:var(--muted)}.oim b{font-size:18px}.oim .s{font-size:11px;color:var(--muted)}
+.orange{margin:26px 8px 6px}.orange .bar{position:relative;height:10px;border-radius:5px;background:var(--line)}
+.orange .rng{position:absolute;top:0;height:100%;border-radius:5px;background:color-mix(in srgb,var(--s1) 35%,transparent)}
+.orange em{position:absolute;top:13px;transform:translateX(-50%);font-style:normal;font-size:11px;font-family:var(--mono);white-space:nowrap}.orange .pw{color:var(--up)}.orange .cw{color:var(--down);top:-19px}
+.orange .sp{position:absolute;top:-4px;width:4px;height:18px;border-radius:2px;background:var(--ink);transform:translateX(-50%)}
+.oidx .sy{margin-top:10px;display:inline-block}
+.oideas{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.oidea{border-left:4px solid var(--neutral)}.oidea.bullish{border-left-color:var(--up)}.oidea.bearish{border-left-color:var(--down)}
+.oih{display:flex;align-items:center;gap:8px}.sy.big{font-family:var(--display);font-size:18px;font-weight:800;color:var(--ink);text-decoration:none}
+.ostrat{font-weight:700;margin:6px 0}
+.olegs{width:100%;font-size:13.5px;border-collapse:collapse;margin-bottom:6px}.olegs td{padding:3px 0}.olegs td:last-child{text-align:right}
+.payoff{display:block;width:100%;height:auto;margin:4px 0 8px}
+.okpi{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.okpi div{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:6px 9px}
+.okpi em{display:block;font-style:normal;font-size:11px;color:var(--muted)}.okpi b{font-family:var(--mono);font-size:15px}.okpi small{display:block;font-size:10.5px;color:var(--muted)}
+.popbar{height:6px;border-radius:3px;background:var(--line);margin:10px 0 8px;overflow:hidden}.popbar i{display:block;height:100%;background:var(--peacock);transition:width .8s}
+.owhy{display:flex;flex-wrap:wrap;gap:5px}.owhy span{font-size:11.5px;background:var(--peacockbg);color:var(--peacock);border-radius:5px;padding:2px 7px;font-weight:600}
+#osel{font:inherit;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)}
+.ocsum{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:13px;margin-bottom:10px}
+.ochain th,.ochain td{text-align:center!important;padding:6px 8px}.ochain .cehd{color:var(--up)}.ochain .pehd{color:var(--down)}
+.ochain .stk{background:var(--paper2);font-weight:700;position:relative;min-width:110px}.ochain td.itm{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+.ochain tr.atm td{border-top:2px solid var(--accent);border-bottom:2px solid var(--accent)}
+.oib{position:relative}.oib span{position:absolute;top:3px;bottom:3px;opacity:.22;border-radius:3px}.oib span.ce{right:0;background:var(--up)}.oib span.pe{left:0;background:var(--down)}
+.ot{display:block;font-style:normal;font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.05em}.ot.cw{color:var(--down)}.ot.pw{color:var(--up)}.ot.mp{color:var(--accent-ink)}
+.olot{border:1px solid color-mix(in srgb,var(--down) 35%,var(--line))}
+@media(max-width:700px){.oim{grid-template-columns:repeat(2,1fr)}}
