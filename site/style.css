@@ -419,3 +419,17 @@ button.tile{cursor:pointer;font:inherit;width:100%}
 .sc3 span{display:flex;flex-direction:column;align-items:center}.sc3 em{font-style:normal;font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}.sc3 b{font-size:13px}
 .stbl td{padding:9px 10px}
 @media(max-width:600px){.stools .field{max-width:none;flex-basis:100%}.scount{margin-left:0}.sgrid{grid-template-columns:1fr}}
+
+/* ---- circuits ---- */
+.cbands{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.cbk{text-align:left;padding:14px 16px;cursor:pointer;font:inherit;color:inherit;border:1px solid var(--line);transition:border-color .15s,transform .15s}
+.cbk:hover{transform:translateY(-1px)}.cbk.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accentbg)}
+.cbk .l{font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.cbk .v{display:flex;gap:14px;font-family:var(--mono);font-size:21px;font-weight:700;margin:4px 0 2px}
+.ccard{text-decoration:none}.ccard.u{border-left:4px solid var(--up)}.ccard.d{border-left:4px solid var(--down)}
+.ctags{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.cband{font-size:11.5px;font-weight:800;letter-spacing:.04em;padding:3px 8px;border-radius:6px}.cband.u{background:var(--upbg);color:var(--up)}.cband.d{background:var(--downbg);color:var(--down)}
+.sc3.c3{grid-template-columns:repeat(3,1fr)}
+.ctog{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer}.ctog input{accent-color:var(--peacock);width:16px;height:16px}
+@media(max-width:900px){.cbands{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:600px){.cbands{grid-template-columns:repeat(2,minmax(0,1fr))}}

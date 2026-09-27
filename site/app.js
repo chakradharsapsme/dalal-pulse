@@ -22,7 +22,7 @@ let my = store.get("dp-my", { holdings: [], watch: [], alerts: [] });
 const saveMy = () => store.set("dp-my", my);
 const isMine = s => my.watch.includes(s) || my.holdings.some(h => h.symbol === s);
 const ui = { nf: "withnews", q: "", preset: "all", sort: { k: "change_pct", d: -1 }, w52: "highs", w52s: "all", cal: "tracked", range: 252, sq: "",
-  ov: { ma: true, bb: false, sr: true, sig: true }, sub: "vol", hp: "change_pct", hm: "ind", bh: 20, bdir: "all", irange: "1d", crange: "252", icmp: [], fq: "", ff: "all", fsort: { k: "score", d: -1 }, bm: "fo", bsize: "turnover", sgrp: "Popular", suni: "n200", sview: "cards", slimit: 60, smore: false };
+  ov: { ma: true, bb: false, sr: true, sig: true }, sub: "vol", hp: "change_pct", hm: "ind", bh: 20, bdir: "all", irange: "1d", crange: "252", icmp: [], fq: "", ff: "all", fsort: { k: "score", d: -1 }, bm: "fo", bsize: "turnover", sgrp: "Popular", suni: "n200", sview: "cards", slimit: 60, smore: false, cside: "upper", cband: "all", csort: "turnover", cmain: true, cpenny: true, climit: 60 };
 const charts = window.__DP_CHARTS__ || {};
 
 // ---------- data ----------
@@ -132,7 +132,7 @@ function nav(v, s) {
 }
 function readHash() {
   const [v, s] = location.hash.replace(/^#\/?/, "").split("/");
-  if (["news", "markets", "indices", "fno", "screener", "w52", "portfolio", "calendar"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
+  if (["news", "markets", "indices", "fno", "circuits", "screener", "w52", "portfolio", "calendar"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
 }
 const go = sym => nav("news", sym);
 
@@ -140,7 +140,7 @@ function render() {
   if (!D) return;
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.nav === view));
   const keep = document.querySelector(".list")?.scrollTop;
-  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "fno" ? fnoView() : view === "screener" ? screener() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : newsView();
+  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "fno" ? fnoView() : view === "circuits" ? circuitsView() : view === "screener" ? screener() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : newsView();
   if (keep && document.querySelector(".list")) document.querySelector(".list").scrollTop = keep;
   if (view === "news") { if (sel && S[sel]) drawChart(sel); document.querySelector(".row.on")?.scrollIntoView({ block: "nearest" }); }
   if (view === "indices") { if (sel && sel !== "compare") drawIndexChart(sel); else drawCompare(); document.querySelector(".row.on")?.scrollIntoView({ block: "nearest" }); }
@@ -917,6 +917,43 @@ function bubbleCard() {
       <div class="blegend"><span><i style="background:var(--up)"></i>up today</span><span><i style="background:var(--down)"></i>down today</span><span>deeper colour = bigger move</span><span>bubble size = ${size === "turnover" ? "value traded today" : size === "move" ? "size of today's move" : "volume vs 20-day average"}</span><span><b class="nbdot">3</b> = news count</span><span class="num"><b class="up">${up}▲</b> <b class="down">${dn}▼</b> of ${mem.length}</span></div></div></div>`;
 }
 
+// ---------- CIRCUITS ----------
+const SERIES_TAG = { EQ: "", BE: "T2T", BZ: "BZ", SM: "SME", ST: "SME", SZ: "SME", GS: "Govt sec" };
+function circuitsView() {
+  const C = D.circuits;
+  if (!C) return `<div class="fade"><h1 class="page">Circuit hits</h1><div class="card"><div class="empty"><b>Circuit data arrives with the next update</b>It refreshes every 15 minutes during market hours.</div></div></div>`;
+  const base = x => (!ui.cmain || x.series === "EQ" || x.series === "BE") && (!ui.cpenny || x.ltp >= 20);
+  const U = C.upper.filter(base), L = C.lower.filter(base), B = C.both.filter(base);
+  const bands = [5, 10, 20, 2];
+  const bandCount = (list, b) => list.filter(x => x.band === b).length;
+  const src = ui.cside === "upper" ? U : ui.cside === "lower" ? L : B;
+  const list = src.filter(x => ui.cband === "all" || x.band === +ui.cband)
+    .sort((a, b) => ui.csort === "change" ? Math.abs(b.change_pct) - Math.abs(a.change_pct) : ui.csort === "price" ? b.ltp - a.ltp : ui.csort === "streak" ? (b.streak - a.streak) || (b.turnover_cr - a.turnover_cr) : b.turnover_cr - a.turnover_cr);
+  const shown = list.slice(0, ui.climit);
+  const nth = n => n + (n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th");
+  const card = x => { const up = ui.cside === "upper" || (ui.cside === "both" && x.change_pct >= 0), s = S[x.symbol], tag = SERIES_TAG[x.series] ?? x.series;
+    const inner = `<div class="sc1"><div><b class="sym">${esc(x.symbol)}</b>${x.nifty50 ? ' <span class="badge n50">N50</span>' : ""}${tag ? ` <span class="badge neutral" title="Series ${esc(x.series)}">${esc(tag)}</span>` : ""}<div class="scn">${x.name && x.name !== x.symbol ? esc(x.name.replace(/ Limited$| Ltd\.?$/i, "")) : "&nbsp;"}</div></div>
+        <div class="scp"><div class="num">₹${fmt(x.ltp, x.ltp >= 1000 ? 0 : 2)}</div><b class="num ${cls(x.change_pct)}">${pct(x.change_pct)}</b></div></div>
+      <div class="ctags"><span class="cband ${up ? "u" : "d"}">${ui.cside === "both" ? "HIT BOTH BANDS" : up ? "▲ UPPER CIRCUIT" : "▼ LOWER CIRCUIT"} · ${x.band}%</span>${x.streak >= 2 ? `<span class="badge watch">🔥 ${nth(x.streak)} day in a row</span>` : ""}${x.at_52w_high ? '<span class="badge bullish">52W high</span>' : x.at_52w_low ? '<span class="badge bearish">52W low</span>' : ""}</div>
+      <div class="sc3 c3"><span><em>Traded</em><b class="num">₹${fmt(x.turnover_cr, x.turnover_cr < 10 ? 2 : 0)} cr</b></span><span><em>Day range</em><b class="num">${fmt(x.low, x.low >= 100 ? 0 : 1)}–${fmt(x.high, x.high >= 100 ? 0 : 1)}</b></span><span><em>News</em><b class="num">${s ? s.news_ids.length || "–" : "–"}</b></span></div>
+      <div class="muted" style="font-size:12px">${s ? "Tap for news, chart and insight" : "Opens on NSE ↗"}</div>`;
+    return s ? `<button class="scard ccard ${up ? "u" : "d"}" data-go="${esc(x.symbol)}">${inner}</button>` : `<a class="scard ccard ${up ? "u" : "d"}" href="https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(x.symbol)}" target="_blank" rel="noopener">${inner}</a>`; };
+  return `<div class="fade"><h1 class="page">Circuit hits today</h1><p class="sub">Stocks that hit their daily price limit (circuit) on NSE, by band. At an upper circuit there are only buyers left; at a lower circuit, only sellers. Updated every 15 minutes in market hours.</p>
+  <div class="cbands">${bands.map(b => `<button class="card cbk${ui.cband === String(b) ? " on" : ""}" data-cband="${b}"><div class="l">${b}% circuit</div><div class="v"><span class="up">▲ ${bandCount(U, b)}</span><span class="down">▼ ${bandCount(L, b)}</span></div><div class="muted" style="font-size:12px">upper · lower</div></button>`).join("")}
+    <button class="card cbk${ui.cband === "all" ? " on" : ""}" data-cband="all"><div class="l">All bands</div><div class="v"><span class="up">▲ ${U.length}</span><span class="down">▼ ${L.length}</span></div><div class="muted" style="font-size:12px">${B.length} hit both</div></button></div>
+  <div class="stools">
+    <div class="seg"><button data-cside="upper" class="${ui.cside === "upper" ? "on" : ""}">▲ Upper circuit · ${U.length}</button><button data-cside="lower" class="${ui.cside === "lower" ? "on" : ""}">▼ Lower circuit · ${L.length}</button><button data-cside="both" class="${ui.cside === "both" ? "on" : ""}">Hit both · ${B.length}</button></div>
+    <div class="seg">${[["all", "All"], ...bands.map(b => [String(b), b + "%"])].map(([k, l]) => `<button data-cband="${k}" class="${ui.cband === k ? "on" : ""}">${l}</button>`).join("")}</div>
+    <label class="ssort"><span class="muted">Sort</span><select id="csort" aria-label="Sort circuits">${[["turnover", "Most traded"], ["change", "Biggest move"], ["streak", "Days in a row"], ["price", "Highest price"]].map(([k, l]) => `<option value="${k}"${ui.csort === k ? " selected" : ""}>${l}</option>`).join("")}</select></label>
+    <label class="ctog"><input type="checkbox" data-cmain ${ui.cmain ? "checked" : ""}> Main board only</label>
+    <label class="ctog"><input type="checkbox" data-cpenny ${ui.cpenny ? "checked" : ""}> Hide below ₹20</label>
+    <b class="num scount">${list.length} stock${list.length === 1 ? "" : "s"}</b>
+  </div>
+  ${list.length ? `<div class="sgrid">${shown.map(card).join("")}</div>` : `<div class="card"><div class="empty"><b>No ${ui.cside === "upper" ? "upper" : ui.cside === "lower" ? "lower" : ""} circuit hits here</b>Try another band${ui.cmain || ui.cpenny ? ", or untick the filters" : ""}.</div></div>`}
+  ${list.length > shown.length ? `<div style="text-align:center;margin-top:14px"><button class="btn" data-climit>Show ${Math.min(60, list.length - shown.length)} more of ${list.length - shown.length}</button></div>` : ""}
+  <div class="muted" style="font-size:12.5px;margin-top:12px">NSE sets each stock's daily limit at 2%, 5%, 10% or 20% (there is no 30% band). F&O stocks have no fixed circuit, so large companies rarely appear here. Circuit stocks are often small and illiquid, so prices can swing sharply and you may not be able to buy or sell. "Main board only" hides SME and other special series; T2T (trade-to-trade) stocks must be delivered, with no intraday trading. "Days in a row" counts from when this site started logging circuits. For information only, not investment advice.</div></div>`;
+}
+
 // ---------- SIGNALS (track record) ----------
 function hitBar(v, base) {
   if (v == null) return "–";
@@ -1049,6 +1086,9 @@ document.addEventListener("click", async e => {
   if (t.closest("[data-dclose]")) { closeDrawer(); return; }
   const pp = t.closest("[data-pop]"); if (pp) { store.set("dp-pop", pp.dataset.pop); openDrawer(); toast(pp.dataset.pop === "off" ? "News pop-ups are off" : pp.dataset.pop === "mine" ? "Pop-ups only for your watchlist and holdings" : "Pop-ups for news on any stock"); return; }
   if (t.id === "notif2") { try { await Notification.requestPermission(); } catch {} openDrawer(); return; }
+  const cs = t.closest("[data-cside]"); if (cs) { ui.cside = cs.dataset.cside; ui.climit = 60; render(); return; }
+  const cb = t.closest("[data-cband]"); if (cb) { ui.cband = cb.dataset.cband; ui.climit = 60; render(); return; }
+  if (t.closest("[data-climit]")) { ui.climit += 60; render(); return; }
   const fsb = t.closest("[data-fsort]"); if (fsb) { const k = fsb.dataset.fsort; ui.fsort = { k, d: ui.fsort.k === k ? -ui.fsort.d : (k === "symbol" ? 1 : -1) }; render(); return; }
   const ffb = t.closest("[data-ff]"); if (ffb) { ui.ff = ffb.dataset.ff; render(); return; }
   const bmb = t.closest("[data-bm]"); if (bmb) { ui.bm = bmb.dataset.bm; render(); return; }
@@ -1096,7 +1136,11 @@ document.addEventListener("click", async e => {
   if (t.id === "doRs") { try { const v = JSON.parse(decodeURIComponent(escape(atob($("#rs").value.trim())))); my = { holdings: v.holdings || [], watch: v.watch || [], alerts: v.alerts || [] }; saveMy(); render(); toast("Portfolio restored"); } catch { toast("That code didn't work. Copy the whole code and try again."); } return; }
   if (!t.closest(".search")) $("#gsugg").hidden = true;
 });
-document.addEventListener("change", e => { if (e.target.id === "ssort") { const k = e.target.value; ui.sort = { k, d: k === "symbol" ? 1 : -1 }; render(); } });
+document.addEventListener("change", e => {
+  if (e.target.id === "csort") { ui.csort = e.target.value; render(); return; }
+  if (e.target.matches("[data-cmain]")) { ui.cmain = e.target.checked; render(); return; }
+  if (e.target.matches("[data-cpenny]")) { ui.cpenny = e.target.checked; render(); return; }
+  if (e.target.id === "ssort") { const k = e.target.value; ui.sort = { k, d: k === "symbol" ? 1 : -1 }; render(); } });
 document.addEventListener("input", e => {
   const id = e.target.id; if (id !== "nq" && id !== "sq" && id !== "fq") return;
   ui[id === "nq" ? "q" : id === "sq" ? "sq" : "fq"] = e.target.value; const pos = e.target.selectionStart; render(); const el = $("#" + id); el.focus(); el.setSelectionRange(pos, pos);
@@ -1121,7 +1165,7 @@ $("#theme").addEventListener("click", () => {
 });
 if (!SNAPSHOT) window.addEventListener("hashchange", () => { readHash(); render(); });
 
-if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "fno", "screener", "w52", "portfolio", "calendar"].includes(h)) view = h; }
+if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "fno", "circuits", "screener", "w52", "portfolio", "calendar"].includes(h)) view = h; }
 tickClock(); setInterval(tickClock, 1000);
 document.addEventListener("mouseover", e => { mmPaused = Boolean(e.target.closest("#mm")); });
 load(true);

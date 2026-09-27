@@ -101,4 +101,12 @@ async function fetchFoOI() {
   return { date: j.timestamp, items };
 }
 
-module.exports = { fetch52Week, fetchIndices, fetchFiiDii, fetchCalendar, fetchEquityList, fetchIndexList, fetchFoOI, nseGet };
+// ---- circuit (price band) hitters: stocks locked at their upper / lower price band today ----
+async function fetchBandHitters() {
+  const j = await nseGet("/api/live-analysis-price-band-hitter", "/market-data/upper-band-hitters");
+  const map = x => ({ symbol: x.symbol, series: x.series, ltp: +x.ltp, change_pct: Math.round(parseFloat(x.pChange) * 100) / 100, band: +x.priceBand,
+    high: x.highPrice, low: x.lowPrice, year_high: x.yearHigh, year_low: x.yearLow, turnover_cr: Math.round((+x.turnover || 0)) / 100, volume_k: +x.totalTradedVol || 0 });
+  return { upper: (j.upper?.AllSec?.data || []).map(map), lower: (j.lower?.AllSec?.data || []).map(map), both: (j.both?.AllSec?.data || []).map(map), count: j.count || null };
+}
+
+module.exports = { fetchBandHitters, fetch52Week, fetchIndices, fetchFiiDii, fetchCalendar, fetchEquityList, fetchIndexList, fetchFoOI, nseGet };

@@ -126,6 +126,7 @@ async function main() {
   const syms = Object.keys(universe);
   log(`[universe] ${syms.length} stocks`);
 
+  const circuitsP = attempt("circuits", () => nse.fetchBandHitters(), null);
   const [techs, pulse, fii, w52nse, calendar, newsList, nifty] = await Promise.all([
     technicals.analyseMany(syms, log, 8),
     loadPulse(),
@@ -221,10 +222,24 @@ async function main() {
     return backtest.scoreLog(slog, closes, { idx: nIdx, closes: nRows.map(r => r.c) });
   }, null);
 
+  // circuits: names, tracked flag, and how many trading days in a row each stock has hit its band
+  const circuits = await (async () => {
+    const c = await circuitsP; if (!c) return null;
+    const names = readJson(path.join(CACHE, "equity_names.json"), {});
+    const today = backtest.dayKey(Date.now()), lastBar = nRows.length ? backtest.dayKey(nRows[nRows.length - 1].t) : null;
+    const lf = path.join(CACHE, "circuit-log.json"); const clog = readJson(lf, {});
+    if (lastBar === today) { clog[today] = { U: c.upper.map(x => x.symbol), L: c.lower.map(x => x.symbol) }; const ks = Object.keys(clog).sort(); for (const k of ks.slice(0, Math.max(0, ks.length - 30))) delete clog[k]; fs.mkdirSync(CACHE, { recursive: true }); fs.writeFileSync(lf, JSON.stringify(clog)); }
+    const days = Object.keys(clog).sort().reverse();
+    const streak = (sym, side) => { let n = 0; for (const d of days) { if ((clog[d][side] || []).includes(sym)) n++; else break; } return n; };
+    const enrich = (x, side) => ({ ...x, name: universe[x.symbol]?.name || names[x.symbol] || x.symbol, tracked: Boolean(universe[x.symbol]), nifty50: Boolean(universe[x.symbol]?.nifty50),
+      at_52w_high: x.year_high && x.ltp >= x.year_high, at_52w_low: x.year_low && x.ltp <= x.year_low, streak: side ? streak(x.symbol, side) : 0 });
+    return { upper: c.upper.map(x => enrich(x, "U")), lower: c.lower.map(x => enrich(x, "L")), both: c.both.map(x => enrich(x, null)), count: c.count, updated: new Date().toISOString(), log_days: days.length };
+  })();
+
   const out = {
     generated_at: new Date().toISOString(), build_seconds: Math.round((Date.now() - t0) / 1000), status,
     pulse: pulse.items, sectors: pulse.sectors, industries, nifty_pe: pulse.nifty_pe, fii_dii: fii, mood, topics,
-    nifty_returns: Object.fromEntries(Object.entries(nr).map(([k, v]) => [k, r2(v)])), backtest: bt.summary, live_record: liveRecord, indices,
+    nifty_returns: Object.fromEntries(Object.entries(nr).map(([k, v]) => [k, r2(v)])), backtest: bt.summary, live_record: liveRecord, indices, circuits,
     stocks, news: newsOut, w52, calendar: upcoming.slice(0, 600).map(e => ({ ...e, tracked: Boolean(universe[e.symbol]), nifty50: Boolean(universe[e.symbol]?.nifty50) })),
   };
   fs.writeFileSync(path.join(OUT, "latest.json"), JSON.stringify(out));
