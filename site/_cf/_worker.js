@@ -150,45 +150,75 @@ async function quotes(request) {
   return new Response(JSON.stringify({ at: new Date().toISOString(), quotes: out }), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*" } });
 }
 
-// ---------- /agent: the Pulse Agent's AI brain (Cloudflare Workers AI, free daily allowance) ----------
-// Agent loop: understand → plan (which data to read) → gather tools (live quotes, research files) → reason → answer.
-const MODELS = ["@cf/meta/llama-3.3-70b-instruct-fp8-fast", "@cf/meta/llama-4-scout-17b-16e-instruct", "@cf/meta/llama-3.1-8b-instruct-fast", "@cf/meta/llama-3.1-8b-instruct"];
-const PLANNER = ["@cf/meta/llama-3.1-8b-instruct-fast", "@cf/meta/llama-3.1-8b-instruct", "@cf/meta/llama-3.3-70b-instruct-fp8-fast"];
-const AGENT_SYSTEM = `You are "Pulse Agent", the senior equity research analyst and trading mentor inside Dalal Pulse, an Indian stock-market website (NSE). You have 25+ years of experience in Indian cash, F&O and options markets. You think like a professional: top-down (market regime → sector → stock), risk first, evidence based.
+// ---------- /agent: the built-in Pulse Agent (Cloudflare Workers AI free allowance; no billing possible) ----------
+// Agent loop: 1) understand + plan (tool selection, clarification) → 2) tools: live quotes, research files,
+// deterministic desk maths → 3) reason + answer with conversation memory. Falls back model-by-model.
+const BIG = ["@cf/openai/gpt-oss-120b", "@cf/qwen/qwen3-30b-a3b-fp8", "@cf/meta/llama-4-scout-17b-16e-instruct", "@cf/meta/llama-3.3-70b-instruct-fp8-fast", "@cf/meta/llama-3.1-8b-instruct-fast"];
+const SMALL = ["@cf/qwen/qwen3-30b-a3b-fp8", "@cf/openai/gpt-oss-20b", "@cf/meta/llama-3.1-8b-instruct-fast", "@cf/meta/llama-3.3-70b-instruct-fp8-fast"];
+const AGENT_SYSTEM = `You are "Pulse Agent", the senior equity research analyst and trading mentor built into Dalal Pulse, an Indian stock-market website (NSE). 25+ years of experience in Indian cash, F&O and options. You think like a professional: market regime → sector → stock, risk first, evidence based.
 
-RULES
-- Use ONLY the DATA provided in this conversation (live quotes + Dalal Pulse research files). Never invent prices, levels, news, targets or numbers. If something is missing, say so plainly.
-- Quote the live price and its IST time when you discuss a stock (write times like "25 Sep, 15:15 IST", never raw ISO timestamps). Mention if the market is closed.
-- Respect the backtest: signals marked "No real edge" must not be the main reason for a call.
-- Refer to the DESK QUANT MODEL as "our quant model" (never by its internal name). Use stock-specific fields for a stock; never attribute an index or sector figure (e.g. an index P/E) to a single company.
-- Position size: quote the pre-computed "position size" lines from our quant model exactly (rupee risk, share quantity, cost). Never do your own division.
-- When a DESK QUANT MODEL is provided, your rating must match it and your trade plan must use its exact entry/stop/target/reward:risk numbers (you may explain or add context, never change the arithmetic).
-- Give a clear, decisive view with a rating from: Buy on dips / Accumulate / Hold / Reduce / Avoid (for stocks), or Bullish / Neutral / Bearish (for the market/indices).
-- For any trade idea give: entry zone, stop-loss (below support/structure), target (next resistance), reward:risk, and what would invalidate it. Suggest position sizing as a % risk of capital (1–2%), never "all in".
-- Options: prefer defined-risk spreads; warn that ~9 in 10 individual F&O traders lose money (SEBI) when relevant. Never suggest naked option selling.
-- Keep continuity: use the conversation history; "it/this/that" refers to the stock being discussed.
-- If the question is unclear or incomplete, ask ONE short clarifying question instead of guessing.
-- Style: professional, calm, plain English, short paragraphs, Markdown with **bold** labels, bullet points, and small tables when comparing. 120–260 words unless the user asks for depth. No emojis. Indian number format (₹1,23,456).
-- End with one line: "Information only, not investment advice."`;
-
+HOW TO ANSWER
+- Understand plain, informal or mixed English/Hindi. Resolve "it/this/that/them" from the conversation.
+- Use ONLY the DATA provided (live quotes, Dalal Pulse research files, desk calculations). Never invent prices, levels, news, targets or ratios. If something is missing, say so.
+- Quote live prices with their IST time ("₹1,226 as of 25 Sep, 15:14 IST"); say if the market is closed.
+- Ratings: stocks → Buy on dips / Accumulate / Hold / Reduce / Avoid; market → Bullish / Neutral / Bearish. Be decisive and explain why in 2–4 evidence points.
+- Trade plans and position sizes: copy the DESK CALCULATIONS exactly (entry, stop, target, reward:risk, shares). Never do your own arithmetic. Mention what would invalidate the view.
+- Respect the backtest: signals marked "No real edge" cannot be the main reason for a call.
+- Options: defined-risk spreads only; note ~9 in 10 individual F&O traders lose money (SEBI) when relevant.
+- Style: professional research-desk tone, plain English, Markdown with short headings (###), **bold** labels, bullets, a small table when comparing. 120–280 words unless asked for depth. No emojis. Indian number format.
+- End with: "Information only, not investment advice."`;
+const PLAN_SYSTEM = `You are the planning step of a stock-market research agent for Indian stocks (NSE). Read the conversation and the latest user message and decide what data to fetch.
+Reply with ONE JSON object only, no prose:
+{"symbols":[up to 3 NSE symbols from the LIST that the user means, resolving it/this/that from the conversation],
+ "tools":[any of "market","ideas","news","all_stocks"],
+ "task":"one short line describing what the user wants",
+ "clarify":null or "one short clarifying question (only if the request is truly impossible to interpret)"}
+Rules: company names, nicknames or misspellings map to the closest symbol in LIST. Use "market" for anything about the overall market, Nifty, sectors or 'today'. Use "ideas" for recommendations/what to buy/setups/best stocks/options ideas. Use "news" for news/results/events. Use "all_stocks" to scan or rank many stocks.`;
 function agentCors(req) {
   const o = req.headers.get("Origin") || "";
   const ok = /^https:\/\/(dalalpulse\.pages\.dev|[a-z0-9-]+\.dalalpulse\.pages\.dev|chakradharsapsme\.github\.io|(www\.)?dalalpulse\.com)$/.test(o) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o);
   return { ok, h: { "Access-Control-Allow-Origin": ok ? o : SITE.replace(/\/$/, ""), "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type", Vary: "Origin" } };
 }
 const RATE = new Map();
+function aiText(r) {
+  if (!r) return null; if (typeof r === "string") return r;
+  if (typeof r.response === "string") return r.response;
+  if (r.response && typeof r.response === "object") return JSON.stringify(r.response);
+  if (typeof r.output_text === "string") return r.output_text;
+  const c = r.choices?.[0]?.message?.content; if (c) return c;
+  if (Array.isArray(r.output)) { const t = r.output.filter(o => o.type === "message").flatMap(o => o.content || []).map(c => c.text || "").join(""); if (t) return t; }
+  return r.result?.response || null;
+}
 async function runAI(env, models, messages, max_tokens) {
   let last = null;
   for (const m of models) {
-    try {
-      const r = await env.AI.run(m, { messages, max_tokens, temperature: 0.3 });
-      const text = typeof r === "string" ? r : r?.response ?? r?.result?.response ?? r?.choices?.[0]?.message?.content ?? (typeof r?.output_text === "string" ? r.output_text : null);
-      if (text && String(text).trim()) return { text: String(text).trim(), model: m };
-    } catch (e) { last = e; }
+    for (const shape of m.includes("gpt-oss") ? ["responses", "messages"] : ["messages"]) {
+      try {
+        const input = shape === "responses"
+          ? { instructions: messages.filter(x => x.role === "system").map(x => x.content).join("\n\n"), input: messages.filter(x => x.role !== "system").map(x => ({ role: x.role, content: x.content })), max_output_tokens: max_tokens, reasoning: { effort: "low" } }
+          : { messages, max_tokens, temperature: 0.2 };
+        let t = aiText(await env.AI.run(m, input));
+        if (t) t = String(t).replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+        if (t) return { text: t, model: m };
+      } catch (e) { last = e; }
+    }
   }
   throw last || new Error("no model answered");
 }
 function clip(t, n) { return !t ? "" : t.length > n ? t.slice(0, n) + "\n…(truncated)" : t; }
+const numAfter = (t, re) => { const m = t && t.match(re); return m ? parseFloat(m[1].replace(/,/g, "")) : null; };
+function deskFor(sym, doc, price, cap, given) {
+  if (given && given.entry && given.stop && given.target) return given;
+  if (!doc || !price) return null;
+  const sup = numAfter(doc, /Support ₹([\d,.]+)/), res = numAfter(doc, /Resistance ₹([\d,.]+)/), s50 = numAfter(doc, /50D ₹([\d,.]+)/);
+  let stop = sup && sup < price && sup > price * 0.9 ? sup * 0.985 : s50 && s50 < price && s50 > price * 0.9 ? s50 * 0.985 : price * 0.94;
+  stop = Math.min(stop, price * 0.985); const risk = price - stop;
+  const target = res && res > price + 1.5 * risk ? res : price + 2 * risk;
+  const r2 = v => Math.round(v * 100) / 100;
+  const view = (doc.match(/SITE VIEW: ([^|\n]+)\| overall score (-?\d+)/) || []);
+  const size = [1, 2].map(r => { const raw = Math.floor(cap * r / 100 / risk), q = Math.max(0, Math.min(raw, Math.floor(cap * 0.25 / price))); return `${r}% risk (₹${Math.round(cap * r / 100).toLocaleString("en-IN")}) → ${q} shares ≈ ₹${Math.round(q * price).toLocaleString("en-IN")}, loss if stopped ≈ ₹${Math.round(q * risk).toLocaleString("en-IN")}${q < raw ? " (capped at 25% of capital)" : ""}`; }).join(" | ");
+  return { sym, rating: view[1] ? `site view: ${view[1].trim()}` : "", score: view[2] || "", entry: r2(price), stop: r2(stop), target: r2(target), size };
+}
 async function agent(request, env) {
   const c = agentCors(request);
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: c.h });
@@ -197,61 +227,66 @@ async function agent(request, env) {
   if (!c.ok) return J({ error: "origin not allowed" }, 403);
   if (!env || !env.AI) return J({ error: "ai_not_configured" }, 503);
   const ip = request.headers.get("CF-Connecting-IP") || "x", now = Date.now(), win = (RATE.get(ip) || []).filter(t => now - t < 60e3);
-  if (win.length >= 8) return J({ error: "Too many questions in a minute. Please wait a few seconds." }, 429);
+  if (win.length >= 6) return J({ error: "Too many questions in a minute. Please wait a few seconds." }, 429);
   win.push(now); RATE.set(ip, win);
   let body; try { body = await request.json(); } catch { return J({ error: "bad json" }, 400); }
-  const q = String(body.question || "").slice(0, 600).trim(); if (!q) return J({ error: "empty question" }, 400);
-  const hist = (Array.isArray(body.history) ? body.history : []).slice(-8).map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content || "").slice(0, 1200) }));
-  const steps = [], t0 = Date.now(), step = (k, d) => steps.push({ k, d, ms: Date.now() - t0 });
-  let syms = (Array.isArray(body.symbols) ? body.symbols : []).map(x => String(x).toUpperCase()).filter(x => /^[A-Z0-9&-]{1,20}$/.test(x)).slice(0, 4);
-  const intent = String(body.intent || "").slice(0, 20);
-  const desk = (Array.isArray(body.desk) ? body.desk : []).slice(0, 4).map(d => { const n = x => Number.isFinite(+x) ? +x : null; const e = n(d.entry), st = n(d.stop), tg = n(d.target);
-    return /^[A-Z0-9&-]{1,20}$/.test(String(d.sym || "")) ? `${d.sym}: score ${n(d.score)}/100 → rating "${String(d.rating || "").slice(0, 40)}"${e && st && tg && e > st ? `; plan entry ₹${e}, stop ₹${st} (−${((1 - st / e) * 100).toFixed(1)}%), target ₹${tg} (+${((tg / e - 1) * 100).toFixed(1)}%), reward:risk ${((tg - e) / (e - st)).toFixed(1)}` : ""}${d.size ? `; position size: ${String(d.size).slice(0, 300)}` : ""}; for: ${String(d.pros || "").slice(0, 200)}; against: ${String(d.cons || "").slice(0, 200)}` : ""; }).filter(Boolean).join("\n");
-  step("understand", syms.length ? `Question is about ${syms.join(", ")}` : "Reading your question");
-  // PLAN: if the site's parser found no stock, let a small model resolve names from the conversation
-  if (!syms.length && !/^(market|ideas|screen|sector|sectors|options|portfolio|open|help|events)$/.test(intent)) {
-    try {
-      const names = (await getText("names.txt")) || "";
-      const pl = await runAI(env, PLANNER, [
-        { role: "system", content: "You map a user's question about Indian stocks to NSE symbols from the provided list. Use the conversation to resolve 'it/this/that'. Reply with JSON only: {\"symbols\":[...up to 3],\"topic\":\"stock|market|sector|options|other\"}. Use [] if no specific company is meant." },
-        { role: "user", content: `LIST (SYMBOL|Company):\n${names}\n\nCONVERSATION:\n${hist.map(m => `${m.role}: ${m.content.slice(0, 300)}`).join("\n")}\nuser: ${q}` }], 120);
-      const m = pl.text.match(/\{[\s\S]*\}/); const j = m ? JSON.parse(m[0]) : {};
-      const known = new Set(names.split("\n").map(l => l.split("|")[0]));
-      syms = (j.symbols || []).map(x => String(x).toUpperCase()).filter(x => known.has(x)).slice(0, 3);
-      step("plan", syms.length ? `Identified ${syms.join(", ")}` : `Topic: ${j.topic || "general"}`);
-    } catch { step("plan", "Using the site's own parser"); }
-  } else step("plan", `Plan: ${intent || "analyse"}${syms.length ? " → " + syms.join(", ") : ""}`);
-  // TOOLS: live quotes + research files
-  const liveSyms = [...new Set(syms.concat("NIFTY", /bank ?nifty/i.test(q) ? ["BANKNIFTY"] : []))].slice(0, 6);
-  const [lq, market, ...stockDocs] = await Promise.all([
+  const q = String(body.question || "").slice(0, 700).trim(); if (!q) return J({ error: "empty question" }, 400);
+  const hist = (Array.isArray(body.history) ? body.history : []).slice(-10).map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content || "").slice(0, 1400) }));
+  const cap = Math.max(10000, Math.min(1e9, +(body.user?.capital) || 200000));
+  const steps = [], t0 = Date.now(), step = d => steps.push({ d, ms: Date.now() - t0 });
+  const hints = (Array.isArray(body.symbols) ? body.symbols : []).map(x => String(x).toUpperCase()).filter(x => /^[A-Z0-9&-]{1,20}$/.test(x)).slice(0, 3);
+  const givenDesk = Object.fromEntries((Array.isArray(body.desk) ? body.desk : []).filter(d => d && /^[A-Z0-9&-]{1,20}$/.test(String(d.sym || ""))).map(d => [d.sym, { sym: d.sym, rating: String(d.rating || "").slice(0, 40), score: d.score, entry: +d.entry || null, stop: +d.stop || null, target: +d.target || null, size: String(d.size || "").slice(0, 320) }]));
+  // 1) UNDERSTAND + PLAN
+  const names = (await getText("names.txt")) || "", known = new Set(names.split("\n").map(l => l.split("|")[0]));
+  let plan = { symbols: hints, tools: [], task: "", clarify: null };
+  try {
+    const pl = await runAI(env, SMALL, [{ role: "system", content: PLAN_SYSTEM },
+      { role: "user", content: `LIST (SYMBOL|Company):\n${names}\n\nCONVERSATION SO FAR:\n${hist.map(m => `${m.role}: ${m.content.slice(0, 350)}`).join("\n") || "(none)"}\n\nSITE PARSER HINTS: symbols=${hints.join(",") || "none"}, intent=${String(body.intent || "").slice(0, 20) || "none"}\n\nLATEST USER MESSAGE: ${q}` }], 300);
+    const m = pl.text.match(/\{[\s\S]*\}/); const j = m ? JSON.parse(m[0]) : {};
+    plan.symbols = [...new Set((j.symbols || []).map(x => String(x).toUpperCase()).filter(x => known.has(x)).concat(hints))].slice(0, 3);
+    plan.tools = (j.tools || []).filter(x => ["market", "ideas", "news", "all_stocks"].includes(x));
+    plan.task = String(j.task || "").slice(0, 160); plan.clarify = j.clarify ? String(j.clarify).slice(0, 200) : null;
+    step(`Understood: ${plan.task || "your question"}${plan.symbols.length ? ` (${plan.symbols.join(", ")})` : ""}`);
+  } catch { step("Understood your question (site parser)"); }
+  if (plan.clarify && !plan.symbols.length && !plan.tools.length) return J({ answer: plan.clarify, clarify: true, steps, model: "planner", ms: Date.now() - t0 });
+  if (!plan.tools.includes("market")) plan.tools.unshift("market");
+  step(`Plan: ${["live prices", ...plan.tools.map(t => ({ market: "market brief", ideas: "screens & ideas", news: "news & events", all_stocks: "all-stock scan" }[t])), ...plan.symbols.map(s => `${s} research`)].join(" → ")}`);
+  // 2) TOOLS
+  const liveSyms = [...new Set(plan.symbols.concat("NIFTY", /bank ?nifty|banknifty/i.test(q) ? ["BANKNIFTY"] : []))].slice(0, 6);
+  const [lq, docs, files] = await Promise.all([
     Promise.all(liveSyms.map(async s => [s, await quote1(s)])),
-    getText("market.txt"),
-    ...syms.map(s => getText(`stock/${encodeURIComponent(s.replace(/[^A-Z0-9&-]/g, "_"))}.txt`)),
+    Promise.all(plan.symbols.map(s => getText(`stock/${encodeURIComponent(s.replace(/[^A-Z0-9&-]/g, "_"))}.txt`))),
+    Promise.all(plan.tools.map(t => getText({ market: "market.txt", ideas: "ideas.txt", news: "news.txt", all_stocks: "stocks.txt" }[t]))),
   ]);
   const live = Object.fromEntries(lq.filter(x => x[1]));
-  step("live", `Live prices: ${Object.entries(live).map(([k, v]) => `${k} ${v.price}`).join(", ") || "unavailable"}`);
-  const extra = [];
-  if (/ideas|screen|sector|sectors|open/.test(intent) || /\b(idea|ideas|buy today|which stock|best|top|recommend|setup|sector|screen|list)\b/i.test(q)) { const t = await getText("ideas.txt"); if (t) extra.push(["IDEAS & SCREENS", clip(t, 9000)]); }
-  if (/news|events/.test(intent) || /\b(news|result|results|dividend|event|filing|why (is|did).*(fall|rise|up|down))\b/i.test(q)) { const t = await getText("news.txt"); if (t) extra.push(["NEWS & EVENTS", clip(t, 6000)]); }
-  if (!syms.length && /\b(stock|share|company)\b/i.test(q) && !extra.length) { const t = await getText("stocks.txt"); if (t) extra.push(["ALL TRACKED STOCKS (one line each)", clip(t, 9000)]); }
-  step("research", `Read ${1 + stockDocs.filter(Boolean).length + extra.length} research file(s)`);
-  const ist = new Date(Date.now() + 5.5 * 3600e3), hh = ist.getUTCHours() * 60 + ist.getUTCMinutes(), wd = ist.getUTCDay();
-  const open = wd >= 1 && wd <= 5 && hh >= 555 && hh <= 930;
+  step(`Live prices: ${Object.entries(live).map(([k, v]) => `${k} ₹${v.price}`).join(", ") || "unavailable"}`);
+  const desks = plan.symbols.map((s, i) => deskFor(s, docs[i], live[s]?.price, cap, givenDesk[s])).filter(Boolean);
+  step(`Read ${docs.filter(Boolean).length + files.filter(Boolean).length} research file(s); computed ${desks.length} trade plan(s)`);
+  const ist = new Date(Date.now() + 5.5 * 3600e3), hh = ist.getUTCHours() * 60 + ist.getUTCMinutes(), wd = ist.getUTCDay(), open = wd >= 1 && wd <= 5 && hh >= 555 && hh <= 930;
+  const istT = t => t ? new Date(Date.parse(t) + 5.5 * 3600e3).toISOString().slice(0, 16).replace("T", " ") + " IST" : "?";
+  const lim = { market: 5500, ideas: 7000, news: 5000, all_stocks: 8000 };
   const ctx = [
     `NOW: ${ist.toISOString().slice(0, 16).replace("T", " ")} IST · NSE market ${open ? "OPEN" : "CLOSED"}`,
-    `LIVE QUOTES (exchange feed):\n${Object.entries(live).map(([k, v]) => `${k}: ₹${v.price} (${v.change_pct > 0 ? "+" : ""}${v.change_pct}% vs prev close ${v.prev}; day ${v.low}–${v.high}; as of ${v.time ? new Date(Date.parse(v.time) + 5.5 * 3600e3).toISOString().slice(0, 16).replace("T", " ") + " IST" : "?"})`).join("\n") || "unavailable"}`,
-    desk ? `DESK QUANT MODEL (pre-computed and arithmetically checked — use these exact numbers for rating and trade plan; do not recompute reward:risk):\n${desk}` : "",
-    body.user ? `USER PROFILE: capital ₹${body.user.capital || "unknown"}, risk style ${body.user.risk || "balanced"}${body.user.holdings ? `; holdings: ${String(body.user.holdings).slice(0, 400)}` : ""}` : "",
-    `MARKET BRIEF:\n${clip(market, 6500)}`,
-    ...stockDocs.map((d, i) => d ? `STOCK RESEARCH ${syms[i]}:\n${clip(d, 3500)}` : `STOCK RESEARCH ${syms[i]}: not available`),
-    ...extra.map(([h, t]) => `${h}:\n${t}`),
+    `TASK: ${plan.task || q}`,
+    `LIVE QUOTES:\n${Object.entries(live).map(([k, v]) => `${k}: ₹${v.price} (${v.change_pct > 0 ? "+" : ""}${v.change_pct}% vs prev close ₹${v.prev}; day ${v.low}–${v.high}; as of ${istT(v.time)})`).join("\n") || "unavailable"}`,
+    `USER: capital ₹${cap.toLocaleString("en-IN")}, risk style ${String(body.user?.risk || "balanced").slice(0, 12)}${body.user?.holdings ? `; holdings: ${String(body.user.holdings).slice(0, 500)}` : ""}`,
+    desks.length ? `DESK CALCULATIONS (exact, pre-computed — copy these numbers):\n${desks.map(d => `${d.sym}: ${d.rating ? `rating ${d.rating}${d.score !== "" ? ` (score ${d.score}/100)` : ""}; ` : ""}entry ₹${d.entry}, stop ₹${d.stop} (−${((1 - d.stop / d.entry) * 100).toFixed(1)}%), target ₹${d.target} (+${((d.target / d.entry - 1) * 100).toFixed(1)}%), reward:risk ${((d.target - d.entry) / (d.entry - d.stop)).toFixed(1)}; position size: ${d.size}`).join("\n")}` : "",
+    ...plan.symbols.map((s, i) => `STOCK RESEARCH ${s}:\n${clip(docs[i], 3200) || "not available"}`),
+    ...plan.tools.map((t, i) => files[i] ? `${t.toUpperCase()} FILE:\n${clip(files[i], lim[t])}` : ""),
   ].filter(Boolean).join("\n\n");
-  step("reason", "Analysing trend, strength, levels, news and risk");
+  // 3) REASON + ANSWER
+  step("Reasoning over trend, strength, levels, news and risk");
   try {
-    const out = await runAI(env, MODELS, [{ role: "system", content: AGENT_SYSTEM }, { role: "system", content: "DATA:\n" + ctx }, ...hist, { role: "user", content: q }], 900);
-    step("answer", "Answer ready");
-    return J({ answer: out.text, model: out.model.split("/").pop(), symbols: syms, live, steps, ms: Date.now() - t0 });
+    const out = await runAI(env, BIG, [{ role: "system", content: AGENT_SYSTEM }, { role: "system", content: "DATA:\n" + ctx }, ...hist, { role: "user", content: q }], 1100);
+    step("Answer written");
+    return J({ answer: out.text, model: out.model.split("/").pop(), symbols: plan.symbols, live, steps, ms: Date.now() - t0 });
   } catch (e) { return J({ error: "ai_unavailable", detail: String(e && e.message || e).slice(0, 200), steps }, 503); }
+}
+async function agentProbe(request, env) {
+  const c = agentCors(request); if (!c.ok || !env?.AI) return new Response("no", { status: 403 });
+  const res = {};
+  for (const m of [...new Set(BIG.concat(SMALL))]) { const t0 = Date.now(); try { const r = await runAI(env, [m], [{ role: "system", content: "Reply with one word." }, { role: "user", content: "Say OK" }], 20); res[m] = `ok ${Date.now() - t0}ms: ${r.text.slice(0, 20)}`; } catch (e) { res[m] = "ERR " + String(e.message || e).slice(0, 120); } }
+  return new Response(JSON.stringify(res, null, 1), { headers: { ...c.h, "Content-Type": "application/json" } });
 }
 
 export default {
@@ -259,7 +294,8 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/mcp" || url.pathname === "/mcp/") return mcp(request);
     if (url.pathname === "/quote") return quotes(request);
-    // /agent (Workers AI) is switched off: questions are handed to Claude instead (no cost).
+    if (url.pathname === "/agent") return agent(request, env);
+    if (url.pathname === "/agent-probe") return agentProbe(request, env);
     if (url.pathname.startsWith("/_cf")) return new Response("Not found", { status: 404 });
     const target = ORIGIN + (url.pathname === "/" ? "/" : url.pathname) + url.search;
     const isData = url.pathname.startsWith("/data/");
