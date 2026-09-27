@@ -1436,14 +1436,14 @@ function paInit() {
       <div class="pa-body" id="paBody"></div>
       <div class="pa-chips" id="paChips">${[["market", "Market now"], ["ideas", "Today's setups"], ["open", "Track setups"], ["options", "Options view"], ["help", "What can you do?"]].map(([k, l]) => `<button data-paq="${k}">${l}</button>`).join("")}</div>
       <form class="pa-in" id="paForm"><button type="button" class="pa-mic" id="paMic" title="Speak your question" aria-label="Speak">🎤</button><input id="paQ" placeholder="Ask a question: e.g. Is Tata Steel a buy? · Compare it with JSW Steel" autocomplete="off" aria-label="Ask Pulse Agent"><button aria-label="Send">➤</button></form>
-      <div class="pa-foot">Rule-based assistant using this site's data. Information only, not investment advice.</div>
+      <div class="pa-foot">AI analyst (open-source Llama model on Cloudflare) grounded in live prices and Dalal Pulse data. Information only, not investment advice.</div>
     </section>
     <button class="pa-fab" id="paFab" aria-label="Open Pulse Agent" title="Pulse Agent">${PA_ICON}<span class="pa-n" id="paN" hidden></span></button>`;
   document.body.append(w);
   $("#paFab").onclick = () => paToggle();
   $("#paX").onclick = () => paToggle(false);
   paVoiceInit();
-  $("#paNew").onclick = () => { PA.msgs = []; store.set("dp-pamsgs", []); Object.assign(PAX, { sym: null, syms: [], intent: null, list: null, page: 0 }); paSaveCtx(); $("#paBody").innerHTML = ""; paWelcome(); };
+  $("#paNew").onclick = () => { PA.msgs = []; store.set("dp-pamsgs", []); PA_HIST.length = 0; store.set("dp-pahist", []); Object.assign(PAX, { sym: null, syms: [], intent: null, list: null, page: 0 }); paSaveCtx(); $("#paBody").innerHTML = ""; paWelcome(); };
   $("#paSet").onclick = () => { const r = $("#paSetR"); r.hidden = !r.hidden; paSetMark(); };
   w.addEventListener("click", e => {
     const t = e.target;
@@ -1463,9 +1463,10 @@ function paInit() {
 function paSetMark() { const p = paPref(); document.querySelectorAll("[data-papop]").forEach(b => b.classList.toggle("on", b.dataset.papop === p)); }
 const paItems = () => ((D && D.advice && D.advice.items) || []);
 function paToggle(force) {
-  const p = $("#paPanel"); PA.open = force ?? p.hidden; p.hidden = !PA.open; $("#pa").classList.toggle("open", PA.open);
+  const p = $("#paPanel"); PA.open = force ?? p.hidden; p.hidden = !PA.open; $("#pa").classList.toggle("open", PA.open); store.set("dp-paopen", PA.open);
+  if (!PA.open && PA.pendingReload) { setTimeout(() => location.reload(), 300); return; }
   if (PA.open) { $("#paBub").hidden = true; PA.unread = 0; paBadge();
-    if (!PA.msgs.length) { const old = store.get("dp-pamsgs", []); if (old.length) { old.forEach(m => paSay(m.html, m.who, true)); paSay(`<div class="pa-ctx">Welcome back. I remember our chat${PAX.sym ? ` (last stock: <b>${esc(PAX.sym)}</b>)` : ""}. Tap 🗑 to start fresh.</div>`, "agent", true); } else paWelcome(); } setTimeout(() => $("#paQ").focus({ preventScroll: true }), 50); }
+    if (!PA.msgs.length) { const old = store.get("dp-pamsgs", []); if (old.length) { old.forEach(m => paSay(m.html, m.who, true)); paSay(`<div class="pa-ctx">Welcome back. I remember our chat${PAX.sym ? ` (last stock: <b>${esc(PAX.sym)}</b>)` : ""}. Tap 🗑 to start a new conversation.</div>`, "agent", true); } else paWelcome(); } setTimeout(() => $("#paQ").focus({ preventScroll: true }), 50); }
 }
 function paBadge() { const n = $("#paN"); if (!n) return; n.hidden = !PA.unread; n.textContent = PA.unread > 9 ? "9+" : PA.unread; $("#paFab").classList.toggle("ping", PA.unread > 0); }
 function paStance() { const st = D.advice?.stance; return st === "bull" ? ["up", "Market uptrend"] : st === "bear" ? ["down", "Market downtrend"] : ["warn", "Market mixed"]; }
@@ -1496,7 +1497,7 @@ function paSay(html, who = "agent", restore) {
 }
 function paWelcome() {
   const [c, l] = paStance(), items = paItems(), today = items.filter(a => a.day === D.advice?.day);
-  paSay(`<div class="pa-hi">Pulse Agent · Market desk</div><p class="muted" style="margin:2px 0 6px">I monitor Dalal Pulse data and live prices, flag material changes, and answer questions on stocks, sectors and the market. Ask in plain language; follow-up questions keep their context.</p>
+  paSay(`<div class="pa-hi">Pulse Agent · AI research desk</div><p class="muted" style="margin:2px 0 6px">An AI analyst that checks live prices and Dalal Pulse research before every answer, reasons through trend, strength, levels, news and risk, and remembers our conversation. It also watches the market and alerts you to material changes.</p>
     <div class="pa-stance ${c}">${l}${D.advice?.day ? ` · data of ${esc(D.advice.day)}` : ""}</div>
     ${today.length ? `<div class="muted" style="margin:8px 0 4px">Latest advice (${today.length}):</div>` + today.slice(0, 4).map(a => paCard(a, false)).join("") : `<p class="muted">No new alerts for this session.</p>`}`);
 }
@@ -1511,21 +1512,74 @@ async function paLive(syms) {
   } catch {}
   return out;
 }
+const PA_HIST = store.get("dp-pahist", []);
+function paMd(md) {
+  const inl = t => esc(t).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g, "$1<i>$2</i>").replace(/`([^`]+)`/g, "<code>$1</code>");
+  const L = String(md).replace(/\r/g, "").split("\n"), out = []; let list = null, tbl = null;
+  const flush = () => { if (list) { out.push(`<${list.t}>${list.i.map(x => `<li>${inl(x)}</li>`).join("")}</${list.t}>`); list = null; } if (tbl) { const rows = tbl.filter(r => !/^\s*\|?\s*:?-{2,}/.test(r)).map(r => r.replace(/^\s*\||\|\s*$/g, "").split("|").map(c => c.trim()));
+      out.push(`<table class="pa-t">${rows.map((r, i) => `<tr>${r.map(c => i ? `<td>${inl(c)}</td>` : `<th>${inl(c)}</th>`).join("")}</tr>`).join("")}</table>`); tbl = null; } };
+  for (const raw of L) { const l = raw.trimEnd();
+    if (/^\s*\|.*\|\s*$/.test(l)) { if (list) { const t = tbl; flush(); tbl = t; } (tbl = tbl || []).push(l); continue; } else if (tbl) flush();
+    let m;
+    if ((m = l.match(/^\s*#{1,4}\s+(.*)/))) { flush(); out.push(`<h5>${inl(m[1])}</h5>`); }
+    else if ((m = l.match(/^\s*[-*•]\s+(.*)/))) { if (!list || list.t !== "ul") { flush(); list = { t: "ul", i: [] }; } list.i.push(m[1]); }
+    else if ((m = l.match(/^\s*\d+[.)]\s+(.*)/))) { if (!list || list.t !== "ol") { flush(); list = { t: "ol", i: [] }; } list.i.push(m[1]); }
+    else if (!l.trim()) flush();
+    else { flush(); out.push(`<p>${inl(l)}</p>`); } }
+  flush(); return out.join("");
+}
+const PA_STEPS = [["understand", "Understanding your question"], ["plan", "Planning which data to check"], ["live", "Fetching live market prices"], ["research", "Reading Dalal Pulse research"], ["reason", "Analysing trend, strength, levels, news and risk"], ["answer", "Writing the answer"]];
 async function paAsk(key, text) {
   paSay(esc(text), "me");
   if (PA.busy) return; PA.busy = true;
-  const b = $("#paBody"), typing = document.createElement("div"); typing.className = "pa-m agent pa-typing"; typing.innerHTML = "<span></span><span></span><span></span> checking the live market…"; b.append(typing); typing.scrollIntoView({ block: "nearest" });
+  const b = $("#paBody"), think = document.createElement("div"); think.className = "pa-m agent pa-think";
+  think.innerHTML = `<div class="pa-th"><span class="pa-spin"></span><b>Pulse Agent is working…</b></div><ol>${PA_STEPS.map(([k, l]) => `<li data-k="${k}">${l}</li>`).join("")}</ol>`;
+  b.append(think); think.scrollIntoView({ block: "start", behavior: "smooth" });
+  let si = 0; const tick = () => { const li = think.querySelectorAll("li"); li.forEach((x, i) => { x.className = i < si ? "done" : i === si ? "now" : ""; }); if (si < li.length - 1) si++; };
+  tick(); const iv = setInterval(tick, 1100); const t0 = Date.now();
   try {
     if (!SNAPSHOT && D && Date.now() - Date.parse(D.generated_at) > 4 * 60e3) { try { await load(false); } catch {} }
-    const q = paSimple(text), found = paFindStocks(q); if (!found.length && !paSectorOf(" " + q + " ")) { const fz = paFuzzy(text); if (fz) found.push(fz.sym); }
-    const subj = (/\b(them|these|those|both|compare)\b/.test(q) && PAX.syms.length ? PAX.syms : []).concat(found.length ? found : PAX.sym ? [PAX.sym] : []);
-    const live = await paLive(subj.concat(/bank ?nifty/.test(q) ? ["BANKNIFTY"] : []));
-    const L = Object.keys(live).filter(k => k !== "NIFTY"), t = live[L[0]]?.time || live.NIFTY?.time;
-    const stamp = Object.keys(live).length ? `<div class="pa-live">● Live ${L.length ? L.map(k => `${esc(k)} ${px(live[k].price)} <b class="${cls(live[k].change_pct)}">${pct(live[k].change_pct)}</b>`).join(" · ") + " · " : ""}Nifty ${live.NIFTY ? fmt(live.NIFTY.price, 0) + ` <b class="${cls(live.NIFTY.change_pct)}">${pct(live.NIFTY.change_pct)}</b>` : "–"}${t ? ` · as of ${new Date(t).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", ...(Date.now() - Date.parse(t) > 18 * 3600e3 ? { weekday: "short", day: "numeric", month: "short" } : {}), hour: "2-digit", minute: "2-digit" })} IST${Date.now() - Date.parse(t) > 18 * 3600e3 ? " (market closed)" : ""}` : ""}</div>` : `<div class="pa-live off">Using the site's last update (${ago(D.generated_at)}); live quote unavailable.</div>`;
-    const html = key && ["ideas", "open", "options", "help"].includes(key) ? paAnswer(key, text) + paFollow(key === "ideas" ? ["Strongest stocks", "Market now", "Which sectors are strong?"] : ["Today's setups", "Market now"]) : paRoute(key === "market" ? "market today" : text);
-    typing.remove(); paSay(stamp + html + paClaude(text)); paSpeak(html);
-  } catch (e) { typing.remove(); paSay(`<p>Sorry, something went wrong (${esc(e.message)}). Try again.</p>`); }
+    // 1) the site's own parser resolves stocks, follow-ups and intent (also builds a data card)
+    const ruleText = key === "market" ? "market today" : key === "ideas" ? "today's setups" : key === "open" ? "track my setups" : key === "options" ? "options idea" : key === "help" ? "help" : text;
+    const q = paSimple(ruleText), found = paFindStocks(q); if (!found.length && !paSectorOf(" " + q + " ")) { const fz = paFuzzy(ruleText); if (fz) found.push(fz.sym); }
+    const cardHtml = key && ["ideas", "open", "options", "help"].includes(key) ? paAnswer(key, text) : paRoute(ruleText);
+    const syms = (PA.lastSyms && PA.lastSyms.length ? PA.lastSyms : found).slice(0, 3);
+    const live = await paLive(syms.concat(/bank ?nifty/.test(q) ? ["BANKNIFTY"] : []));
+    // 2) the AI agent reasons over live prices + research files, with conversation memory
+    let ai = null, err = null;
+    if (!SNAPSHOT && key !== "help") {
+      try {
+        const holdings = my.holdings.slice(0, 12).map(h => `${h.symbol} ${h.qty}@${h.avg}`).join(", ");
+        const r = await fetch("/agent", { method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(45000),
+          body: JSON.stringify({ question: text, symbols: syms, intent: PA.lastIntent || key || "", history: PA_HIST.slice(-8), user: { capital: agentCfg?.capital, risk: agentCfg?.risk, holdings } }) });
+        const j = await r.json().catch(() => ({})); if (r.ok && j.answer) ai = j; else err = j.error || r.status;
+      } catch (e) { err = e.name === "TimeoutError" ? "timeout" : e.message; }
+    }
+    const wait = Math.max(0, 2600 - (Date.now() - t0)); if (wait) await new Promise(r => setTimeout(r, wait)); // take a moment: no instant canned replies
+    clearInterval(iv); think.remove();
+    const L = Object.keys(live).filter(k => k !== "NIFTY"), tt = live[L[0]]?.time || live.NIFTY?.time;
+    const stamp = Object.keys(live).length ? `<div class="pa-live">● Live ${L.length ? L.map(k => `${esc(k)} ${px(live[k].price)} <b class="${cls(live[k].change_pct)}">${pct(live[k].change_pct)}</b>`).join(" · ") + " · " : ""}Nifty ${live.NIFTY ? fmt(live.NIFTY.price, 0) + ` <b class="${cls(live.NIFTY.change_pct)}">${pct(live.NIFTY.change_pct)}</b>` : "–"}${tt ? ` · as of ${new Date(tt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", ...(Date.now() - Date.parse(tt) > 18 * 3600e3 ? { weekday: "short", day: "numeric", month: "short" } : {}), hour: "2-digit", minute: "2-digit" })} IST${Date.now() - Date.parse(tt) > 18 * 3600e3 ? " (market closed)" : ""}` : ""}</div>` : "";
+    let html;
+    if (ai) {
+      const secs = ((Date.now() - t0) / 1000).toFixed(1);
+      html = stamp + `<div class="pa-ai">${paMd(ai.answer)}</div>
+        <details class="pa-work"><summary>Worked for ${secs}s · ${(ai.steps || []).length} steps · ${esc(ai.model || "AI")}</summary><ol>${(ai.steps || []).map(x => `<li>${esc(x.d)}</li>`).join("")}</ol></details>
+        <details class="pa-data"><summary>Data snapshot used</summary>${cardHtml}</details>` + paFollow(paNext(PA.lastIntent, syms));
+      PA_HIST.push({ role: "user", content: text }, { role: "assistant", content: ai.answer.slice(0, 1500) });
+    } else {
+      html = stamp + (err && err !== "ai_not_configured" ? `<div class="pa-ctx">AI analyst is busy (${esc(String(err))}); showing the rule-based analysis.</div>` : "") + cardHtml;
+      const d = document.createElement("div"); d.innerHTML = cardHtml; PA_HIST.push({ role: "user", content: text }, { role: "assistant", content: d.textContent.replace(/\s+/g, " ").slice(0, 700) });
+    }
+    while (PA_HIST.length > 16) PA_HIST.shift(); store.set("dp-pahist", PA_HIST);
+    paSay(html + paClaude(text)); paSpeak(ai ? `<p>${esc(ai.answer.replace(/[#*|`]/g, " ").split(/\n\s*\n/).slice(0, 2).join(". "))}</p>` : cardHtml);
+  } catch (e) { clearInterval(iv); think.remove(); paSay(`<p>Sorry, something went wrong (${esc(e.message)}). Please try again.</p>`); }
   PA.busy = false;
+}
+function paNext(intent, syms) {
+  const s = syms[0];
+  if (s) return [intent !== "levels" ? `Key levels for ${s}` : `Is ${s} a buy?`, intent !== "news" ? `Latest news on ${s}` : `Technical view of ${s}`, `Compare ${s} with peers`, `How many shares of ${s} for my capital?`];
+  if (intent === "market") return ["Which sectors are strongest?", "Today's best setups", "Nifty options view"];
+  return ["How is the market today?", "Today's best setups", "Strongest stocks"];
 }
 function paClaude(text) {
   const ctx = PAX.sym ? ` (we were discussing ${PAX.sym})` : "";
@@ -1816,7 +1870,7 @@ function paRoute(text) {
   let I = has(/\b(compare|vs|versus|better|which one|or)\b/) && (syms.length >= 2 || plural) ? "compare"
     : has(/\b(why|reason|explain|score)\b/) ? "why"
     : has(/\b(how many|quantity|position size|how much|size)\b/) ? "size"
-    : has(/\b(hold|sell|exit|book|holding|loss|average down|avg down|stuck|bought|purchased)\b/) ? "hold"
+    : has(/\b(hold|sell|exit|book profit|holding|average down|avg down|stuck|bought|purchased|in (a )?loss|at (a )?loss)\b/) ? "hold"
     : has(/\b(level|levels|stop|stoploss|stop loss|sl|target|support|resistance|entry)\b/) ? "levels"
     : has(/\b(buy|good|invest|worth|accumulate|should i|view|opinion|outlook on|analy[sz]e|analysis)\b/) && (syms.length || pron) ? "stock"
     : has(/\b(news|headline|update|filing|announcement|happening)\b/) ? "news"
@@ -1872,6 +1926,7 @@ function paRoute(text) {
     case "stock": html = s ? paStockView(s) : paClarify(text); break;
     default: html = group ? paScreen(q, null, group) : paClarify(text) ||  `<p>I didn't catch that. I can help with:</p><ul class="pa-why"><li>a stock: "Is Tata Steel a buy?", "levels for ITC", "news on Infosys"</li><li>follow-ups: "why?", "and TCS?", "compare with ICICI", "how many shares for 2 lakh?"</li><li>screens: "best pharma stocks", "oversold Nifty 50 stocks", "breakouts under 500"</li><li>"market today", "my portfolio", "options idea"</li></ul>`;
   }
+  PA.lastIntent = I; PA.lastSyms = list.filter(x => S[x.symbol]).map(x => x.symbol);
   paSaveCtx();
   const subj = s && S[s.symbol] ? `<div class="pa-ctx">Context: <b>${esc(list.map(x => x.symbol).slice(0, 4).join(", "))}</b>${PA.assumed ? ` (continued from your previous question)` : ""}${PA.fuzzy ? ` · interpreted "${esc(PA.fuzzy)}"` : ""}</div>` : "";
   return subj + html;
@@ -1968,7 +2023,9 @@ function paShowBub() {
   clearTimeout(PA.t); PA.t = setTimeout(() => { if (!b.matches(":hover")) b.hidden = true; }, 25000);
 }
 function paAgent(first) {
-  if (SNAPSHOT) return; paInit(); if (!D || !D.advice) return;
+  if (SNAPSHOT) return; paInit();
+  if (first && store.get("dp-paopen", false) && !PA.open) paToggle(true);
+  if (!D || !D.advice) return;
   const [c, l] = paStance(); $("#paSt").textContent = `${l} · checks every refresh`; $("#paSt").className = c;
   const items = paItems(), seen = new Set(store.get("dp-advseen", [])), firstEver = !seen.size;
   let fresh = items.filter(a => !seen.has(a.id));
@@ -1992,7 +2049,9 @@ async function checkVersion() {
     const mine = [...document.scripts].map(x => x.src).find(u => /app\.js\?v=/.test(u))?.match(/v=(\w+)/)?.[1]; if (!mine) return;
     const h = await fetch("./?nv=" + Date.now(), { cache: "no-store" }).then(r => r.text());
     const live = h.match(/app\.js\?v=(\w+)/)?.[1];
-    if (live && live !== mine) { toast("A new version of Dalal Pulse is available: updating…"); setTimeout(() => location.reload(), 1500); }
+    if (live && live !== mine) {
+      if (typeof PA !== "undefined" && (PA.open || PA.busy)) { if (!PA.pendingReload) { PA.pendingReload = true; toast("A site update is ready. It will apply when you close the agent."); } return; }
+      toast("A new version of Dalal Pulse is available: updating…"); setTimeout(() => location.reload(), 1500); }
   } catch {}
 }
 if (!SNAPSHOT) { setInterval(checkVersion, 5 * 60000); setTimeout(checkVersion, 8000); }

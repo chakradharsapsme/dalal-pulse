@@ -628,3 +628,15 @@ body.bt-on .toast{bottom:calc(60px + env(safe-area-inset-bottom,0px))}
 .pa-k{font:800 9.5px var(--mono);letter-spacing:.05em;padding:2px 6px;border-radius:4px;background:var(--paper2);color:var(--ink2);align-self:center}
 .pa-k.k-long,.pa-k.k-exit{background:var(--upbg);color:var(--up)}.pa-k.k-caution{background:var(--downbg);color:var(--down)}.pa-k.k-market{background:var(--peacockbg);color:var(--peacock)}.pa-k.k-options{background:var(--accentbg);color:var(--accent-ink)}
 .pa-hi{font:800 15px var(--display)}
+.pa-think{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;min-width:250px}
+.pa-th{display:flex;align-items:center;gap:8px;font-size:13px}.pa-spin{width:14px;height:14px;border-radius:50%;border:2px solid var(--line2);border-top-color:var(--peacock);animation:paspin .8s linear infinite}
+@keyframes paspin{to{transform:rotate(360deg)}}
+.pa-think ol{margin:8px 0 0;padding:0;list-style:none;font-size:12.5px}.pa-think li{padding:3px 0 3px 22px;position:relative;color:var(--muted);opacity:.55}
+.pa-think li::before{content:"";position:absolute;left:4px;top:8px;width:8px;height:8px;border-radius:50%;background:var(--line2)}
+.pa-think li.now{opacity:1;color:var(--ink);font-weight:600}.pa-think li.now::before{background:var(--peacock);animation:paping 1.2s infinite}
+.pa-think li.done{opacity:1}.pa-think li.done::before{content:"✓";background:none;color:var(--up);top:2px;left:3px;font-weight:800;width:auto;height:auto}
+.pa-ai{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--peacock);border-radius:12px;padding:10px 13px;font-size:13.5px;line-height:1.5}
+.pa-ai p{margin:6px 0;color:var(--ink)}.pa-ai ul,.pa-ai ol{margin:4px 0;padding-left:18px}.pa-ai li{margin:3px 0}.pa-ai h5{margin:10px 0 3px;font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--peacock)}
+.pa-ai code{font-family:var(--mono);font-size:12px;background:var(--paper2);padding:1px 4px;border-radius:4px}
+.pa-work,.pa-data{margin:6px 0 0;font-size:12px;color:var(--muted)}.pa-work summary,.pa-data summary{cursor:pointer;font-weight:700;padding:2px 0}
+.pa-work ol{margin:4px 0;padding-left:18px}.pa-data>.pa-card,.pa-data>p,.pa-data>div{font-size:12.5px}
