@@ -254,30 +254,36 @@ function moversCard() {
 // ---------- BOTTOM BREAKING-NEWS TICKER ----------
 // major stock-moving headlines from the last 24 hours, any tracked stock: strong tone, big-event words, big price move, freshness
 function impactNews() {
+  // high-priority only: last 12 hours, and either an important official filing, or a big-event headline with a strong tone / big price move
   const out = [], per = {};
   for (const n of D.news) {
     const sym = n.symbols.find(x => S[x]); if (!sym) continue;
-    const s = S[sym], ageH = (Date.now() - Date.parse(n.published)) / 3600e3; if (ageH > 24) continue;
-    const big = n.official || BIGWORDS.test(n.title), move = Math.min(8, Math.abs(s.change_pct || 0));
-    if (!big && Math.abs(n.tone_score || 0) < 0.2 && move < 2) continue; // only headlines that matter
-    const score = (0.4 + Math.abs(n.tone_score || 0) * 1.5 + (big ? 0.7 : 0)) * (1 + move / 2.5) * (s.nifty50 || HEAVY[sym] ? 1.25 : 1) * Math.exp(-ageH / 10);
-    if ((per[sym] = (per[sym] || 0) + 1) > 2) continue;
+    const s = S[sym], ageH = (Date.now() - Date.parse(n.published)) / 3600e3; if (ageH > 12) continue;
+    const big = BIGWORDS.test(n.title), move = Math.abs(s.change_pct || 0), tone = Math.abs(n.tone_score || 0);
+    const important = (n.official && (big || tone >= 0.3)) || (big && (tone >= 0.3 || move >= 2)) || (move >= 4 && tone >= 0.2);
+    if (!important) continue;
+    const score = (0.4 + tone * 1.5 + (big ? 0.7 : 0) + (n.official ? 0.5 : 0)) * (1 + Math.min(8, move) / 2.5) * (s.nifty50 || HEAVY[sym] ? 1.4 : isMine(sym) ? 1.3 : 1) * Math.exp(-ageH / 8);
+    if ((per[sym] = (per[sym] || 0) + 1) > 1) continue; // one headline per stock
     out.push({ n, sym, s, score });
   }
-  return out.sort((a, b) => b.score - a.score).slice(0, 24);
+  return out.sort((a, b) => b.score - a.score).slice(0, 6);
 }
-let tickSig = "";
+let btI = 0, btTop = null, btFlash = false;
 function renderTicker() {
   const bar = $("#bticker"); if (!bar || !D) return;
   const collapsed = store.get("dp-bt-min", false);
   document.body.classList.toggle("bt-on", !collapsed); bar.classList.toggle("min", collapsed);
   const list = impactNews();
-  const sig = list.map(m => m.n.id).join(",") + collapsed; if (sig === tickSig) return; tickSig = sig;
-  const item = m => { const fresh = Date.now() - Date.parse(m.n.published) < 45 * 60e3;
-    return `<button class="bti ${m.n.tone}" data-go="${esc(m.sym)}"><span class="fsym">${esc(m.sym)}</span><b class="num ${cls(m.s.change_pct)}">${m.s.change_pct >= 0 ? "▲" : "▼"} ${pct(m.s.change_pct)}</b>${fresh ? '<span class="btnew">NEW</span>' : ""}<span class="bth">${esc(m.n.title)}</span><span class="bta">${m.n.official ? "🏛 NSE filing" : esc(m.n.source || "")}${m.n.first_by_min >= 1 ? " ⚡ first" : ""} · ${ago(m.n.published)}</span></button>`; };
-  const h = list.length ? list.map(item).join('<i class="btsep">◆</i>') + '<i class="btsep">◆</i>' : '<span class="bti"><span class="bth">No major stock-moving headlines in the last 24 hours.</span></span>';
-  bar.innerHTML = `<div class="btl"><span class="live"></span><b>BREAKING</b><span>stock news</span></div>
-    <div class="btv"><div class="btt" style="animation-duration:${Math.max(45, list.length * 9)}s">${h}${list.length ? h.replace(/<button class="bti/g, '<button tabindex="-1" aria-hidden="true" class="bti') : ""}</div></div>
+  // a brand-new top story jumps to the front (once); otherwise the bar stays exactly where you left it
+  if (list.length && list[0].n.id !== btTop) { if (btTop !== null) { btI = 0; btFlash = true; } btTop = list[0].n.id; }
+  if (btI >= list.length) btI = 0;
+  const m = list[btI];
+  const body = m ? `<button class="bti one ${m.n.tone}${btFlash ? " flash" : ""}" data-go="${esc(m.sym)}" title="${esc(m.n.title)}"><span class="fsym">${esc(m.sym)}</span><b class="num ${cls(m.s.change_pct)}">${m.s.change_pct >= 0 ? "▲" : "▼"} ${pct(m.s.change_pct)}</b>${Date.now() - Date.parse(m.n.published) < 45 * 60e3 ? '<span class="btnew">NEW</span>' : ""}<span class="bth">${esc(m.n.title)}</span><span class="bta">${m.n.official ? "🏛 NSE filing" : esc(m.n.source || "")}${m.n.first_by_min >= 1 ? " ⚡ first" : ""} · ${ago(m.n.published)}</span></button>`
+    : `<span class="bti one"><span class="bth" style="font-weight:500;opacity:.8">No high-priority stock news in the last 12 hours.</span></span>`;
+  btFlash = false;
+  bar.innerHTML = `<div class="btl"><span class="live"></span><b>BREAKING</b><span>high priority</span></div>
+    <div class="btv still">${body}</div>
+    ${list.length > 1 ? `<div class="btnav"><button data-btp="-1" aria-label="Previous headline">‹</button><span class="num">${btI + 1}/${list.length}</span><button data-btp="1" aria-label="Next headline">›</button></div>` : ""}
     <button class="btx" data-btmin aria-label="${collapsed ? "Show" : "Hide"} breaking news">${collapsed ? "▲ Breaking news" : "▾"}</button>`;
 }
 
@@ -1222,7 +1228,8 @@ document.addEventListener("click", async e => {
   const ffb = t.closest("[data-ff]"); if (ffb) { ui.ff = ffb.dataset.ff; render(); return; }
   const bmb = t.closest("[data-bm]"); if (bmb) { ui.bm = bmb.dataset.bm; render(); return; }
   const bsb = t.closest("[data-bsize]"); if (bsb) { ui.bsize = bsb.dataset.bsize; render(); return; }
-  if (t.closest("[data-btmin]")) { store.set("dp-bt-min", !store.get("dp-bt-min", false)); tickSig = ""; renderTicker(); return; }
+  if (t.closest("[data-btmin]")) { store.set("dp-bt-min", !store.get("dp-bt-min", false)); renderTicker(); return; }
+  const btp = t.closest("[data-btp]"); if (btp) { const n = impactNews().length || 1; btI = (btI + +btp.dataset.btp + n) % n; renderTicker(); return; }
   const mi = t.closest("[data-mmi]"); if (mi) { mmI = +mi.dataset.mmi; renderMM(); return; }
   const ix = t.closest("[data-idx]"); if (ix) { nav("indices", ix.dataset.idx); return; }
   const is = t.closest("[data-isel]"); if (is) { sel = is.dataset.isel; view = "indices"; if (!SNAPSHOT) history.replaceState(null, "", "#indices/" + sel); render(); if (innerWidth <= 900) window.scrollTo({ top: 0 }); return; }
@@ -1311,5 +1318,5 @@ async function checkVersion() {
 }
 if (!SNAPSHOT) { setInterval(checkVersion, 5 * 60000); setTimeout(checkVersion, 8000); }
 if (!SNAPSHOT) { setInterval(() => load(false), 60000); document.addEventListener("visibilitychange", () => { if (!document.hidden) load(false); }); }
-setInterval(() => { if (D) { footer(); tickSig = ""; renderTicker(); } }, 60000);
+setInterval(() => { if (D) { footer(); renderTicker(); } }, 60000);
 })();

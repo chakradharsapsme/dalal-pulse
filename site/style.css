@@ -497,3 +497,15 @@ body.bt-on .toast{bottom:calc(60px + env(safe-area-inset-bottom,0px))}
 .ot{display:block;font-style:normal;font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.05em}.ot.cw{color:var(--down)}.ot.pw{color:var(--up)}.ot.mp{color:var(--accent-ink)}
 .olot{border:1px solid color-mix(in srgb,var(--down) 35%,var(--line))}
 @media(max-width:700px){.oim{grid-template-columns:repeat(2,1fr)}}
+
+/* bottom bar: still, one headline at a time */
+.btv.still{mask-image:none;display:flex;align-items:center;padding:0 12px;min-width:0}
+.bti.one{width:100%;min-width:0;padding:0}
+.bti.one .bth{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.bti.one.flash{animation:btfl 1.6s ease 1}
+@keyframes btfl{0%,40%{background:rgba(242,165,65,.25)}100%{background:transparent}}
+.btnav{flex:none;display:flex;align-items:center;gap:2px;padding:0 6px;border-left:1px solid rgba(223,233,230,.15)}
+.btnav button{border:0;background:none;color:var(--band-ink);font-size:20px;line-height:1;width:30px;height:32px;border-radius:6px;cursor:pointer}.btnav button:hover{background:rgba(255,255,255,.1)}
+.btnav span{font-size:11.5px;color:var(--band-muted);min-width:30px;text-align:center}
+.bticker.min .btnav{display:none}
+@media(max-width:600px){.bti.one .bta{display:none}.btnav span{display:none}}
