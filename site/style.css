@@ -460,3 +460,11 @@ body.bt-on .flash{bottom:calc(58px + env(safe-area-inset-bottom,0px))}
 body.bt-on .toast{bottom:calc(60px + env(safe-area-inset-bottom,0px))}
 @media(max-width:600px){.btl span:last-child{display:none}.btl{padding:0 16px 0 10px}.bth{font-size:13px}}
 @media(prefers-reduced-motion:reduce){.btt{animation:none}.btv{overflow-x:auto}}
+
+/* ---- sources / first-to-report ---- */
+.srcb{font-weight:600}.srcb.off{color:var(--peacock);background:var(--peacockbg);padding:0 6px;border-radius:4px}
+.firstb{color:var(--accent-ink);background:var(--accentbg);font-weight:700;padding:0 6px;border-radius:4px}
+.alsob{color:var(--muted)}
+.dspeed{padding:10px 16px;border-bottom:1px solid var(--line);font-size:12.5px}
+.dspeed div{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.dspeed div span{border:1px solid var(--line);border-radius:6px;padding:2px 8px}.dspeed div span.top{border-color:var(--accent);background:var(--accentbg)}
+.dspeed em{font-style:normal;color:var(--muted);margin-left:5px;font-size:11.5px}

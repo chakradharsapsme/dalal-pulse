@@ -10,6 +10,22 @@ const MONEYCONTROL_FEEDS = {
   "MC Business": "https://www.moneycontrol.com/rss/business.xml",
   "MC Results": "https://www.moneycontrol.com/rss/results.xml",
 };
+// Direct feeds from fast Indian business-news desks (checked every run; the earliest copy of a story wins)
+const FAST_FEEDS = {
+  "Economic Times Markets": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
+  "Economic Times Stocks": "https://economictimes.indiatimes.com/markets/stocks/news/rssfeeds/2146842.cms",
+  "Mint Markets": "https://www.livemint.com/rss/markets",
+  "Mint Companies": "https://www.livemint.com/rss/companies",
+  "Business Standard Markets": "https://www.business-standard.com/rss/markets-106.rss",
+  "Business Standard Companies": "https://www.business-standard.com/rss/companies-101.rss",
+  "CNBC-TV18 Markets": "https://www.cnbctv18.com/commonfeeds/v1/cne/rss/market.xml",
+  "CNBC-TV18 Business": "https://www.cnbctv18.com/commonfeeds/v1/cne/rss/business.xml",
+  "NDTV Profit": "https://feeds.feedburner.com/ndtvprofit-latest",
+  "Financial Express Markets": "https://www.financialexpress.com/market/feed/",
+  "BusinessLine Markets": "https://www.thehindubusinessline.com/markets/feeder/default.rss",
+};
+// the publication each feed belongs to (shown to readers)
+const PUBLISHER = name => /^MC /.test(name) ? "Moneycontrol" : name.replace(/ (Markets|Stocks|Companies|Business)$/, "");
 const gnews = q => "https://news.google.com/rss/search?q=" + encodeURIComponent(q) + "&hl=en-IN&gl=IN&ceid=IN:en";
 // Several Google News views of moneycontrol.com, so stock-specific stories are not crowded out by general news
 const GOOGLE_FEEDS = {
@@ -104,17 +120,20 @@ async function fetchAll(log, watchlist) {
       let title = e.title;
       if (!title) continue;
       if (isGoogle(source)) title = title.replace(/\s+-\s+Moneycontrol(\.com)?$/i, "");
+      else title = title.replace(/\s+[-|]\s+(Moneycontrol|The Economic Times|ET Markets|Mint|Business Standard|CNBC-TV18|NDTV Profit|Financial Express|BusinessLine)$/i, "");
       if (isJunk(title)) continue;
       const d = new Date(e.pubDate);
       items.push({
-        id: crypto.createHash("sha1").update(title.toLowerCase()).digest("hex").slice(0, 16),
-        title, summary: e.summary, link: e.link, source,
+        // id per publisher, so the same headline on two sites stays separate until clusterStories() compares their times
+        id: crypto.createHash("sha1").update((isGoogle(source) ? "Moneycontrol" : PUBLISHER(source)) + "|" + title.toLowerCase()).digest("hex").slice(0, 16),
+        title, summary: e.summary, link: e.link, source, publisher: isGoogle(source) ? "Moneycontrol" : PUBLISHER(source), via_google: isGoogle(source),
         published: (isNaN(d) ? new Date() : d).toISOString(),
         signals: signals(title + " " + e.summary),
       });
     }
   };
-  const all = { ...MONEYCONTROL_FEEDS, ...GOOGLE_FEEDS, ...stockQueries(watchlist) };
+  // direct feeds first, so when the same headline also comes via Google News the direct (faster, exact-time) copy is kept
+  const all = { ...MONEYCONTROL_FEEDS, ...FAST_FEEDS, ...GOOGLE_FEEDS, ...stockQueries(watchlist) };
   const results = await Promise.allSettled(Object.values(all).map(fetchFeed));
   let mcOk = false;
   Object.keys(all).forEach((name, i) => {
@@ -122,7 +141,7 @@ async function fetchAll(log, watchlist) {
     if (res.status === "fulfilled") {
       add(res.value, name);
       status[name] = `ok (${res.value.length})`;
-      if (!isGoogle(name)) mcOk = true;
+      if (MONEYCONTROL_FEEDS[name]) mcOk = true;
     } else {
       status[name] = "failed: " + String(res.reason?.cause?.code || res.reason?.message || res.reason).slice(0, 80);
     }
@@ -139,4 +158,32 @@ async function debugMoneycontrol() {
   return `status ${r.status}\nfinal url ${r.url}\nredirected ${r.redirected}\nset-cookie ${r.headers.get("set-cookie")}\ncontent-type ${r.headers.get("content-type")}\n\n${body.slice(0, 6000)}`;
 }
 
-module.exports = { fetchAll, parseRss, signals, debugMoneycontrol, isJunk };
+// ---- group the same story from different sites; keep the copy published first ----
+const STOPW = new Set("the a an and or of in on at to for from with by as is are be its it this that after over into up down new says said will may can shares share stock stocks price target check here what why how today news".split(" "));
+const toks = t => new Set(t.toLowerCase().replace(/[^a-z0-9%₹ ]+/g, " ").split(/\s+/).filter(w => w.length > 2 && !STOPW.has(w)));
+function clusterStories(list) {
+  // list: [{id,title,published,symbols,source,...}] -> same list with duplicates folded into the earliest copy (field "also")
+  const items = list.map(n => ({ n, t: toks(n.title), ms: Date.parse(n.published) })).sort((a, b) => a.ms - b.ms);
+  const index = new Map(), out = [];
+  for (const it of items) {
+    let best = null, bestSim = 0;
+    const cand = new Set();
+    for (const w of it.t) for (const j of index.get(w) || []) cand.add(j);
+    for (const j of cand) {
+      const o = out[j]; if (Math.abs(it.ms - o.ms) > 18 * 3600e3) continue;
+      let inter = 0; for (const w of it.t) if (o.t.has(w)) inter++;
+      const sim = inter / Math.min(it.t.size, o.t.size || 1), jac = inter / (it.t.size + o.t.size - inter || 1);
+      const sameSym = it.n.symbols?.length && o.n.symbols?.some(s => it.n.symbols.includes(s));
+      if ((jac >= 0.5 || (sameSym && sim >= 0.6 && inter >= 4)) && sim > bestSim) { best = j; bestSim = sim; }
+    }
+    if (best == null) { const k = out.length; out.push({ ...it, also: [] }); for (const w of it.t) { if (!index.has(w)) index.set(w, []); index.get(w).push(k); } }
+    else { const pb = n => n.publisher || n.source; if (pb(out[best].n) !== pb(it.n)) out[best].also.push({ publisher: pb(it.n), published: it.n.published, link: it.n.link, via_google: it.n.via_google }); }
+  }
+  return out.map(o => {
+    const also = o.also.filter((a, i, arr) => arr.findIndex(b => b.publisher === a.publisher) === i).slice(0, 6);
+    const nextOther = also.find(a => a.publisher !== (o.n.publisher || o.n.source));
+    return { ...o.n, also, first_by_min: nextOther ? Math.round((Date.parse(nextOther.published) - o.ms) / 60000) : null };
+  });
+}
+
+module.exports = { clusterStories, fetchAll, parseRss, signals, debugMoneycontrol, isJunk };

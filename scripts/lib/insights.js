@@ -14,6 +14,7 @@ const POS = {
   "acquires": 0.6, "acquisition": 0.5, "expansion": 0.7, "capex": 0.3, "approval": 1, "approves": 0.6, "launches": 0.4, "partnership": 0.5,
   "fund inflow": 1, "fii buying": 1, "rebound": 1, "recovers": 0.8, "turnaround": 1, "beat": 1, "strong": 0.6, "robust": 0.8, "healthy": 0.5,
   "buy": 1, "accumulate": 1, "wins": 0.8, "win": 0.6,
+  "bagging": 1.5, "receiving of orders": 1.5, "receipt of": 0.8, "order worth": 1.5, "mega order": 2, "awarding of order": 1.5, "commencement of commercial production": 1.2, "product launch": 0.6,
 };
 const NEG = {
   "52-week low": 1.5, "hits 52-week low": 2, "downgrade": 2, "downgrades": 2, "cuts target": 2, "target cut": 2, "sell rating": 2,

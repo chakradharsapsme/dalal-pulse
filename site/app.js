@@ -216,7 +216,7 @@ function movers() {
     const s = S[sym], ageH = (Date.now() - Date.parse(n.published)) / 3600e3; if (ageH > 48) continue;
     const w = HEAVY[sym] ? 1.4 + Math.min(1, HEAVY[sym] / 8) : s.nifty50 ? 1.15 : 1.05;
     const move = Math.min(6, Math.abs(s.change_pct || 0));
-    const big = BIGWORDS.test(n.title);
+    const big = n.official || BIGWORDS.test(n.title);
     const score = (0.45 + Math.abs(n.tone_score || 0) * 1.4 + (big ? 0.6 : 0)) * (1 + move / 3) * w * (isMine(sym) ? 1.2 : 1) * Math.exp(-ageH / 20);
     if ((per[sym] = (per[sym] || 0) + 1) > 2) continue; // at most 2 headlines per stock
     const why = [HEAVY[sym] ? `Nifty heavyweight (~${HEAVY[sym]}%)` : s.nifty50 ? "Nifty 50 stock" : "your stock", move >= 1.5 ? `stock ${pct(s.change_pct)} today` : "", n.tone !== "neutral" ? `${n.tone} tone` : "", big ? "big-event words" : ""].filter(Boolean);
@@ -257,7 +257,7 @@ function impactNews() {
   for (const n of D.news) {
     const sym = n.symbols.find(x => S[x]); if (!sym) continue;
     const s = S[sym], ageH = (Date.now() - Date.parse(n.published)) / 3600e3; if (ageH > 24) continue;
-    const big = BIGWORDS.test(n.title), move = Math.min(8, Math.abs(s.change_pct || 0));
+    const big = n.official || BIGWORDS.test(n.title), move = Math.min(8, Math.abs(s.change_pct || 0));
     if (!big && Math.abs(n.tone_score || 0) < 0.2 && move < 2) continue; // only headlines that matter
     const score = (0.4 + Math.abs(n.tone_score || 0) * 1.5 + (big ? 0.7 : 0)) * (1 + move / 2.5) * (s.nifty50 || HEAVY[sym] ? 1.25 : 1) * Math.exp(-ageH / 10);
     if ((per[sym] = (per[sym] || 0) + 1) > 2) continue;
@@ -273,7 +273,7 @@ function renderTicker() {
   const list = impactNews();
   const sig = list.map(m => m.n.id).join(",") + collapsed; if (sig === tickSig) return; tickSig = sig;
   const item = m => { const fresh = Date.now() - Date.parse(m.n.published) < 45 * 60e3;
-    return `<button class="bti ${m.n.tone}" data-go="${esc(m.sym)}"><span class="fsym">${esc(m.sym)}</span><b class="num ${cls(m.s.change_pct)}">${m.s.change_pct >= 0 ? "▲" : "▼"} ${pct(m.s.change_pct)}</b>${fresh ? '<span class="btnew">NEW</span>' : ""}<span class="bth">${esc(m.n.title)}</span><span class="bta">${ago(m.n.published)}</span></button>`; };
+    return `<button class="bti ${m.n.tone}" data-go="${esc(m.sym)}"><span class="fsym">${esc(m.sym)}</span><b class="num ${cls(m.s.change_pct)}">${m.s.change_pct >= 0 ? "▲" : "▼"} ${pct(m.s.change_pct)}</b>${fresh ? '<span class="btnew">NEW</span>' : ""}<span class="bth">${esc(m.n.title)}</span><span class="bta">${m.n.official ? "🏛 NSE filing" : esc(m.n.source || "")}${m.n.first_by_min >= 1 ? " ⚡ first" : ""} · ${ago(m.n.published)}</span></button>`; };
   const h = list.length ? list.map(item).join('<i class="btsep">◆</i>') + '<i class="btsep">◆</i>' : '<span class="bti"><span class="bth">No major stock-moving headlines in the last 24 hours.</span></span>';
   bar.innerHTML = `<div class="btl"><span class="live"></span><b>BREAKING</b><span>stock news</span></div>
     <div class="btv"><div class="btt" style="animation-duration:${Math.max(45, list.length * 9)}s">${h}${list.length ? h.replace(/<button class="bti/g, '<button tabindex="-1" aria-hidden="true" class="bti') : ""}</div></div>
@@ -294,10 +294,18 @@ function marketNewsDetail(list) {
   return `<div class="head"><button class="btn sm back" data-back>← All stocks</button><div><h2>General market news</h2><div class="co">${list.length} headlines from the last few days that aren't about a single tracked stock</div></div></div>
     <div class="sect">${list.slice(0, 250).map(newsItem).join("") || '<div class="empty">No headlines.</div>'}</div>`;
 }
+// where the story came from, and whether it was first
+function srcTag(n) {
+  const src = n.official ? `<span class="srcb off" title="Filed by the company with NSE: the earliest, official source">🏛 NSE filing</span>` : `<span class="srcb">${esc(n.source || "")}${n.via_google ? "" : ""}</span>`;
+  const others = (n.also || []).filter(a => a.publisher !== n.source);
+  const first = others.length && n.first_by_min != null && n.first_by_min >= 1 ? `<span class="firstb" title="${esc(others.map(a => `${a.publisher}: ${ago(a.published)}`).join(" · "))}">⚡ First, ${n.first_by_min >= 120 ? Math.round(n.first_by_min / 60) + " h" : n.first_by_min + " min"} before ${esc(others[0].publisher)}${others.length > 1 ? ` +${others.length - 1}` : ""}</span>`
+    : others.length ? `<span class="alsob" title="${esc(others.map(a => a.publisher).join(", "))}">also on ${others.length} site${others.length > 1 ? "s" : ""}</span>` : "";
+  return src + first;
+}
 function newsItem(n) {
   return `<div class="news-item"><span class="tone ${n.tone}" title="${n.tone} tone${n.words.length ? ": " + esc(n.words.join(", ")) : ""}"></span><div>
     <a href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a>
-    <div class="m"><span>${ago(n.published)}</span><span>${esc(n.source)}</span>${n.symbols.filter(s => s !== sel).slice(0, 4).map(s => `<button class="sy" data-go="${esc(s)}">${esc(s)}</button>`).join("")}${n.tone !== "neutral" ? `<span class="${n.tone === "positive" ? "up" : "down"}">${n.tone === "positive" ? "▲ positive" : "▼ negative"}</span>` : ""}</div></div></div>`;
+    <div class="m"><span title="${esc(new Date(n.published).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }))}">${ago(n.published)}</span>${srcTag(n)}${n.symbols.filter(s => s !== sel).slice(0, 4).map(s => `<button class="sy" data-go="${esc(s)}">${esc(s)}</button>`).join("")}${n.tone !== "neutral" ? `<span class="${n.tone === "positive" ? "up" : "down"}">${n.tone === "positive" ? "▲ positive" : "▼ negative"}</span>` : ""}</div></div></div>`;
 }
 function meter(label, v) {
   if (v == null) return `<div class="meter"><div class="l"><span>${label}</span><span>–</span></div><div class="bar"><b></b></div></div>`;
@@ -828,7 +836,7 @@ function flashCard(n) {
   el.innerHTML = `<button class="fx" aria-label="Dismiss">✕</button>
     <div class="ft"><span class="fsym">${esc(sym)}</span>${n.symbols.slice(1, 3).map(x => `<span class="fsym sm">${esc(x)}</span>`).join("")}<span class="num">${px(s.price)}</span><b class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</b><span class="fnew">NEW</span></div>
     <div class="fh">${esc(n.title)}</div>
-    <div class="fm"><span class="tdot ${n.tone}"></span>${n.tone === "positive" ? "positive tone" : n.tone === "negative" ? "negative tone" : "neutral tone"} · ${esc(n.source)} · ${ago(n.published)}<span class="fopen">Open ${esc(sym)} ›</span></div>
+    <div class="fm"><span class="tdot ${n.tone}"></span>${n.tone === "positive" ? "positive tone" : n.tone === "negative" ? "negative tone" : "neutral tone"} · ${n.official ? "🏛 NSE filing" : esc(n.source)}${n.first_by_min >= 1 ? " ⚡ first" : ""} · ${ago(n.published)}<span class="fopen">Open ${esc(sym)} ›</span></div>
     <i class="fbar"></i>`;
   let timer = null, left = 14000, started = Date.now();
   const close = () => { el.classList.add("out"); setTimeout(() => el.remove(), 350); };
@@ -853,6 +861,7 @@ function openDrawer() {
   dr.innerHTML = `<div class="dh"><b>News flashes</b><button class="iconbtn" data-dclose aria-label="Close">✕</button></div>
     <div class="dset"><span class="muted">Pop-ups for</span><div class="seg">${[["all", "All stocks"], ["mine", "My stocks"], ["off", "Off"]].map(([k, l]) => `<button data-pop="${k}" class="${pref === k ? "on" : ""}">${l}</button>`).join("")}</div>
       ${"Notification" in window && Notification.permission !== "denied" && !SNAPSHOT ? `<button class="sy" id="notif2">${Notification.permission === "granted" ? "✓ Desktop alerts on" : "Also alert me when this tab is in the background"}</button>` : ""}</div>
+    ${(D.news_speed || []).length ? `<div class="dspeed"><b>Who breaks stories first</b> <span class="muted">(stories carried by 2+ sites, last 3 days)</span><div>${D.news_speed.slice(0, 8).map((w, i) => `<span class="${i === 0 ? "top" : ""}">${esc(w.publisher)} <b>${w.first}</b>${w.avg_lead_min ? `<em>~${w.avg_lead_min} min ahead</em>` : ""}</span>`).join("")}</div></div>` : ""}
     <div class="dl">${latest.map(n => { const s = S[n.symbols[0]] || {}; return `<button class="di" data-go="${esc(n.symbols[0])}"><div class="ft"><span class="fsym">${esc(n.symbols[0])}</span><b class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</b><span class="muted" style="margin-left:auto;font-size:12px">${ago(n.published)}</span></div><div class="fh"><span class="tdot ${n.tone}"></span>${esc(n.title)}</div></button>`; }).join("") || '<div class="muted" style="padding:16px">No stock headlines yet.</div>'}</div>`;
   dr.hidden = false; requestAnimationFrame(() => dr.classList.add("open"));
 }

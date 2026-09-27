@@ -109,4 +109,20 @@ async function fetchBandHitters() {
   return { upper: (j.upper?.AllSec?.data || []).map(map), lower: (j.lower?.AllSec?.data || []).map(map), both: (j.both?.AllSec?.data || []).map(map), count: j.count || null };
 }
 
-module.exports = { fetchBandHitters, fetch52Week, fetchIndices, fetchFiiDii, fetchCalendar, fetchEquityList, fetchIndexList, fetchFoOI, nseGet };
+// ---- official company filings (the earliest source of company news: filed with NSE before the media reports it) ----
+const FILING_KEEP = /Outcome of Board Meeting|Financial Result|Press Release|Acquisition|Bagging|Awarding|order|contract|Credit Rating|Resignation|Change in Management|Change in Director|Appointment|Dividend|Buy ?back|Bonus|Split|Scheme of Arrangement|Amalgamation|Merger|Demerger|Fund raising|Issue of Securities|Preferential|QIP|Action\(s\) (taken|initiated)|orders passed|Litigation|Insolvency|Commencement of commercial|Product launch|Agreements?|licen[cs]e|approval|Disclosure of material|Price movement|Spurt in Volume|News Verification|Fraud|Default|Investor Presentation|Allotment of Securities|Joint Venture|Capacity|Divestment|Sale of/i;
+const FILING_SKIP = /Trading Window|Newspaper|Shareholders meeting|Certificate|Loss of Share|Duplicate|Record Date|Change in Company Secretary|Compliance|Closure of|ESOP|ESOS|Corrigendum|Committee Meeting|Book Closure|Analysts\/Institutional/i;
+const MONS = { JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5, JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11 };
+function istToIso(s) { const m = String(s).match(/(\d+)-(\w{3})-(\d{4})\s+(\d+):(\d+):(\d+)/); if (!m) return null; return new Date(Date.UTC(+m[3], MONS[m[2].toUpperCase()], +m[1], +m[4], +m[5], +m[6]) - 5.5 * 3600e3).toISOString(); }
+async function fetchAnnouncements(days = 2) {
+  const d2 = new Date(Date.now() + 5.5 * 3600e3), d1 = new Date(d2 - days * 86400e3);
+  const f = d => `${String(d.getUTCDate()).padStart(2, "0")}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${d.getUTCFullYear()}`;
+  const j = await nseGet(`/api/corporate-announcements?index=equities&from_date=${f(d1)}&to_date=${f(d2)}`, "/companies-listing/corporate-filings-announcements");
+  const list = Array.isArray(j) ? j : j.data || [];
+  return list.filter(x => x.symbol && (x.an_dt || x.sort_date) && FILING_KEEP.test(x.desc + " " + (x.attchmntText || "")) && !FILING_SKIP.test(x.desc)).map(x => {
+    const txt = String(x.attchmntText || "").replace(/\s+/g, " ").replace(/^.*?has (informed|intimated|submitted to) the Exchange (about|regarding|that|of)?\s*/i, "").replace(/^(the )?/, "").trim();
+    return { symbol: x.symbol, company: x.sm_name, subject: x.desc, text: txt, published: istToIso(x.an_dt || x.sort_date), link: x.attchmntFile || "https://www.nseindia.com/companies-listing/corporate-filings-announcements" };
+  }).filter(x => x.published);
+}
+
+module.exports = { fetchAnnouncements, fetchBandHitters, fetch52Week, fetchIndices, fetchFiiDii, fetchCalendar, fetchEquityList, fetchIndexList, fetchFoOI, nseGet };

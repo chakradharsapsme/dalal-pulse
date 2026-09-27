@@ -108,8 +108,19 @@ async function loadPulse() {
 
 // ---------- news (with history kept between runs) ----------
 async function loadNews(universe) {
-  const { items, status: st } = await news.fetchAll(log, universe);
+  const [{ items, status: st }, filings] = await Promise.all([news.fetchAll(log, universe), attempt("nse_filings", () => nse.fetchAnnouncements(2), [])]);
   Object.assign(status, Object.fromEntries(Object.entries(st).map(([k, v]) => ["news: " + k, v])));
+  // official NSE filings for tracked stocks: the earliest source, straight from the company
+  const crypto = require("crypto");
+  let nf = 0;
+  for (const f of filings || []) {
+    if (!universe[f.symbol]) continue;
+    const co = (f.company || universe[f.symbol].name || f.symbol).replace(/ Limited$| Ltd\.?$/i, "");
+    const title = `${co}: ${f.subject}${f.text ? " — " + (f.text.length > 170 ? f.text.slice(0, 167) + "…" : f.text) : ""}`;
+    items.push({ id: crypto.createHash("sha1").update("nse|" + f.symbol + f.published + f.subject).digest("hex").slice(0, 16), title, summary: "", link: f.link,
+      source: "NSE filing", publisher: "NSE filing (official)", official: true, sym_hint: [f.symbol], published: f.published }); nf++;
+  }
+  status["news: NSE filings"] = `ok (${nf} for tracked stocks)`;
   fs.mkdirSync(CACHE, { recursive: true });
   const hist = readJson(path.join(CACHE, "news.json"), {});
   for (const it of items) if (!hist[it.id]) hist[it.id] = { ...it, seen_at: new Date().toISOString() };
@@ -164,9 +175,22 @@ async function main() {
   const matchers = compileMatchers(universe);
   const newsOut = newsList.map(n => {
     const tone = headlineTone(n.title, n.summary);
-    return { id: n.id, title: n.title, link: n.link, source: n.source.replace(/^Google News: /, ""), published: n.published, seen_at: n.seen_at,
-      symbols: matchSymbols(n.title + " " + (n.summary || ""), matchers), tone: tone.tone, tone_score: tone.score, words: tone.words };
+    const syms = matchSymbols(n.title + " " + (n.summary || ""), matchers);
+    for (const h of n.sym_hint || []) if (!syms.includes(h)) syms.unshift(h);
+    return { id: n.id, title: n.title, link: n.link, source: n.publisher || (n.source.startsWith("Google News") ? "Moneycontrol" : n.source), via_google: Boolean(n.via_google || n.source.startsWith("Google News")), official: Boolean(n.official),
+      published: n.published, seen_at: n.seen_at, symbols: syms, tone: tone.tone, tone_score: tone.score, words: tone.words };
   });
+  // the same story from several sites -> one entry, published-first copy kept, with who else carried it and how much later
+  const before = newsOut.length;
+  newsOut.splice(0, newsOut.length, ...news.clusterStories(newsOut).sort((a, b) => b.published.localeCompare(a.published)));
+  status.news_grouping = `${before} headlines -> ${newsOut.length} stories`;
+  // which site breaks stories first (only stories carried by 2+ sites count)
+  const speed = {};
+  for (const n of newsOut) if (n.also?.length) {
+    const w = speed[n.source] ||= { first: 0, lead: [] }; w.first++; if (n.first_by_min != null) w.lead.push(n.first_by_min);
+    for (const a of n.also) (speed[a.publisher] ||= { first: 0, lead: [] });
+  }
+  const newsSpeed = Object.entries(speed).map(([p, v]) => ({ publisher: p, first: v.first, avg_lead_min: v.lead.length ? Math.round(v.lead.reduce((a, x) => a + x, 0) / v.lead.length) : null })).sort((a, b) => b.first - a.first);
   const bySym = {};
   for (const n of newsOut) for (const s of n.symbols) (bySym[s] ||= []).push(n);
 
@@ -251,7 +275,7 @@ async function main() {
   const out = {
     generated_at: new Date().toISOString(), build_seconds: Math.round((Date.now() - t0) / 1000), status,
     pulse: pulse.items, sectors: pulse.sectors, industries, nifty_pe: pulse.nifty_pe, fii_dii: fii, mood, topics,
-    nifty_returns: Object.fromEntries(Object.entries(nr).map(([k, v]) => [k, r2(v)])), backtest: bt.summary, live_record: liveRecord, indices, circuits,
+    nifty_returns: Object.fromEntries(Object.entries(nr).map(([k, v]) => [k, r2(v)])), backtest: bt.summary, live_record: liveRecord, indices, circuits, news_speed: newsSpeed,
     stocks, news: newsOut, w52, calendar: upcoming.slice(0, 600).map(e => ({ ...e, tracked: Boolean(universe[e.symbol]), nifty50: Boolean(universe[e.symbol]?.nifty50) })),
   };
   fs.writeFileSync(path.join(OUT, "latest.json"), JSON.stringify(out));

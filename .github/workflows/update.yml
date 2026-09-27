@@ -2,8 +2,8 @@ name: Update site data
 
 on:
   schedule:
-    - cron: "*/15 3-10 * * 1-5"   # every 15 min, 08:30-16:15 IST, Mon-Fri (market hours)
-    - cron: "7 * * * *"           # hourly otherwise (news keeps coming)
+    - cron: "*/5 3-10 * * 1-5"    # every 5 min, 08:30-16:25 IST, Mon-Fri (market hours: news + prices)
+    - cron: "7,37 * * * *"        # every 30 min otherwise (news keeps coming)
   workflow_dispatch: {}
   push:
     branches: [main]
