@@ -72,7 +72,10 @@ async function loadIndices({ universe, nseIndices, outDir, cacheDir, log }) {
   const one = async def => {
     let hist = null, used = null;
     const errs = [];
-    for (const y of def.yahoo) { try { hist = await history(y, "5y"); used = y; break; } catch (e) { errs.push(`${y}: ${String(e.message).slice(0, 40)}`); } }
+    outer: for (const y of def.yahoo) for (const rg of ["5y", "2y", "1y"]) {
+      try { const h = await history(y, rg); if (h.rows.length >= 30) { hist = h; used = `${y} ${rg} (${h.rows.length} days)`; break outer; } errs.push(`${y} ${rg}: ${h.rows.length} rows`); }
+      catch (e) { errs.push(`${y} ${rg}: ${String(e.message).slice(0, 30)}`); }
+    }
     report[def.id] = used ? "ok " + used : "failed (" + errs.join("; ") + ")";
     if (!hist || hist.rows.length < 30) {
       // no chart data: still show the live value from NSE, with members, so the index isn't missing
@@ -84,7 +87,7 @@ async function loadIndices({ universe, nseIndices, outDir, cacheDir, log }) {
         members: cons.syms, members_total: cons.total, members_source: cons.source });
       return;
     }
-    let intra = null; try { intra = await intraday(used); } catch {}
+    let intra = null; try { intra = await intraday(used.split(" ")[0]); } catch {}
     const rows = hist.rows, ind = indicators(rows);
     const tech = compute(rows, hist.meta.regularMarketPrice);
     // daily for 1 year: [t, close, 50dma, 200dma]; weekly for 5 years: [t, close]
