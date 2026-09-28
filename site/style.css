@@ -672,3 +672,20 @@ body.bt-on .toast{bottom:calc(60px + env(safe-area-inset-bottom,0px))}
 .mq .mqp{cursor:pointer}.mq .mqp:hover circle{fill-opacity:1;stroke:var(--ink)}
 .mqgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:16px}
 @media (max-width:1100px){.mqgrid{grid-template-columns:repeat(2,1fr)}}@media (max-width:640px){.mqgrid{grid-template-columns:1fr}}
+.mqsecs{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:14px}
+.mqsec{padding:12px 14px;scroll-margin-top:90px}
+.mqsh{display:flex;justify-content:space-between;align-items:center;gap:8px}.mqsh b{font:800 15.5px var(--display)}
+.mqtag{font:800 10px var(--mono);letter-spacing:.04em;padding:3px 8px;border-radius:999px;white-space:nowrap;text-transform:uppercase}
+.mqtag.lead{background:var(--upbg);color:var(--up)}.mqtag.bounce{background:var(--peacockbg);color:var(--s1)}.mqtag.pause{background:var(--warnbg);color:var(--warn)}.mqtag.weak{background:var(--downbg);color:var(--down)}
+.mqsub{display:flex;align-items:center;gap:8px;margin:4px 0 10px;font-size:12px;color:var(--muted);white-space:nowrap}.mqsub b{font-family:var(--mono)}
+.mqb{flex:1;height:5px;border-radius:3px;background:var(--downbg);overflow:hidden;min-width:40px}.mqb i{display:block;height:100%;background:var(--up)}
+.mqcols{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.mqcol{min-width:0}.mqlab{font:700 11px var(--body);text-transform:uppercase;letter-spacing:.05em;padding-bottom:4px;margin-bottom:2px;border-bottom:2px solid}
+.mqlab span{float:right;font-family:var(--mono)}.mqlab.bounce{color:var(--s1);border-color:var(--s1)}.mqlab.lead{color:var(--up);border-color:var(--up)}
+.mqr{display:flex;justify-content:space-between;align-items:baseline;width:100%;padding:4px 2px;border:0;border-bottom:1px solid var(--line);background:none;cursor:pointer;font-size:12.5px;color:var(--ink);text-align:left}
+.mqr b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}.mqr span{font:700 12px var(--mono);margin-left:6px}.mqr:hover{background:var(--paper2)}
+.mqnone{font-size:12px;color:var(--muted);padding:4px 2px}
+.mqmore{display:none}.mqcol.open .mqmore{display:block}
+.mqmorebtn{border:0;background:none;color:var(--peacock);padding:4px 2px;font-size:12px;font-weight:700;cursor:pointer}
+.flashsec{animation:flashsec 1.6s ease}@keyframes flashsec{0%,40%{box-shadow:0 0 0 3px var(--peacock)}100%{box-shadow:var(--shadow)}}
+@media (max-width:640px){.mqsecs{grid-template-columns:1fr}}

@@ -1383,16 +1383,37 @@ function mqSvg(items) {
     <text x="${W / 2}" y="${H - 8}" text-anchor="middle" class="mqt">today's move${ui.mx === "rel" ? " vs Nifty" : ""} →</text>
     <text x="14" y="${H / 2}" text-anchor="middle" class="mqt" transform="rotate(-90 14 ${H / 2})">this week's move${ui.mx === "rel" ? " vs Nifty" : ""} →</text>
     ${items.sort((a, b) => b.size - a.size).map(i => { const x = X(i.d), y = Y(i.w), out = Math.abs(i.d) > sx || Math.abs(i.w) > sy;
-      return `<g class="mqp" ${i.idx ? `data-nav="indices"` : `data-go="${esc(i.id)}"`}><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${R(i).toFixed(1)}" fill="${MQ_Q[i.q][2]}" fill-opacity="${i.idx ? .9 : .6}" stroke="${out ? "var(--ink)" : "var(--card)"}" stroke-width="${out ? 1.6 : 1}"><title>${esc(i.name)} · today ${pct(i.d)} · week ${pct(i.w)} · ${MQ_Q[i.q][0]}</title></circle>
+      return `<g class="mqp" ${i.idx ? `data-mqsec="${esc(i.id)}"` : `data-go="${esc(i.id)}"`}><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${R(i).toFixed(1)}" fill="${MQ_Q[i.q][2]}" fill-opacity="${i.idx ? .9 : .6}" stroke="${out ? "var(--ink)" : "var(--card)"}" stroke-width="${out ? 1.6 : 1}"><title>${esc(i.name)} · today ${pct(i.d)} · week ${pct(i.w)} · ${MQ_Q[i.q][0]}</title></circle>
         ${showLabel.has(i.id) ? `<text x="${(x + R(i) + 3).toFixed(1)}" y="${(y + 4).toFixed(1)}" class="mql">${esc(i.name)}</text>` : ""}</g>`; }).join("")}
   </svg>`;
+}
+
+function mqQ(d, w) { return d >= 0 ? (w >= 0 ? "lead" : "bounce") : (w >= 0 ? "pause" : "weak"); }
+function mqSectors() {
+  const order = { lead: 0, bounce: 1, pause: 2, weak: 3 };
+  const secs = (D.indices || []).filter(x => (x.group === "Sectors" || x.id === "midcap" || x.id === "smallcap") && (x.members || []).length && x.change_pct != null)
+    .map(x => { const mem = x.members.map(m => S[m]).filter(s => s && s.change_pct != null && s.tech?.ret_1w != null).map(s => ({ s, q: mqQ(s.change_pct, s.tech.ret_1w) }));
+      return { x, q: mqQ(x.change_pct, x.tech?.ret_1w ?? 0), mem, up: mem.filter(m => m.s.change_pct > 0).length, bounce: mem.filter(m => m.q === "bounce").sort((a, b) => b.s.change_pct - a.s.change_pct), lead: mem.filter(m => m.q === "lead").sort((a, b) => b.s.change_pct - a.s.change_pct) }; })
+    .filter(g => g.mem.length)
+    .sort((a, b) => (b.bounce.length + b.lead.length) / b.mem.length - (a.bounce.length + a.lead.length) / a.mem.length || order[a.q] - order[b.q]);
+  const row = m => `<button class="mqr" data-go="${esc(m.s.symbol)}" title="${esc(m.s.name || "")} · week ${pct(m.s.tech.ret_1w)}"><b>${esc(m.s.symbol)}</b><span class="${cls(m.s.change_pct)}">${pct(m.s.change_pct)}</span></button>`;
+  const colm = (list, k, label) => `<div class="mqcol ${k}"><div class="mqlab ${k}">${label} <span>${list.length}</span></div>${list.slice(0, 5).map(row).join("") || '<div class="mqnone">none</div>'}${list.length > 5 ? `<div class="mqmore">${list.slice(5).map(row).join("")}</div><button class="mqmorebtn" data-mqmore>+ ${list.length - 5} more</button>` : ""}</div>`;
+  const active = secs.filter(g => g.bounce.length || g.lead.length), quiet = secs.filter(g => !g.bounce.length && !g.lead.length);
+  const totB = secs.reduce((a, g) => a + g.bounce.length, 0), totL = secs.reduce((a, g) => a + g.lead.length, 0);
+  return `<h2 class="page" style="font-size:21px;margin:26px 0 4px">Inside each sector: which stocks are turning up</h2>
+  <p class="sub" style="margin-bottom:12px"><b style="color:var(--s1)">Bouncing</b> = up today after a weak week · <b style="color:var(--up)">Rising</b> = up today and this week. Sectors with the most stocks turning up come first. Today: <b>${totB}</b> bouncing, <b>${totL}</b> rising.</p>
+  <div class="mqsecs">${active.map(g => { const x = g.x, pUp = Math.round(g.up / g.mem.length * 100);
+    return `<div class="card mqsec" id="mqsec-${esc(x.id)}"><div class="mqsh"><b>${esc(x.name.replace(/^Nifty /, ""))}</b><span class="mqtag ${g.q}">${MQ_Q[g.q][0]}</span></div>
+      <div class="mqsub"><span>Index <b class="${cls(x.change_pct)}">${pct(x.change_pct)}</b> · wk <b class="${cls(x.tech?.ret_1w)}">${pct(x.tech?.ret_1w)}</b></span><span class="mqb"><i style="width:${pUp}%"></i></span><span>${g.up}/${g.mem.length} up</span></div>
+      <div class="mqcols">${colm(g.bounce, "bounce", "Bouncing")}${colm(g.lead, "lead", "Rising")}</div></div>`; }).join("") || '<div class="card"><div class="empty"><b>No sector has stocks turning up right now</b>Check back after the next refresh.</div></div>'}</div>
+  ${quiet.length ? `<p class="muted" style="font-size:13px;margin:12px 0 0"><b>No stocks turning up:</b> ${quiet.map(g => `${esc(g.x.name.replace(/^Nifty /, ""))} <span class="${cls(g.x.change_pct)}">${pct(g.x.change_pct)}</span>`).join(" · ")}</p>` : ""}`;
 }
 function momentumView() {
   const items = mqItems(), set = ui.mq || "indices", by = k => items.filter(i => i.q === k);
   const up = items.filter(i => i.d > 0).length, n = items.length;
   const col = k => { const L = by(k).sort((a, b) => k === "lead" || k === "bounce" ? b.d - a.d : a.d - b.d);
     return `<div class="card mqc"><div class="hd"><h2 style="color:${MQ_Q[k][2]}">${MQ_Q[k][0]}</h2><span class="badge neutral">${L.length}</span></div><div class="bd" style="padding-top:2px"><p class="muted" style="font-size:12.5px;margin:4px 0 8px">${MQ_Q[k][1]}</p>
-      ${L.slice(0, 10).map(i => `<button class="mv" ${i.idx ? 'data-nav="indices"' : `data-go="${esc(i.id)}"`}><span><b>${esc(i.name)}</b></span><span class="num"><span class="muted">today</span> <b class="${cls(i.d)}">${pct(i.d)}</b> <span class="muted">week</span> <b class="${cls(i.w)}">${pct(i.w)}</b></span></button>`).join("") || '<div class="muted">None right now.</div>'}
+      ${L.slice(0, 10).map(i => `<button class="mv" ${i.idx ? `data-mqsec="${esc(i.id)}"` : `data-go="${esc(i.id)}"`}><span><b>${esc(i.name)}</b></span><span class="num"><span class="muted">today</span> <b class="${cls(i.d)}">${pct(i.d)}</b> <span class="muted">week</span> <b class="${cls(i.w)}">${pct(i.w)}</b></span></button>`).join("") || '<div class="muted">None right now.</div>'}
       ${L.length > 10 ? `<div class="muted" style="font-size:12px;margin-top:6px">+ ${L.length - 10} more on the chart</div>` : ""}</div></div>`; };
   const n50 = (D.indices || []).find(x => x.id === "nifty50");
   return `<div class="fade"><h1 class="page">Momentum Quadrant</h1><p class="sub">Which indices and stocks are moving up today, and whether it's backed by the week's trend. Right = up today · Top = up this week. Bubble size = value traded. Tap any bubble or row to open it. Updates with every refresh (about every 5 minutes in market hours).</p>
@@ -1402,6 +1423,7 @@ function momentumView() {
     <div class="kpis">${Object.keys(MQ_Q).map(k => `<div class="card kpi"><div class="l">${MQ_Q[k][0]}</div><div class="v" style="color:${MQ_Q[k][2]}">${by(k).length}</div><div class="muted" style="font-size:12px">${n ? Math.round(by(k).length / n * 100) : 0}% of ${n}</div></div>`).join("")}</div>
     <div class="card"><div class="bd">${mqSvg(items.map(x => ({ ...x })))}</div></div>
     <div class="mqgrid">${["lead", "bounce", "pause", "weak"].map(col).join("")}</div>
+    ${mqSectors()}
     <p class="muted" style="font-size:12px;margin-top:12px">${ui.mx === "rel" ? "Vs Nifty: each move minus the Nifty 50's move, so you see who is beating the market. " : ""}Outliers beyond the chart edge are pinned to the border (dark outline). Information only, not investment advice.</p></div>`;
 }
 
@@ -1535,6 +1557,8 @@ document.addEventListener("click", async e => {
   const ov = t.closest("[data-ov]"); if (ov) { ui.ov[ov.dataset.ov] = !ui.ov[ov.dataset.ov]; ov.classList.toggle("on", ui.ov[ov.dataset.ov]); ov.setAttribute("aria-pressed", ui.ov[ov.dataset.ov]); drawChart(sel); return; }
   const sb = t.closest("[data-sub]"); if (sb) { ui.sub = sb.dataset.sub; document.querySelectorAll("[data-sub]").forEach(b => b.classList.toggle("on", b === sb)); drawChart(sel); return; }
   const hp = t.closest("[data-hp]"); if (hp) { ui.hp = hp.dataset.hp; render(); return; }
+  const mqm = t.closest("[data-mqmore]"); if (mqm) { mqm.parentElement.classList.add("open"); mqm.remove(); return; }
+  const mqj = t.closest("[data-mqsec]"); if (mqj) { const el = document.getElementById("mqsec-" + mqj.dataset.mqsec); if (el) { el.scrollIntoView({ behavior: "smooth", block: "start" }); el.classList.remove("flashsec"); void el.offsetWidth; el.classList.add("flashsec"); } else nav("indices"); return; }
   const mqs = t.closest("[data-mq]"); if (mqs) { ui.mq = mqs.dataset.mq; render(); return; }
   const mqx = t.closest("[data-mx]"); if (mqx) { ui.mx = mqx.dataset.mx; render(); return; }
   const hm = t.closest("[data-hm]"); if (hm) { ui.hm = hm.dataset.hm; render(); return; }
