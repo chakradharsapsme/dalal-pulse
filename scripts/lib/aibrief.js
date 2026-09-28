@@ -67,6 +67,8 @@ function build(d, opt = {}) {
       for (const s of bt.signals) { const r = (s.results || {})["20"] || {}; L.push(`- ${s.name} [${s.dir}]: n=${r.n ?? "-"}, avg ${pc(r.avg)}, hit ${r.hit ?? "-"}% → ${s.verdict}`); }
       L.push("Use this: signals marked 'No real edge' should not be trusted alone.");
     }
+    const rot = (d.edge || {}).rotation;
+    if (rot && rot.items?.length) { L.push("", "SECTOR ROTATION (weekly vs Nifty; clockwise Improving → Leading → Weakening → Lagging):"); for (const q of ["Leading", "Improving", "Weakening", "Lagging"]) L.push(`- ${q}: ${rot.items.filter(i => i.quad === q).map(i => i.name).join(", ") || "none"}`); }
     const c = d.circuits || {};
     L.push("", `CIRCUITS (large & mid caps only): upper ${(c.upper || []).map(x => x.symbol).join(", ") || "none"}; lower ${(c.lower || []).map(x => x.symbol).join(", ") || "none"}; small caps hidden ${JSON.stringify(c.hidden_small || {})}`);
     L.push("", "HOT TOPICS: " + (d.topics || []).map(t => `${t.topic} (${t.n})`).join(", "));
@@ -97,6 +99,9 @@ function build(d, opt = {}) {
     for (const b of ["Long build-up", "Short build-up", "Short covering", "Long unwinding"]) sec(`F&O ${b} (OI change %)`, fo.filter(s => s.fo.buildup === b).sort((a, b2) => Math.abs(b2.fo.oi_chg_pct ?? 0) - Math.abs(a.fo.oi_chg_pct ?? 0)), 8);
     sec("Positive news flow (news tone positive)", stocks.filter(s => (I(s).news_score ?? 0) > 0).sort((a, b) => I(b).news_score - I(a).news_score));
     sec("Negative news flow", stocks.filter(s => (I(s).news_score ?? 0) < 0).sort((a, b) => I(a).news_score - I(b).news_score));
+    const E = d.edge || {};
+    if (E.board) { L.push(`## ODDS BOARD: setups that historically most often rose over 20 sessions (typical day: ${E.base?.win20}% up, typical ${pc(E.base?.med20)})`); for (const r of E.board.best.slice(0, 10)) L.push(`- ${r.symbol}: ${r.win20}% up, typical ${pc(r.med20)}, edge ${r.edge >= 0 ? "+" : ""}${r.edge} pts (${r.n} cases) → ${r.grade}`); L.push("## WEAKEST ODDS"); for (const r of E.board.worst.slice(0, 6)) L.push(`- ${r.symbol}: ${r.win20}% up, typical ${pc(r.med20)} → ${r.grade}`); L.push(""); }
+    if (E.delivery) { const dl = E.delivery, f = x => `${x.symbol} (${x.tag}, deliv ${x.dp}% vs ${x.avg_dp}%, ${x.dq_ratio ?? "-"}x qty, price ${pc(x.chg)})`; L.push(`## SMART MONEY (NSE delivery ${dl.date})`, `- Accumulation: ${dl.accumulation.slice(0, 10).map(f).join("; ") || "none"}`, `- Distribution: ${dl.distribution.slice(0, 8).map(f).join("; ") || "none"}`, `- Speculative rallies (low delivery): ${dl.speculative.map(f).join("; ") || "none"}`, ""); }
     const w = d.w52 || {};
     L.push(`## 52-week highs among tracked quality stocks: ${(w.highs || []).filter(x => x.tracked).map(x => x.symbol).join(", ") || "none"}`);
     L.push(`## 52-week lows among tracked quality stocks: ${(w.lows || []).filter(x => x.tracked).map(x => x.symbol).join(", ") || "none"}`, "");
@@ -149,6 +154,10 @@ function build(d, opt = {}) {
     L.push(`52W high ${px(t.high52)} (${pc(t.from_high_pct)}) | 52W low ${px(t.low52)} (${pc(t.from_low_pct)})${t.breakout_20d ? " | 20D BREAKOUT" : ""}${t.breakout_55d ? " | 55D BREAKOUT" : ""}`);
     L.push(`Volume ${t.vol ?? "-"} vs 20D avg ${t.vol_avg20 ?? "-"} (x${f2(t.vol_ratio)})${t.vol_surge_up ? " SURGE UP" : ""}${t.vol_surge_down ? " SURGE DOWN" : ""}`);
     L.push(`Returns: 1W ${pc(t.ret_1w)}, 1M ${pc(t.ret_1m)}, 3M ${pc(t.ret_3m)}, 6M ${pc(t.ret_6m)}, 1Y ${pc(t.ret_1y)} | vs Nifty: 1M ${pc(t.rel_1m)}, 3M ${pc(t.rel_3m)}, 6M ${pc(t.rel_6m)}, 1Y ${pc(t.rel_1y)} | RS rating ${t.rs_rating ?? "-"}`);
+    const e = s.edge;
+    if (e && (e.own || e.all)) { const f = x => x ? `${x.n} cases, rose in 20 sessions ${x.win20}% of the time, typical ${pc(x.med20)}, worst ${pc(x.worst20)}, best ${pc(x.best20)}${x.n60 ? `; after 60 sessions ${x.win60}% up, typical ${pc(x.med60)}` : ""}` : "not enough cases";
+      L.push("", `SETUP DÉJÀ-VU (historical analogs, no look-ahead): today's setup = ${e.label}`, `- ${s.symbol}'s own 5-year history: ${f(e.own)}`, `- same setup across all tracked stocks: ${f(e.all)}`, e.odds ? `- blended odds: ${e.odds.win20}% up, typical ${pc(e.odds.med20)}, edge ${e.odds.edge >= 0 ? "+" : ""}${e.odds.edge} pts vs a typical day → ${e.odds.grade}` : ""); }
+    if (s.deliv) L.push(`SMART MONEY (NSE delivery): ${s.deliv.tag || "normal"} · delivery ${s.deliv.dp}% vs 20-day avg ${s.deliv.avg_dp}% · delivered qty ${s.deliv.dq_ratio ?? "-"}x normal · price ${pc(s.deliv.chg)}`);
     if (s.fo) L.push("", `F&O: open interest ${s.fo.oi ?? "-"} (${pc(s.fo.oi_chg_pct)}) → ${s.fo.buildup || "-"} (${s.fo.date || ""})`);
     const o = optStock[s.symbol];
     if (o) L.push(`OPTIONS (${o.expiry}, ${o.days}d): PCR ${o.pcr}, max pain ${o.max_pain}, call wall ${o.call_wall}, put wall ${o.put_wall}, ATM IV ${o.atm_iv}%, expected move ±${o.exp_move_pct}% → ${f2(o.range_lo)}–${f2(o.range_hi)}; options view ${o.view} (lot ${o.lot})`);

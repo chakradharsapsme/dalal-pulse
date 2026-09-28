@@ -80,6 +80,10 @@ function run(out, cacheDir) {
     if (pullback) { pts++; why.push(`pullback to support ${rs(x.support)} (RSI ${x.rsi14.toFixed(0)})`); }
     if (s.fo && (s.fo.buildup === "Long build-up" || s.fo.buildup === "Short covering")) { pts++; why.push(`F&O ${s.fo.buildup.toLowerCase()} (OI ${pct(s.fo.oi_chg_pct || 0)})`); }
     if ((i.news_score || 0) >= 15) { pts++; why.push("positive news flow"); }
+    if (s.edge?.odds && s.edge.odds.win20 >= 60 && s.edge.odds.edge >= 1) { pts++; why.push(`history: this setup rose ${s.edge.odds.win20}% of the time over 20 sessions`); }
+    if (s.edge?.odds?.grade === "Poor odds") pts--;
+    if (s.deliv && /ccumulation/.test(s.deliv.tag || "")) { pts++; why.push(`smart money: ${s.deliv.tag.toLowerCase()} (delivery ${s.deliv.dp}% vs ${s.deliv.avg_dp}% avg)`); }
+    if (s.deliv && /istribution/.test(s.deliv.tag || "")) pts--;
     if (s.fo && s.fo.buildup === "Short build-up") pts--;
     if ((i.news_score || 0) <= -15) pts--;
     if (pts < 4) continue;

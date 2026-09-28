@@ -4,6 +4,7 @@
 (() => {
 "use strict";
 const $ = s => document.querySelector(s);
+const safeUrl = u => /^https?:\/\//i.test(String(u || "").trim()) ? String(u).trim() : "#";
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmt = (n, d = 2) => n == null || isNaN(n) ? "–" : Number(n).toLocaleString("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d });
 const px = n => n == null ? "–" : "₹" + fmt(n, n >= 1000 ? 0 : 2);
@@ -133,7 +134,7 @@ function nav(v, s) {
 }
 function readHash() {
   const [v, s] = location.hash.replace(/^#\/?/, "").split("/");
-  if (["news", "markets", "indices", "fno", "options", "circuits", "screener", "portfolio", "calendar"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
+  if (["news", "markets", "indices", "fno", "options", "circuits", "screener", "portfolio", "calendar", "edge"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
 }
 const go = sym => nav("news", sym);
 
@@ -141,7 +142,8 @@ function render() {
   if (!D) return;
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.nav === view));
   const keep = document.querySelector(".list")?.scrollTop;
-  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "fno" ? fnoView() : view === "circuits" ? circuitsView() : view === "options" ? optionsView() : view === "screener" ? screener() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : newsView();
+  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "fno" ? fnoView() : view === "circuits" ? circuitsView() : view === "options" ? optionsView() : view === "screener" ? screener() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : view === "edge" ? edgeView() : newsView();
+  if (view === "portfolio") setTimeout(runXray, 0);
   if (keep && document.querySelector(".list")) document.querySelector(".list").scrollTop = keep;
   if (view === "news") { if (sel && S[sel]) drawChart(sel); document.querySelector(".row.on")?.scrollIntoView({ block: "nearest" }); }
   if (view === "options") drawChain();
@@ -315,7 +317,7 @@ function srcTag(n) {
 }
 function newsItem(n) {
   return `<div class="news-item"><span class="tone ${n.tone}" title="${n.tone} tone${n.words.length ? ": " + esc(n.words.join(", ")) : ""}"></span><div>
-    <a href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a>
+    <a href="${esc(safeUrl(n.link))}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a>
     <div class="m"><span title="${esc(new Date(n.published).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }))}">${ago(n.published)}</span>${srcTag(n)}${n.symbols.filter(s => s !== sel).slice(0, 4).map(s => `<button class="sy" data-go="${esc(s)}">${esc(s)}</button>`).join("")}${n.tone !== "neutral" ? `<span class="${n.tone === "positive" ? "up" : "down"}">${n.tone === "positive" ? "▲ positive" : "▼ negative"}</span>` : ""}</div></div></div>`;
 }
 function meter(label, v) {
@@ -371,6 +373,7 @@ function stockDetail(sym) {
       ${activeSignals(t).length ? `<div class="reli"><b style="font-size:14px">How these signals have played out before</b>${activeSignals(t).map(id => `<p>${trackLine(id)}</p>`).join("")}</div>` : ""}
       <div class="muted" style="font-size:12px;margin-top:10px">Built from rules: headline tone words, trend, moving averages, RSI, MACD, Bollinger Bands, volume, support/resistance and the 52-week range. Not investment advice.</div>
     </div>
+    ${dejaCard(s)}${delivLine(s)}
     <div class="sect"><h3>News · ${news.length}</h3>${news.length ? news.map(newsItem).join("") : '<div class="muted">No Moneycontrol stories in the last few days.</div>'}</div>
     <div class="sect"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px"><h3 style="margin:0">Price chart</h3>
       <div class="seg">${[[21, "1M"], [63, "3M"], [126, "6M"], [252, "1Y"]].map(([n, l]) => `<button data-range="${n}" class="${ui.range === n ? "on" : ""}" aria-label="${range[n]}">${l}</button>`).join("")}</div></div>
@@ -1142,7 +1145,8 @@ function optionsView() {
     return `<div class="card oidea ${i.dir}"><div class="bd">
       <div class="oih"><button class="sy big" data-go="${esc(i.symbol)}">${esc(i.symbol)}</button><span class="badge ${i.dir}">${i.dir === "bullish" ? "▲ Bullish view" : "▼ Bearish view"}</span><span class="muted num" style="margin-left:auto">₹${fmt(i.spot, 2)}</span></div>
       <div class="ostrat">${esc(i.strategy)} <span class="muted">· expiry ${esc(i.expiry)} (${i.days} days)</span></div>
-      <table class="olegs"><tr><td><b class="up">BUY</b></td><td class="num">${fmt(b.strike, 0)} ${b.type}</td><td class="num">@ ₹${fmt(b.price, 2)}</td></tr><tr><td><b class="down">SELL</b></td><td class="num">${fmt(s.strike, 0)} ${s.type}</td><td class="num">@ ₹${fmt(s.price, 2)}</td></tr></table>
+      <table class="olegs"><tr><td><b class="up">BUY</b></td><td class="num">${fmt(b.strike, 0)} ${b.type}</td><td class="num">@ ₹${fmt(b.price, 2)}${i.lot ? `<small class="olot-c">pay ${rs(b.price * i.lot)}/lot</small>` : ""}</td></tr><tr><td><b class="down">SELL</b></td><td class="num">${fmt(s.strike, 0)} ${s.type}</td><td class="num">@ ₹${fmt(s.price, 2)}${i.lot ? `<small class="olot-c">get ${rs(s.price * i.lot)}/lot</small>` : ""}</td></tr></table>
+      ${i.lot ? `<div class="ototal"><span>Total to pay for 1 lot <small>(${i.lot} shares × net ₹${fmt(i.debit, 2)})</small></span><b>${rs(i.debit * i.lot)}</b></div><div class="muted" style="font-size:11.5px;margin:-4px 0 8px">Plus brokerage & taxes (about ₹50–100 per order at discount brokers). Buying the ${fmt(b.strike, 0)} ${b.type} alone would cost ${rs(b.price * i.lot)}.</div>` : ""}
       ${payoffSvg(i)}
       <div class="okpi"><div><em>Max loss</em><b class="down">${i.max_loss_lot != null ? rs(i.max_loss_lot) : "₹" + fmt(i.max_loss, 2) + "/sh"}</b>${i.lot ? `<small>1 lot = ${i.lot} sh</small>` : ""}</div><div><em>Max gain</em><b class="up">${i.max_gain_lot != null ? rs(i.max_gain_lot) : "₹" + fmt(i.max_gain, 2) + "/sh"}</b><small>reward ${fmt(i.rr, 1)}× risk</small></div>
         <div><em>Break-even</em><b class="num">${fmt(i.breakeven, 2)}</b></div><div><em>Chance of profit</em><b>${i.pop}%</b><small>full profit ~${i.p_full}%</small></div></div>
@@ -1180,14 +1184,15 @@ async function drawChain() {
   const mxO = Math.max(1, ...d.chain.flatMap(r => [r.ce?.oi || 0, r.pe?.oi || 0]));
   const atm = d.atm;
   box.innerHTML = `<div class="ocsum"><span>Spot <b class="num">${fmt(d.spot, 2)}</b></span><span>Expiry <b>${esc(d.expiry)}</b> (${d.days} days)</span><span>Put-call ratio <b class="num">${d.pcr ?? "–"}</b></span><span>Max pain <b class="num">${fmt(d.max_pain, 0)}</b></span><span>ATM IV <b class="num">${d.atm_iv ?? "–"}%</b></span><span>Expected move <b class="num">±${d.exp_move_pct ?? "–"}%</b></span>${d.lot ? `<span>Lot <b class="num">${d.lot}</b></span>` : ""}</div>
-    <div class="tblwrap" style="max-height:560px"><table class="tbl ochain"><thead><tr><th colspan="5" class="cehd">CALLS</th><th></th><th colspan="5" class="pehd">PUTS</th></tr>
-      <tr><th>OI</th><th>Chg OI</th><th>Volume</th><th>IV</th><th>LTP</th><th class="stk">Strike</th><th>LTP</th><th>IV</th><th>Volume</th><th>Chg OI</th><th>OI</th></tr></thead><tbody>
+    <div class="tblwrap" style="max-height:560px"><table class="tbl ochain"><thead><tr><th colspan="6" class="cehd">CALLS</th><th></th><th colspan="6" class="pehd">PUTS</th></tr>
+      <tr><th>OI</th><th>Chg OI</th><th>Volume</th><th>IV</th><th>LTP</th><th class="lotc">Cost / lot</th><th class="stk">Strike</th><th class="lotc">Cost / lot</th><th>LTP</th><th>IV</th><th>Volume</th><th>Chg OI</th><th>OI</th></tr></thead><tbody>
     ${d.chain.map(r => { const itmC = r.k < d.spot, itmP = r.k > d.spot, c = r.ce || {}, p = r.pe || {};
       const tag = [r.k === d.call_wall ? '<i class="ot cw">resistance</i>' : "", r.k === d.put_wall ? '<i class="ot pw">support</i>' : "", r.k === d.max_pain ? '<i class="ot mp">max pain</i>' : ""].join("");
       return `<tr class="${r.k === atm ? "atm" : ""}"><td class="num oib ${itmC ? "itm" : ""}"><span style="width:${((c.oi || 0) / mxO * 100).toFixed(1)}%" class="ce"></span>${fmt(c.oi, 0)}</td><td class="num ${cls(c.chg)}">${fmt(c.chg, 0)}</td><td class="num ${itmC ? "itm" : ""}">${fmt(c.vol, 0)}</td><td class="num ${itmC ? "itm" : ""}">${c.iv || "–"}</td><td class="num ${itmC ? "itm" : ""}"><b>${fmt(c.ltp, 2)}</b></td>
+<td class="num lotc ${itmC ? "itm" : ""}">${d.lot && c.ltp ? rs(c.ltp * d.lot) : "–"}</td>
         <td class="stk num"><b>${fmt(r.k, 0)}</b>${tag}</td>
-        <td class="num ${itmP ? "itm" : ""}"><b>${fmt(p.ltp, 2)}</b></td><td class="num ${itmP ? "itm" : ""}">${p.iv || "–"}</td><td class="num ${itmP ? "itm" : ""}">${fmt(p.vol, 0)}</td><td class="num ${cls(p.chg)}">${fmt(p.chg, 0)}</td><td class="num oib ${itmP ? "itm" : ""}"><span style="width:${((p.oi || 0) / mxO * 100).toFixed(1)}%" class="pe"></span>${fmt(p.oi, 0)}</td></tr>`; }).join("")}
-    </tbody></table></div><div class="muted" style="font-size:12px;margin-top:6px">Shaded cells are in-the-money. OI = open interest (contracts outstanding); Chg OI = change today. The highlighted row is at-the-money.</div>`;
+        <td class="num lotc ${itmP ? "itm" : ""}">${d.lot && p.ltp ? rs(p.ltp * d.lot) : "–"}</td><td class="num ${itmP ? "itm" : ""}"><b>${fmt(p.ltp, 2)}</b></td><td class="num ${itmP ? "itm" : ""}">${p.iv || "–"}</td><td class="num ${itmP ? "itm" : ""}">${fmt(p.vol, 0)}</td><td class="num ${cls(p.chg)}">${fmt(p.chg, 0)}</td><td class="num oib ${itmP ? "itm" : ""}"><span style="width:${((p.oi || 0) / mxO * 100).toFixed(1)}%" class="pe"></span>${fmt(p.oi, 0)}</td></tr>`; }).join("")}
+    </tbody></table></div><div class="muted" style="font-size:12px;margin-top:6px">${d.lot ? `Cost / lot = option price × lot size (${d.lot} shares): the total you pay to buy 1 lot, before brokerage and taxes. ` : ""}Shaded cells are in-the-money. OI = open interest (contracts outstanding); Chg OI = change today. The highlighted row is at-the-money.</div>`;
   const a = box.querySelector("tr.atm"), w = box.querySelector(".tblwrap"); if (a && w) w.scrollTop = Math.max(0, a.offsetTop - w.clientHeight / 2); // centre the at-the-money row inside the table only
 }
 
@@ -1275,6 +1280,7 @@ function portfolio() {
     ${hs.map(h => `<tr data-go="${esc(h.symbol)}"><td class="l"><span class="sym">${esc(h.symbol)}</span></td><td class="num">${h.qty}</td><td class="num">${px(h.avg)}</td><td class="num">${px(h.s.price)}</td><td class="num ${cls(h.s.change_pct)}">${pct(h.s.change_pct)}</td>
       <td class="num">${inr(h.val)}</td><td class="num ${cls(h.pnl)}">${inr(h.pnl)} <small>${pct(h.cost ? (h.val / h.cost - 1) * 100 : null)}</small></td><td class="num">${T.val ? fmt((h.val || 0) / T.val * 100, 1) + "%" : "–"}</td>
       <td class="l">${h.s.insight ? `<span class="badge ${h.s.insight.signal}">${esc(h.s.insight.label)}</span>` : ""}</td></tr>`).join("")}</tbody></table></div></div>`
+  + `<h2 class="page" style="font-size:20px;margin:20px 0 4px">Portfolio X-ray</h2><p class="sub" style="margin-bottom:10px">Risk check of your holdings using 1 year of prices: what a Nifty fall would cost you, bad-day risk, hidden overlap and concentration.</p><div id="xray"></div>`
   : `<div class="card"><div class="empty"><b>No holdings yet</b>Search a stock at the top (for example "HDFC Bank"), open it, and use "Add to portfolio" with your quantity and average price.</div></div>`}
   <div class="grid g2" style="margin-top:16px">
     <div class="card"><div class="hd"><h2>Watchlist and alerts</h2></div><div class="bd" style="padding-top:4px">${my.watch.length ? my.watch.map(sym => { const s = S[sym] || {}; return `<button class="mv" data-go="${esc(sym)}"><span><b>${esc(sym)}</b> ${s.insight ? `<span class="badge ${s.insight.signal}">${esc(s.insight.label)}</span>` : ""}</span><span class="num">${px(s.price)} <b class="${cls(s.change_pct)}">${pct(s.change_pct)}</b></span></button>`; }).join("") : '<div class="muted" style="padding-top:12px">Use ☆ Watch on any stock.</div>'}
@@ -1286,6 +1292,121 @@ function portfolio() {
   <div class="card" style="margin-top:16px"><div class="bd"><div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><b>Move to another device</b><span class="muted" style="font-size:13.5px">Copy this code, then paste it into Restore on the other device.</span></div>
     <textarea class="code" id="bk" readonly aria-label="Backup code">${esc(code)}</textarea>
     <div class="form" style="margin-top:8px"><button class="btn sm" id="copyBk">Copy code</button><input id="rs" placeholder="Paste a code to restore" style="flex:1;min-width:200px" aria-label="Restore code"><button class="btn sm" id="doRs">Restore</button></div></div></div></div>`;
+}
+
+// ---------- EDGE LAB: setup Déjà-vu, odds board, sector rotation, smart money, portfolio X-ray ----------
+const gradeCls = g => g === "Strong odds" ? "bullish" : g === "Favourable" ? "watch" : g === "Poor odds" ? "bearish" : "neutral";
+function dejaCard(s) {
+  const e = s.edge; if (!e || (!e.own && !e.all)) return "";
+  const base = D.edge?.base || {};
+  const col = (title, st) => st ? `<div class="dv-col"><div class="dv-h">${title}</div><div class="dv-n">${fmt(st.n, 0)} past cases</div>
+      <div class="dv-big ${st.win20 >= 55 ? "up" : st.win20 <= 45 ? "down" : ""}">${st.win20}%</div><div class="muted" style="font-size:12px">rose over the next 20 sessions</div>
+      <table class="dv-t"><tr><td>Typical 20-day move</td><td class="num ${cls(st.med20)}">${pct(st.med20)}</td></tr><tr><td>Worst / best 20-day</td><td class="num"><span class="down">${pct(st.worst20)}</span> / <span class="up">${pct(st.best20)}</span></td></tr>
+      ${st.n60 ? `<tr><td>60 sessions later</td><td class="num">${st.win60}% up · <span class="${cls(st.med60)}">${pct(st.med60)}</span></td></tr>` : ""}</table></div>` : `<div class="dv-col"><div class="dv-h">${title}</div><div class="muted">Not enough past cases.</div></div>`;
+  return `<div class="card dv"><div class="hd"><h2>Setup Déjà-vu <span class="muted" style="font-weight:500;font-size:13px">what happened after this exact setup before</span></h2>${e.odds ? `<span class="badge ${gradeCls(e.odds.grade)}">${esc(e.odds.grade)}</span>` : ""}</div>
+    <div class="bd"><p style="margin:0 0 10px"><b>Today's setup:</b> ${esc(e.label)}.</p>
+    <div class="dv-grid">${col(`${esc(s.symbol)}'s own 5-year history`, e.own)}${col("Same setup across all tracked stocks", e.all)}
+      <div class="dv-col base"><div class="dv-h">A typical day (any stock)</div><div class="dv-big">${base.win20 ?? "–"}%</div><div class="muted" style="font-size:12px">rose over 20 sessions · typical ${pct(base.med20)}</div>
+      ${e.odds ? `<p style="margin:10px 0 0;font-size:13px">Blended odds: <b>${e.odds.win20}%</b> up, typical <b class="${cls(e.odds.med20)}">${pct(e.odds.med20)}</b> → <b class="${cls(e.odds.edge)}">${e.odds.edge >= 0 ? "+" : ""}${e.odds.edge} pts</b> vs a typical day.</p>` : ""}</div></div>
+    <p class="muted" style="font-size:12px;margin:10px 0 0">Matched on trend (vs 50/200-day averages), RSI zone, distance from the 50-day average and 20-day momentum${e.loose ? " (momentum filter relaxed for sample size)" : ""}. Past odds, not a promise: news, results and the market can override any pattern.</p></div></div>`;
+}
+function delivLine(s) {
+  const d = s.deliv; if (!d) return "";
+  const tagCls = /Accumulation|accumulation/.test(d.tag || "") ? "bullish" : /Distribution|distribution/.test(d.tag || "") ? "bearish" : d.tag ? "watch" : "neutral";
+  return `<div class="card dl-card"><div class="bd"><b>Smart money (NSE delivery)</b> <span class="badge ${tagCls}">${esc(d.tag || "Normal")}</span>
+    <span class="muted" style="font-size:13px">Delivery ${d.dp}% vs 20-day avg ${d.avg_dp}% · delivered qty ${d.dq_ratio ?? "–"}× normal · price ${pct(d.chg)} · last 5 days: ${d.acc5} up-days with high delivery, ${d.dist5} down-days</span>
+    <div class="muted" style="font-size:12px;margin-top:4px">High delivery on up-days means buyers are taking shares home (real demand); a rally on low delivery is mostly intraday speculation.</div></div></div>`;
+}
+function rotationSvg(rot) {
+  const it = rot.items; if (!it.length) return "";
+  const xs = it.flatMap(i => i.trail.map(p => p[0])), ys = it.flatMap(i => i.trail.map(p => p[1]));
+  const span = (a, c) => Math.max(1.5, ...a.map(v => Math.abs(v - c))) * 1.15;
+  const sx = span(xs, 100), sy = span(ys, 100), W = 640, H = 420, P = 34;
+  const X = v => P + (v - (100 - sx)) / (2 * sx) * (W - 2 * P), Y = v => H - P - (v - (100 - sy)) / (2 * sy) * (H - 2 * P);
+  const qc = { Leading: "var(--up)", Weakening: "var(--accent)", Lagging: "var(--down)", Improving: "var(--s1)" };
+  return `<svg class="rrg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Sector rotation map">
+    <rect x="${X(100)}" y="${P}" width="${W - P - X(100)}" height="${Y(100) - P}" fill="var(--upbg)"/><rect x="${X(100)}" y="${Y(100)}" width="${W - P - X(100)}" height="${H - P - Y(100)}" fill="var(--warnbg)"/>
+    <rect x="${P}" y="${Y(100)}" width="${X(100) - P}" height="${H - P - Y(100)}" fill="var(--downbg)"/><rect x="${P}" y="${P}" width="${X(100) - P}" height="${Y(100) - P}" fill="var(--peacockbg)"/>
+    <line x1="${X(100)}" y1="${P}" x2="${X(100)}" y2="${H - P}" stroke="var(--line2)"/><line x1="${P}" y1="${Y(100)}" x2="${W - P}" y2="${Y(100)}" stroke="var(--line2)"/>
+    <text x="${W - P - 6}" y="${P + 16}" text-anchor="end" class="rq" fill="var(--up)">LEADING</text><text x="${W - P - 6}" y="${H - P - 8}" text-anchor="end" class="rq" fill="var(--warn)">WEAKENING</text>
+    <text x="${P + 6}" y="${H - P - 8}" class="rq" fill="var(--down)">LAGGING</text><text x="${P + 6}" y="${P + 16}" class="rq" fill="var(--s1)">IMPROVING</text>
+    <text x="${W / 2}" y="${H - 8}" text-anchor="middle" class="ra">relative strength vs Nifty →</text><text x="12" y="${H / 2}" text-anchor="middle" class="ra" transform="rotate(-90 12 ${H / 2})">momentum →</text>
+    ${it.map(i => { const pts = i.trail.map(p => `${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(" "), [lx, ly] = i.trail[i.trail.length - 1];
+      return `<g class="rrg-s"><polyline points="${pts}" fill="none" stroke="${qc[i.quad]}" stroke-width="1.6" stroke-opacity=".55"/>${i.trail.slice(0, -1).map(p => `<circle cx="${X(p[0]).toFixed(1)}" cy="${Y(p[1]).toFixed(1)}" r="2" fill="${qc[i.quad]}" opacity=".45"/>`).join("")}
+        <circle cx="${X(lx).toFixed(1)}" cy="${Y(ly).toFixed(1)}" r="5.5" fill="${qc[i.quad]}" stroke="var(--card)" stroke-width="1.5"><title>${esc(i.name)}: ${i.quad} (RS ${lx}, momentum ${ly})</title></circle>
+        <text x="${(X(lx) + 8).toFixed(1)}" y="${(Y(ly) + 4).toFixed(1)}" class="rl">${esc(i.name)}</text></g>`; }).join("")}</svg>`;
+}
+function edgeView() {
+  const E = D.edge || {}, b = E.board, rot = E.rotation, dl = E.delivery;
+  const oddsRow = r => { const s = S[r.symbol] || {}; return `<tr data-go="${esc(r.symbol)}"><td class="l"><span class="sym">${esc(r.symbol)}</span>${s.nifty50 ? ' <span class="badge n50">N50</span>' : ""}<div class="muted" style="font-size:12px">${esc(s.edge?.short || "")}</div></td>
+    <td class="num">${px(s.price)}</td><td class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</td><td class="num"><b>${r.win20}%</b></td><td class="num ${cls(r.med20)}">${pct(r.med20)}</td><td class="num ${cls(r.edge)}">${r.edge >= 0 ? "+" : ""}${r.edge}</td><td class="num muted">${fmt(r.n, 0)}${r.own_n ? ` / ${r.own_n}` : ""}</td><td class="l"><span class="badge ${gradeCls(r.grade)}">${esc(r.grade)}</span></td></tr>`; };
+  const oddsTbl = (rows, title, note) => `<div class="card"><div class="hd"><h2>${title}</h2><span class="muted" style="font-size:12px">${note}</span></div><div class="tblwrap"><table class="tbl"><thead><tr><th class="l">Stock · today's setup</th><th>Price</th><th>Day</th><th>Rose in 20d</th><th>Typical 20d</th><th>Edge vs typical</th><th>Cases (all / own)</th><th class="l">Odds</th></tr></thead><tbody>${rows.map(oddsRow).join("") || '<tr><td colspan="8" class="muted">Builds with the next data update.</td></tr>'}</tbody></table></div></div>`;
+  const dList = (title, list, cls2, empty) => `<div class="card"><div class="hd"><h2><span class="badge ${cls2}">${title}</span></h2><span class="muted" style="font-size:12px">${list.length}</span></div><div class="bd" style="padding-top:4px">${list.slice(0, 12).map(x => `<button class="mv" data-go="${esc(x.symbol)}"><span><b>${esc(x.symbol)}</b> <span class="muted" style="font-size:12px">${esc(x.tag)}</span></span><span class="num"><b class="${cls(x.chg)}">${pct(x.chg)}</b> <span class="muted">deliv</span> <b>${x.dp}%</b> <span class="muted">vs ${x.avg_dp}% · ${x.dq_ratio ?? "–"}×</span></span></button>`).join("") || `<div class="muted">${empty}</div>`}</div></div>`;
+  const q = rot?.items || [], byQ = k => q.filter(i => i.quad === k).map(i => esc(i.name)).join(", ") || "–";
+  return `<div class="fade"><h1 class="page">Edge Lab</h1><p class="sub">Evidence you won't find on most stock websites: how today's exact setups played out in 5 years of history, where money is rotating between sectors, and whether buyers are really taking delivery. Tap any stock for its full Setup Déjà-vu.</p>
+  <div class="kpis"><div class="card kpi"><div class="l">A typical day (any stock)</div><div class="v">${E.base ? E.base.win20 + "%" : "–"}</div><div class="muted" style="font-size:12px">rose over 20 sessions · typical ${E.base ? pct(E.base.med20) : "–"}</div></div>
+    <div class="card kpi"><div class="l">Setups with strong odds today</div><div class="v up">${(b?.best || []).filter(r => r.grade === "Strong odds").length}</div></div>
+    <div class="card kpi"><div class="l">Leading sectors</div><div class="v" style="font-size:15px">${byQ("Leading")}</div></div>
+    <div class="card kpi"><div class="l">Smart-money accumulation</div><div class="v up">${dl ? dl.accumulation.length : "–"}</div><div class="muted" style="font-size:12px">${dl ? "NSE delivery, " + esc(dl.date) : "arrives with the next update"}</div></div></div>
+  ${oddsTbl(b?.best || [], "Odds Board: best historical odds right now", "stocks whose current setup most often rose afterwards")}
+  <div style="height:16px"></div>
+  <div class="grid g2"><div class="card"><div class="hd"><h2>Sector Rotation Map</h2><span class="muted" style="font-size:12px">weekly · vs Nifty 50 · last 7 weeks</span></div><div class="bd">${rot && q.length ? rotationSvg(rot) + `<p class="muted" style="font-size:12.5px;margin:8px 0 0">${esc(rot.note)}</p>
+      <table class="tbl" style="margin-top:8px"><tbody><tr><td class="l"><span class="badge bullish">Leading</span></td><td class="l">${byQ("Leading")}</td></tr><tr><td class="l"><span class="badge watch">Weakening</span></td><td class="l">${byQ("Weakening")}</td></tr><tr><td class="l"><span class="badge bearish">Lagging</span></td><td class="l">${byQ("Lagging")}</td></tr><tr><td class="l"><span class="badge neutral">Improving</span></td><td class="l">${byQ("Improving")}</td></tr></tbody></table>
+      <p style="font-size:13px;margin:10px 0 0"><b>How to use it:</b> prefer stocks from Leading and Improving sectors; be careful with Weakening ones even if the stock chart looks fine.</p>` : '<div class="muted">Builds with the next data update.</div>'}</div></div>
+    <div>${oddsTbl(b?.worst || [], "Weakest odds (avoid or protect)", "setups that most often fell afterwards")}</div></div>
+  <h2 class="page" style="font-size:20px;margin:22px 0 4px">Smart-Money Tracker</h2><p class="sub" style="margin-bottom:12px">From NSE's daily delivery data${dl ? ` (${esc(dl.date)}, ${dl.days} sessions of history)` : ""}. Delivery % is the share of traded quantity actually taken into demat accounts, not squared off intraday.</p>
+  ${dl ? `<div class="grid g3">${dList("Accumulation", dl.accumulation, "bullish", "None today.")}${dList("Distribution", dl.distribution, "bearish", "None today.")}${dList("Speculative rally", dl.speculative, "watch", "None today.")}</div>` : `<div class="card"><div class="empty"><b>Delivery data arrives with the next update</b>NSE publishes it after market close.</div></div>`}
+  <div class="card" style="margin-top:16px"><div class="bd" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><b>Portfolio X-ray</b><span class="muted" style="font-size:13.5px">See how much your holdings would drop if the Nifty falls 5%, your worst-day risk, hidden overlap and sector concentration.</span><button class="btn sm primary" data-nav="portfolio">Open Portfolio X-ray ›</button></div></div>
+  <p class="muted" style="font-size:12px;margin-top:14px">All odds are historical frequencies from this site's own data (no look-ahead). They describe the past, not a guarantee. Information only, not investment advice.</p></div>`;
+}
+// ---- Portfolio X-ray (runs in your browser; nothing is uploaded) ----
+async function runXray() {
+  const box = $("#xray"); if (!box) return;
+  const hs = my.holdings.filter(h => S[h.symbol] && S[h.symbol].price);
+  if (hs.length < 1) { box.innerHTML = '<div class="muted">Add holdings to see the X-ray.</div>'; return; }
+  box.innerHTML = '<div class="muted">Analysing 1 year of prices for your holdings…</div>';
+  try {
+    const dk = t => new Date(t * 1000).toISOString().slice(0, 10);
+    const nifty = await fetch(`data/indices/nifty50.json?t=${D.generated_at}`).then(r => r.json());
+    const nm = new Map(nifty.daily.map(r => [dk(r[0]), r[1]]));
+    const series = {};
+    await Promise.all(hs.map(async h => { try { const j = await fetch(`data/charts/${h.symbol.replace(/[^A-Z0-9&-]/gi, "_")}.json?t=${D.generated_at}`).then(r => r.json()); series[h.symbol] = new Map(j.rows.map(r => [dk(r[0]), r[1]])); } catch {} }));
+    const syms = hs.map(h => h.symbol).filter(s => series[s]);
+    const dates = [...nm.keys()].filter(d => syms.every(s => series[s].has(d))).sort();
+    if (dates.length < 60) { box.innerHTML = '<div class="muted">Not enough overlapping price history yet.</div>'; return; }
+    const ret = m => dates.slice(1).map((d, i) => m.get(d) / m.get(dates[i]) - 1);
+    const rm = ret(nm), R = Object.fromEntries(syms.map(s => [s, ret(series[s])]));
+    const val = Object.fromEntries(hs.map(h => [h.symbol, h.qty * S[h.symbol].price])), tot = syms.reduce((a, s) => a + val[s], 0), w = Object.fromEntries(syms.map(s => [s, val[s] / tot]));
+    const rp = rm.map((_, i) => syms.reduce((a, s) => a + w[s] * R[s][i], 0));
+    const mean = a => a.reduce((x, y) => x + y, 0) / a.length, cov = (a, b) => { const ma = mean(a), mb = mean(b); return a.reduce((x, v, i) => x + (v - ma) * (b[i] - mb), 0) / (a.length - 1); }, sd = a => Math.sqrt(cov(a, a)), corr = (a, b) => cov(a, b) / (sd(a) * sd(b));
+    const beta = cov(rp, rm) / cov(rm, rm), vol = sd(rp) * Math.sqrt(250) * 100, var95 = -[...rp].sort((a, b) => a - b)[Math.floor(rp.length * 0.05)];
+    let peak = 1, cur = 1, mdd = 0; for (const r of rp) { cur *= 1 + r; peak = Math.max(peak, cur); mdd = Math.min(mdd, cur / peak - 1); }
+    const yr = (rp.reduce((a, r) => a * (1 + r), 1) - 1) * 100, nyr = (rm.reduce((a, r) => a * (1 + r), 1) - 1) * 100;
+    const pairs = []; for (let i = 0; i < syms.length; i++) for (let j = i + 1; j < syms.length; j++) pairs.push([syms[i], syms[j], corr(R[syms[i]], R[syms[j]])]);
+    const avgC = pairs.length ? mean(pairs.map(p => p[2])) : null; pairs.sort((a, b) => b[2] - a[2]);
+    const sect = {}; for (const s of syms) { const k = S[s].industry || "Other"; sect[k] = (sect[k] || 0) + w[s]; }
+    const sectL = Object.entries(sect).sort((a, b) => b[1] - a[1]), topW = syms.map(s => [s, w[s]]).sort((a, b) => b[1] - a[1])[0];
+    const flags = [];
+    if (beta > 1.15) flags.push(`High market sensitivity (beta ${beta.toFixed(2)}): your portfolio tends to fall more than the Nifty.`);
+    if (sectL[0] && sectL[0][0] !== "Other" && sectL[0][1] > 0.35) flags.push(`Concentration: ${Math.round(sectL[0][1] * 100)}% in ${sectL[0][0]}. Many advisers suggest keeping any one sector under ~30–35%.`);
+    if (topW && topW[1] > 0.25) flags.push(`${topW[0]} is ${Math.round(topW[1] * 100)}% of your portfolio. A single bad result could hurt a lot.`);
+    if (avgC != null && avgC > 0.55) flags.push(`Your holdings move together (average correlation ${avgC.toFixed(2)}), so diversification is weaker than it looks.`);
+    const weak = syms.filter(s => (S[s].edge?.odds?.grade === "Poor odds") || (S[s].insight?.score ?? 0) <= -25);
+    if (weak.length) flags.push(`Weak signals now: ${weak.join(", ")}. Check their stop-losses.`);
+    if (!flags.length) flags.push("No major red flags: diversification and market sensitivity look reasonable.");
+    box.innerHTML = `<div class="kpis">
+      <div class="card kpi"><div class="l">If Nifty falls 5%</div><div class="v ${beta > 0 ? "down" : "up"}">${beta > 0 ? "−" : "+"}${inr(Math.abs(beta * 0.05 * tot))}</div><div class="muted" style="font-size:12px">estimated (beta ${beta.toFixed(2)})</div></div>
+      <div class="card kpi"><div class="l">Bad-day risk (1 in 20 days)</div><div class="v down">−${inr(var95 * tot)}</div><div class="muted" style="font-size:12px">${(var95 * 100).toFixed(1)}% one-day loss or worse</div></div>
+      <div class="card kpi"><div class="l">Worst fall in the last year</div><div class="v down">${(mdd * 100).toFixed(1)}%</div><div class="muted" style="font-size:12px">with today's weights</div></div>
+      <div class="card kpi"><div class="l">1-year return vs Nifty</div><div class="v ${cls(yr - nyr)}">${pct(yr)}</div><div class="muted" style="font-size:12px">Nifty ${pct(nyr)} · volatility ${vol.toFixed(0)}%/yr</div></div></div>
+      <div class="grid g2" style="margin-top:12px"><div class="card"><div class="hd"><h2>What the X-ray shows</h2></div><div class="bd"><ul class="xr-flags">${flags.map(f => `<li>${esc(f)}</li>`).join("")}</ul></div></div>
+      <div class="card"><div class="hd"><h2>Sector mix</h2></div><div class="bd">${sectL.map(([k, v]) => `<div class="xr-bar"><span>${esc(k)}</span><i style="width:${(v * 100).toFixed(1)}%"></i><b class="num">${(v * 100).toFixed(0)}%</b></div>`).join("")}
+        ${pairs.length ? `<p class="muted" style="font-size:12.5px;margin:10px 0 0">Most similar pair: <b>${esc(pairs[0][0])}</b> & <b>${esc(pairs[0][1])}</b> (correlation ${pairs[0][2].toFixed(2)}).${pairs.length > 1 ? ` Least similar: <b>${esc(pairs[pairs.length - 1][0])}</b> & <b>${esc(pairs[pairs.length - 1][1])}</b> (${pairs[pairs.length - 1][2].toFixed(2)}).` : ""}</p>` : ""}</div></div></div>
+      <div class="card" style="margin-top:12px"><div class="tblwrap"><table class="tbl"><thead><tr><th class="l">Holding</th><th>Weight</th><th>Beta</th><th>Volatility / yr</th><th>1y return</th><th class="l">Setup odds</th></tr></thead><tbody>
+      ${syms.map(s => { const b2 = cov(R[s], rm) / cov(rm, rm), v2 = sd(R[s]) * Math.sqrt(250) * 100, y2 = (R[s].reduce((a, r) => a * (1 + r), 1) - 1) * 100, o = S[s].edge?.odds;
+        return `<tr data-go="${esc(s)}"><td class="l"><span class="sym">${esc(s)}</span></td><td class="num">${(w[s] * 100).toFixed(1)}%</td><td class="num">${b2.toFixed(2)}</td><td class="num">${v2.toFixed(0)}%</td><td class="num ${cls(y2)}">${pct(y2)}</td><td class="l">${o ? `<span class="badge ${gradeCls(o.grade)}">${esc(o.grade)}</span> <span class="muted" style="font-size:12px">${o.win20}% up in 20d</span>` : "–"}</td></tr>`; }).join("")}</tbody></table></div></div>
+      <p class="muted" style="font-size:12px;margin-top:8px">Based on ${dates.length} common trading days. Computed in your browser; nothing is uploaded. Past behaviour, not a forecast.</p>`;
+  } catch (e) { box.innerHTML = `<div class="muted">Couldn't run the X-ray right now (${esc(e.message)}).</div>`; }
 }
 
 // ---------- CALENDAR ----------
@@ -1416,7 +1537,7 @@ $("#theme").addEventListener("click", () => {
 });
 if (!SNAPSHOT) window.addEventListener("hashchange", () => { readHash(); render(); });
 
-if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "fno", "options", "circuits", "screener", "w52", "portfolio", "calendar"].includes(h)) view = h; }
+if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "fno", "options", "circuits", "screener", "edge", "portfolio", "calendar"].includes(h)) view = h; }
 tickClock(); setInterval(tickClock, 1000);
 document.addEventListener("mouseover", e => { mmPaused = Boolean(e.target.closest("#mm")); btHover = Boolean(e.target.closest("#bticker")); });
 // ---------- PULSE AGENT: floating assistant (rule-based; advice comes from data/latest.json → advice) ----------
@@ -1592,7 +1713,7 @@ async function paAsk(key, text) {
     if (!SNAPSHOT && key !== "help") {
       try {
         const holdings = my.holdings.slice(0, 12).map(h => `${h.symbol} ${h.qty}@${h.avg}`).join(", ");
-        const r = await fetch("/agent", { method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(75000),
+        const r = await fetch("/agent", { method: "POST", headers: { "Content-Type": "application/json", "X-DP-Client": "web" }, signal: AbortSignal.timeout(75000),
           body: JSON.stringify({ question: text, symbols: syms, intent: PA.lastIntent || key || "", history: PA_HIST.slice(-8), user: { capital: agentCfg?.capital, risk: agentCfg?.risk, holdings }, desk: paDesk(syms) }) });
         const j = await r.json().catch(() => ({})); if (r.ok && j.answer) ai = j; else err = j.error || r.status;
       } catch (e) { err = e.name === "TimeoutError" ? "timeout" : e.message; }

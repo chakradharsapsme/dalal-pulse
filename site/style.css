@@ -646,3 +646,21 @@ body.bt-on .toast{bottom:calc(60px + env(safe-area-inset-bottom,0px))}
 .pa-handoff p{margin:4px 0 8px;font-size:12.5px}
 .pa-claudebtn{display:inline-block;padding:6px 14px;border-radius:999px;background:var(--peacock);color:#fff;font-weight:800;font-size:13px;text-decoration:none}
 .pa-claudebtn:hover{filter:brightness(1.1)}
+/* ---------- Edge Lab ---------- */
+.dv{margin:14px 0}.dv-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.dv-col{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:10px 12px}.dv-col.base{background:var(--paper2)}
+.dv-h{font-weight:700;font-size:13px}.dv-n{font-size:11.5px;color:var(--muted);margin-bottom:4px}
+.dv-big{font:800 28px var(--display);line-height:1.1}.dv-big.up{color:var(--up)}.dv-big.down{color:var(--down)}
+.dv-t{width:100%;margin-top:8px;font-size:12.5px;border-collapse:collapse}.dv-t td{padding:3px 0;border-top:1px solid var(--line)}.dv-t .num{text-align:right;font-family:var(--mono)}
+.dl-card{margin:0 0 14px}.dl-card .bd{display:flex;flex-direction:column;gap:4px}
+.rrg{width:100%;height:auto;display:block}.rrg .rq{font:800 11px var(--mono);letter-spacing:.08em;opacity:.8}.rrg .ra{font:600 11px var(--body);fill:var(--muted)}
+.rrg .rl{font:700 11.5px var(--body);fill:var(--ink);paint-order:stroke;stroke:var(--card);stroke-width:3px}
+.grid.g3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.xr-flags{margin:0;padding-left:18px;font-size:13.5px}.xr-flags li{margin:6px 0}
+.xr-bar{display:grid;grid-template-columns:150px 1fr 44px;align-items:center;gap:8px;margin:5px 0;font-size:13px}
+.xr-bar i{display:block;height:10px;border-radius:5px;background:var(--peacock)}.xr-bar span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media (max-width:760px){.dv-grid,.grid.g3{grid-template-columns:1fr}.xr-bar{grid-template-columns:110px 1fr 40px}}
+.olegs td{white-space:nowrap}.olegs .olot-c{display:block;color:var(--muted);font-size:11.5px;white-space:nowrap}
+.ototal{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:8px 0;padding:8px 10px;border-radius:8px;background:var(--accentbg);border:1px solid var(--line)}
+.ototal span{font-size:13px;font-weight:600}.ototal small{font-weight:400;color:var(--muted)}.ototal b{font:800 17px var(--mono);color:var(--accent-ink)}
+.ochain th.lotc,.ochain td.lotc{background:var(--accentbg);font-weight:600;white-space:nowrap}

@@ -7,6 +7,7 @@ const nse = require("./lib/nse");
 const technicals = require("./lib/technicals");
 const { KEYWORDS, compileMatchers, matchSymbols, deriveKeywords } = require("./lib/watchlist");
 const { headlineTone, stockInsight, marketMood, trendingTopics } = require("./lib/insights");
+const edge = require("./lib/edge");
 const backtest = require("./lib/backtest");
 const { loadIndices } = require("./lib/indices");
 const { loadOptions } = require("./lib/options");
@@ -167,6 +168,11 @@ async function main() {
   // signal track record (back-test over ~5 years of prices)
   const bt = await attempt("backtest", async () => backtest.run(techs, nRows, log), { summary: null, perStock: {} });
 
+  // Edge Lab: setup Déjà-vu (historical analogs), sector rotation, smart-money delivery
+  const edgeA = await attempt("edge_analogs", async () => edge.analogs(techs, log), null);
+  const rot = await attempt("edge_rotation", async () => edge.rotation(path.join(OUT, "indices"), log), null);
+  const deliv = await attempt("edge_delivery", () => edge.delivery(syms, CACHE, log), null);
+
   // charts (one small file per stock, loaded when you open it): price rows + this stock's past signals
   for (const [s, t] of Object.entries(techs)) {
     fs.writeFileSync(path.join(OUT, "charts", s.replace(/[^A-Z0-9&-]/gi, "_") + ".json"), JSON.stringify({ v: 2, rows: t.series, ev: bt.perStock[s] || [] }));
@@ -205,6 +211,8 @@ async function main() {
     return { symbol: s, name: u.name, industry: u.industry, nifty50: u.nifty50, nifty200: u.nifty200 !== false, fo: foInfo, turnover_cr: t?.tech?.vol && q.price ? Math.round(t.tech.vol * q.price / 1e5) / 100 : null, price: q.price ?? null, change_pct: q.change_pct ?? null,
       tech: t?.tech || null, news_ids: sn.map(n => n.id), events: ev.slice(0, 3),
       spark: t ? t.series.slice(-30).map(p => p[1]) : [],
+      edge: edgeA?.perStock?.[s] ? (({ label, short, own, all, odds, loose }) => ({ label, short, own, all, odds, loose }))(edgeA.perStock[s]) : null,
+      deliv: deliv?.perStock?.[s] || null,
       insight: stockInsight(s, u.name, t?.tech, sn, ev, q.change_pct) };
   });
 
@@ -279,7 +287,8 @@ async function main() {
   const out = {
     generated_at: new Date().toISOString(), build_seconds: Math.round((Date.now() - t0) / 1000), status,
     pulse: pulse.items, sectors: pulse.sectors, industries, nifty_pe: pulse.nifty_pe, fii_dii: fii, mood, topics,
-    nifty_returns: Object.fromEntries(Object.entries(nr).map(([k, v]) => [k, r2(v)])), backtest: bt.summary, live_record: liveRecord, indices, circuits, news_speed: newsSpeed, options, kite_api_key: cfg.kite_publisher_api_key || null,
+    nifty_returns: Object.fromEntries(Object.entries(nr).map(([k, v]) => [k, r2(v)])), backtest: bt.summary, live_record: liveRecord,
+    edge: { base: edgeA?.base || null, board: edgeA?.board || null, rotation: rot, delivery: deliv ? { date: deliv.date, days: deliv.days, accumulation: deliv.accumulation, distribution: deliv.distribution, speculative: deliv.speculative } : null }, indices, circuits, news_speed: newsSpeed, options, kite_api_key: cfg.kite_publisher_api_key || null,
     stocks, news: newsOut, w52, calendar: upcoming.slice(0, 600).map(e => ({ ...e, tracked: Boolean(universe[e.symbol]), nifty50: Boolean(universe[e.symbol]?.nifty50) })),
   };
   // Expert Agent: rule-based advice cards (pop up on the site; history in .cache/advice.json)
