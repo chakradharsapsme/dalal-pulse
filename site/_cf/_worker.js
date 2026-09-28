@@ -16,6 +16,7 @@ Tabs:
 - Indices: 18 NSE indices with charts, compare view and constituents.
 - F&O: stocks trending with positive news, open-interest build-up (Long build-up = price up + OI up; Short build-up = price down + OI up; Short covering = price up + OI down; Long unwinding = price down + OI down).
 - Options: index/stock option chain read (PCR, max pain, call/put walls, IV, expected move), defined-risk spread ideas, lottery list (cheap far options, mostly expire worthless), and the Options Expert planner (careful/balanced/bold risk sizing: 1/2/3% of capital per trade). "Buy on Kite" buttons open a Kite basket — the order is only placed after YOU confirm inside Kite.
+- Momentum: a quadrant of indices or stocks by today's move (across) and this week's move (up/down): Strong & rising, Bouncing, Pausing, Falling. Toggle indices / Nifty 50 / Nifty 200 / F&O / my stocks, and actual vs relative-to-Nifty.
 - Circuits: large & mid caps hitting 2/5/10/20% price bands today (small caps hidden on purpose).
 - Screener: ready-made screens (leaders, breakouts, pullbacks, oversold...) as cards or table.
 - Portfolio: your holdings/watchlist kept in your browser only.

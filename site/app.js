@@ -134,7 +134,7 @@ function nav(v, s) {
 }
 function readHash() {
   const [v, s] = location.hash.replace(/^#\/?/, "").split("/");
-  if (["news", "markets", "indices", "fno", "options", "circuits", "screener", "portfolio", "calendar", "edge"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
+  if (["news", "markets", "indices", "fno", "options", "circuits", "screener", "portfolio", "calendar", "momentum"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
 }
 const go = sym => nav("news", sym);
 
@@ -142,7 +142,7 @@ function render() {
   if (!D) return;
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.nav === view));
   const keep = document.querySelector(".list")?.scrollTop;
-  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "fno" ? fnoView() : view === "circuits" ? circuitsView() : view === "options" ? optionsView() : view === "screener" ? screener() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : view === "edge" ? edgeView() : newsView();
+  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "fno" ? fnoView() : view === "circuits" ? circuitsView() : view === "options" ? optionsView() : view === "screener" ? screener() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : view === "momentum" ? momentumView() : newsView();
   if (view === "portfolio") setTimeout(runXray, 0);
   if (keep && document.querySelector(".list")) document.querySelector(".list").scrollTop = keep;
   if (view === "news") { if (sel && S[sel]) drawChart(sel); document.querySelector(".row.on")?.scrollIntoView({ block: "nearest" }); }
@@ -1336,29 +1336,75 @@ function rotationSvg(rot) {
         <circle cx="${X(lx).toFixed(1)}" cy="${Y(ly).toFixed(1)}" r="5.5" fill="${qc[i.quad]}" stroke="var(--card)" stroke-width="1.5"><title>${esc(i.name)}: ${i.quad} (RS ${lx}, momentum ${ly})</title></circle>
         <text x="${(X(lx) + 8).toFixed(1)}" y="${(Y(ly) + 4).toFixed(1)}" class="rl">${esc(i.name)}</text></g>`; }).join("")}</svg>`;
 }
-function edgeView() {
-  const E = D.edge || {}, b = E.board, rot = E.rotation, dl = E.delivery;
-  const oddsRow = r => { const s = S[r.symbol] || {}; return `<tr data-go="${esc(r.symbol)}"><td class="l"><span class="sym">${esc(r.symbol)}</span>${s.nifty50 ? ' <span class="badge n50">N50</span>' : ""}<div class="muted" style="font-size:12px">${esc(s.edge?.short || "")}</div></td>
-    <td class="num">${px(s.price)}</td><td class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</td><td class="num"><b>${r.win20}%</b></td><td class="num ${cls(r.med20)}">${pct(r.med20)}</td><td class="num ${cls(r.edge)}">${r.edge >= 0 ? "+" : ""}${r.edge}</td><td class="num muted">${fmt(r.n, 0)}${r.own_n ? ` / ${r.own_n}` : ""}</td><td class="l"><span class="badge ${gradeCls(r.grade)}">${esc(r.grade)}</span></td></tr>`; };
-  const oddsTbl = (rows, title, note) => `<div class="card"><div class="hd"><h2>${title}</h2><span class="muted" style="font-size:12px">${note}</span></div><div class="tblwrap"><table class="tbl"><thead><tr><th class="l">Stock · today's setup</th><th>Price</th><th>Day</th><th>Rose in 20d</th><th>Typical 20d</th><th>Edge vs typical</th><th>Cases (all / own)</th><th class="l">Odds</th></tr></thead><tbody>${rows.map(oddsRow).join("") || '<tr><td colspan="8" class="muted">Builds with the next data update.</td></tr>'}</tbody></table></div></div>`;
-  const dList = (title, list, cls2, empty) => `<div class="card"><div class="hd"><h2><span class="badge ${cls2}">${title}</span></h2><span class="muted" style="font-size:12px">${list.length}</span></div><div class="bd" style="padding-top:4px">${list.slice(0, 12).map(x => `<button class="mv" data-go="${esc(x.symbol)}"><span><b>${esc(x.symbol)}</b> <span class="muted" style="font-size:12px">${esc(x.tag)}</span></span><span class="num"><b class="${cls(x.chg)}">${pct(x.chg)}</b> <span class="muted">deliv</span> <b>${x.dp}%</b> <span class="muted">vs ${x.avg_dp}% · ${x.dq_ratio ?? "–"}×</span></span></button>`).join("") || `<div class="muted">${empty}</div>`}</div></div>`;
-  const q = rot?.items || [], byQ = k => q.filter(i => i.quad === k).map(i => esc(i.name)).join(", ") || "–";
-  return `<div class="fade"><h1 class="page">Edge Lab</h1><p class="sub">Evidence you won't find on most stock websites: how today's exact setups played out in 5 years of history, where money is rotating between sectors, and whether buyers are really taking delivery. Tap any stock for its full Setup Déjà-vu.</p>
-  <div class="kpis"><div class="card kpi"><div class="l">A typical day (any stock)</div><div class="v">${E.base ? E.base.win20 + "%" : "–"}</div><div class="muted" style="font-size:12px">rose over 20 sessions · typical ${E.base ? pct(E.base.med20) : "–"}</div></div>
-    <div class="card kpi"><div class="l">Setups with strong odds today</div><div class="v up">${(b?.best || []).filter(r => r.grade === "Strong odds").length}</div></div>
-    <div class="card kpi"><div class="l">Leading sectors</div><div class="v" style="font-size:15px">${byQ("Leading")}</div></div>
-    <div class="card kpi"><div class="l">Smart-money accumulation</div><div class="v up">${dl ? dl.accumulation.length : "–"}</div><div class="muted" style="font-size:12px">${dl ? "NSE delivery, " + esc(dl.date) : "arrives with the next update"}</div></div></div>
-  ${oddsTbl(b?.best || [], "Odds Board: best historical odds right now", "stocks whose current setup most often rose afterwards")}
-  <div style="height:16px"></div>
-  <div class="grid g2"><div class="card"><div class="hd"><h2>Sector Rotation Map</h2><span class="muted" style="font-size:12px">weekly · vs Nifty 50 · last 7 weeks</span></div><div class="bd">${rot && q.length ? rotationSvg(rot) + `<p class="muted" style="font-size:12.5px;margin:8px 0 0">${esc(rot.note)}</p>
-      <table class="tbl" style="margin-top:8px"><tbody><tr><td class="l"><span class="badge bullish">Leading</span></td><td class="l">${byQ("Leading")}</td></tr><tr><td class="l"><span class="badge watch">Weakening</span></td><td class="l">${byQ("Weakening")}</td></tr><tr><td class="l"><span class="badge bearish">Lagging</span></td><td class="l">${byQ("Lagging")}</td></tr><tr><td class="l"><span class="badge neutral">Improving</span></td><td class="l">${byQ("Improving")}</td></tr></tbody></table>
-      <p style="font-size:13px;margin:10px 0 0"><b>How to use it:</b> prefer stocks from Leading and Improving sectors; be careful with Weakening ones even if the stock chart looks fine.</p>` : '<div class="muted">Builds with the next data update.</div>'}</div></div>
-    <div>${oddsTbl(b?.worst || [], "Weakest odds (avoid or protect)", "setups that most often fell afterwards")}</div></div>
-  <h2 class="page" style="font-size:20px;margin:22px 0 4px">Smart-Money Tracker</h2><p class="sub" style="margin-bottom:12px">From NSE's daily delivery data${dl ? ` (${esc(dl.date)}, ${dl.days} sessions of history)` : ""}. Delivery % is the share of traded quantity actually taken into demat accounts, not squared off intraday.</p>
-  ${dl ? `<div class="grid g3">${dList("Accumulation", dl.accumulation, "bullish", "None today.")}${dList("Distribution", dl.distribution, "bearish", "None today.")}${dList("Speculative rally", dl.speculative, "watch", "None today.")}</div>` : `<div class="card"><div class="empty"><b>Delivery data arrives with the next update</b>NSE publishes it after market close.</div></div>`}
-  <div class="card" style="margin-top:16px"><div class="bd" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap"><b>Portfolio X-ray</b><span class="muted" style="font-size:13.5px">See how much your holdings would drop if the Nifty falls 5%, your worst-day risk, hidden overlap and sector concentration.</span><button class="btn sm primary" data-nav="portfolio">Open Portfolio X-ray ›</button></div></div>
-  <p class="muted" style="font-size:12px;margin-top:14px">All odds are historical frequencies from this site's own data (no look-ahead). They describe the past, not a guarantee. Information only, not investment advice.</p></div>`;
+// ---------- MOMENTUM QUADRANT: what is moving up today, for indices and stocks ----------
+const MQ_SETS = [["indices", "Indices"], ["n50", "Nifty 50"], ["n200", "Nifty 200"], ["fo", "F&O stocks"], ["mine", "My stocks"]];
+const MQ_Q = {
+  lead: ["Strong & rising", "Up today and up this week: momentum is with the buyers.", "var(--up)", "var(--upbg)"],
+  bounce: ["Bouncing", "Up today after a weak week: a possible turn, needs confirmation.", "var(--s1)", "var(--peacockbg)"],
+  pause: ["Pausing", "Down today after a good week: profit-taking; watch if support holds.", "var(--warn)", "var(--warnbg)"],
+  weak: ["Falling", "Down today and down this week: sellers in control, avoid fresh buying.", "var(--down)", "var(--downbg)"],
+};
+function mqItems() {
+  const set = ui.mq || "indices", rel = ui.mx === "rel";
+  const n50 = (D.indices || []).find(x => x.id === "nifty50"), nd = n50?.change_pct || 0, nw = n50?.tech?.ret_1w || 0;
+  let items;
+  if (set === "indices") items = (D.indices || []).filter(x => x.id !== "vix" && x.change_pct != null && x.tech?.ret_1w != null).map(x => ({ id: x.id, name: /^Nifty \d+$/.test(x.name) ? x.name : x.name.replace(/^Nifty /, ""), d: x.change_pct, w: x.tech.ret_1w, size: 1, idx: true }));
+  else {
+    let L = D.stocks.filter(s => s.change_pct != null && s.tech?.ret_1w != null);
+    if (set === "n50") L = L.filter(s => s.nifty50); else if (set === "n200") L = L.filter(s => s.nifty200 !== false); else if (set === "fo") L = L.filter(s => s.fo); else if (set === "mine") L = L.filter(s => isMine(s.symbol));
+    items = L.map(s => ({ id: s.symbol, name: s.symbol, d: s.change_pct, w: s.tech.ret_1w, size: s.turnover_cr || 1 }));
+  }
+  if (rel) items = items.filter(x => x.id !== "nifty50").map(x => ({ ...x, d: x.d - nd, w: x.w - nw }));
+  for (const x of items) x.q = x.d >= 0 ? (x.w >= 0 ? "lead" : "bounce") : (x.w >= 0 ? "pause" : "weak");
+  return items;
 }
+function mqSvg(items) {
+  if (!items.length) return '<div class="empty"><b>Nothing to show</b>Add stocks to your portfolio or watchlist to see them here.</div>';
+  const W = 760, H = 480, P = 44;
+  const lim = (a, min) => Math.max(min, ...a.map(v => Math.abs(v))) * 1.12;
+  const cap = (v, m) => Math.max(-m, Math.min(m, v));
+  // robust scale: ignore extreme outliers (they are clamped to the edge and marked)
+  const q95 = a => { const s = a.map(Math.abs).sort((x, y) => x - y); return s[Math.floor(s.length * 0.95)] || s[s.length - 1] || 1; };
+  const sx = lim([q95(items.map(i => i.d))], 1), sy = lim([q95(items.map(i => i.w))], 2);
+  const X = v => P + (cap(v, sx) + sx) / (2 * sx) * (W - 2 * P), Y = v => H - P - (cap(v, sy) + sy) / (2 * sy) * (H - 2 * P);
+  const maxS = Math.max(...items.map(i => i.size)), R = i => items[0].idx ? 7 : 3.5 + Math.sqrt(i.size / maxS) * 11;
+  const showLabel = new Set([...items].sort((a, b) => (Math.abs(b.d) + Math.abs(b.w) / 3) - (Math.abs(a.d) + Math.abs(a.w) / 3)).slice(0, items[0].idx ? 99 : 28).map(i => i.id));
+  const cx = X(0), cy = Y(0), qd = (k, x, y, w, h) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${MQ_Q[k][3]}"/>`;
+  return `<svg class="mq" viewBox="0 0 ${W} ${H}" role="img" aria-label="Momentum quadrant">
+    ${qd("lead", cx, P, W - P - cx, cy - P)}${qd("bounce", cx, cy, W - P - cx, H - P - cy)}
+    ${qd("pause", P, P, cx - P, cy - P)}${qd("weak", P, cy, cx - P, H - P - cy)}
+    <line x1="${cx}" y1="${P}" x2="${cx}" y2="${H - P}" stroke="var(--line2)"/><line x1="${P}" y1="${cy}" x2="${W - P}" y2="${cy}" stroke="var(--line2)"/>
+    <text x="${W - P - 8}" y="${P + 18}" text-anchor="end" class="mqq" fill="var(--up)">STRONG & RISING</text>
+    <text x="${W - P - 8}" y="${H - P - 10}" text-anchor="end" class="mqq" fill="var(--s1)">BOUNCING</text>
+    <text x="${P + 8}" y="${P + 18}" class="mqq" fill="var(--warn)">PAUSING</text>
+    <text x="${P + 8}" y="${H - P - 10}" class="mqq" fill="var(--down)">FALLING</text>
+    ${[-sx, -sx / 2, sx / 2, sx].map(v => `<text x="${X(v)}" y="${H - P + 16}" text-anchor="middle" class="mqa">${v > 0 ? "+" : ""}${v.toFixed(1)}%</text>`).join("")}
+    ${[-sy, -sy / 2, sy / 2, sy].map(v => `<text x="${P - 6}" y="${Y(v) + 4}" text-anchor="end" class="mqa">${v > 0 ? "+" : ""}${v.toFixed(1)}%</text>`).join("")}
+    <text x="${W / 2}" y="${H - 8}" text-anchor="middle" class="mqt">today's move${ui.mx === "rel" ? " vs Nifty" : ""} →</text>
+    <text x="14" y="${H / 2}" text-anchor="middle" class="mqt" transform="rotate(-90 14 ${H / 2})">this week's move${ui.mx === "rel" ? " vs Nifty" : ""} →</text>
+    ${items.sort((a, b) => b.size - a.size).map(i => { const x = X(i.d), y = Y(i.w), out = Math.abs(i.d) > sx || Math.abs(i.w) > sy;
+      return `<g class="mqp" ${i.idx ? `data-nav="indices"` : `data-go="${esc(i.id)}"`}><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${R(i).toFixed(1)}" fill="${MQ_Q[i.q][2]}" fill-opacity="${i.idx ? .9 : .6}" stroke="${out ? "var(--ink)" : "var(--card)"}" stroke-width="${out ? 1.6 : 1}"><title>${esc(i.name)} · today ${pct(i.d)} · week ${pct(i.w)} · ${MQ_Q[i.q][0]}</title></circle>
+        ${showLabel.has(i.id) ? `<text x="${(x + R(i) + 3).toFixed(1)}" y="${(y + 4).toFixed(1)}" class="mql">${esc(i.name)}</text>` : ""}</g>`; }).join("")}
+  </svg>`;
+}
+function momentumView() {
+  const items = mqItems(), set = ui.mq || "indices", by = k => items.filter(i => i.q === k);
+  const up = items.filter(i => i.d > 0).length, n = items.length;
+  const col = k => { const L = by(k).sort((a, b) => k === "lead" || k === "bounce" ? b.d - a.d : a.d - b.d);
+    return `<div class="card mqc"><div class="hd"><h2 style="color:${MQ_Q[k][2]}">${MQ_Q[k][0]}</h2><span class="badge neutral">${L.length}</span></div><div class="bd" style="padding-top:2px"><p class="muted" style="font-size:12.5px;margin:4px 0 8px">${MQ_Q[k][1]}</p>
+      ${L.slice(0, 10).map(i => `<button class="mv" ${i.idx ? 'data-nav="indices"' : `data-go="${esc(i.id)}"`}><span><b>${esc(i.name)}</b></span><span class="num"><span class="muted">today</span> <b class="${cls(i.d)}">${pct(i.d)}</b> <span class="muted">week</span> <b class="${cls(i.w)}">${pct(i.w)}</b></span></button>`).join("") || '<div class="muted">None right now.</div>'}
+      ${L.length > 10 ? `<div class="muted" style="font-size:12px;margin-top:6px">+ ${L.length - 10} more on the chart</div>` : ""}</div></div>`; };
+  const n50 = (D.indices || []).find(x => x.id === "nifty50");
+  return `<div class="fade"><h1 class="page">Momentum Quadrant</h1><p class="sub">Which indices and stocks are moving up today, and whether it's backed by the week's trend. Right = up today · Top = up this week. Bubble size = value traded. Tap any bubble or row to open it. Updates with every refresh (about every 5 minutes in market hours).</p>
+    <div class="mqbar"><div class="seg">${MQ_SETS.map(([k, l]) => `<button data-mq="${k}" class="${set === k ? "on" : ""}">${l}</button>`).join("")}</div>
+      <div class="seg">${[["abs", "Actual move"], ["rel", "Vs Nifty"]].map(([k, l]) => `<button data-mx="${k}" class="${(ui.mx || "abs") === k ? "on" : ""}">${l}</button>`).join("")}</div>
+      <span class="muted" style="font-size:13px">Nifty today <b class="${cls(n50?.change_pct)}">${pct(n50?.change_pct)}</b> · week <b class="${cls(n50?.tech?.ret_1w)}">${pct(n50?.tech?.ret_1w)}</b> · ${up} of ${n} up today · data ${ago(D.generated_at)}</span></div>
+    <div class="kpis">${Object.keys(MQ_Q).map(k => `<div class="card kpi"><div class="l">${MQ_Q[k][0]}</div><div class="v" style="color:${MQ_Q[k][2]}">${by(k).length}</div><div class="muted" style="font-size:12px">${n ? Math.round(by(k).length / n * 100) : 0}% of ${n}</div></div>`).join("")}</div>
+    <div class="card"><div class="bd">${mqSvg(items.map(x => ({ ...x })))}</div></div>
+    <div class="mqgrid">${["lead", "bounce", "pause", "weak"].map(col).join("")}</div>
+    <p class="muted" style="font-size:12px;margin-top:12px">${ui.mx === "rel" ? "Vs Nifty: each move minus the Nifty 50's move, so you see who is beating the market. " : ""}Outliers beyond the chart edge are pinned to the border (dark outline). Information only, not investment advice.</p></div>`;
+}
+
 // ---- Portfolio X-ray (runs in your browser; nothing is uploaded) ----
 async function runXray() {
   const box = $("#xray"); if (!box) return;
@@ -1489,6 +1535,8 @@ document.addEventListener("click", async e => {
   const ov = t.closest("[data-ov]"); if (ov) { ui.ov[ov.dataset.ov] = !ui.ov[ov.dataset.ov]; ov.classList.toggle("on", ui.ov[ov.dataset.ov]); ov.setAttribute("aria-pressed", ui.ov[ov.dataset.ov]); drawChart(sel); return; }
   const sb = t.closest("[data-sub]"); if (sb) { ui.sub = sb.dataset.sub; document.querySelectorAll("[data-sub]").forEach(b => b.classList.toggle("on", b === sb)); drawChart(sel); return; }
   const hp = t.closest("[data-hp]"); if (hp) { ui.hp = hp.dataset.hp; render(); return; }
+  const mqs = t.closest("[data-mq]"); if (mqs) { ui.mq = mqs.dataset.mq; render(); return; }
+  const mqx = t.closest("[data-mx]"); if (mqx) { ui.mx = mqx.dataset.mx; render(); return; }
   const hm = t.closest("[data-hm]"); if (hm) { ui.hm = hm.dataset.hm; render(); return; }
   const bh = t.closest("[data-bh]"); if (bh) { ui.bh = +bh.dataset.bh; render(); return; }
   const bd = t.closest("[data-bdir]"); if (bd) { ui.bdir = bd.dataset.bdir; render(); return; }
@@ -1537,7 +1585,7 @@ $("#theme").addEventListener("click", () => {
 });
 if (!SNAPSHOT) window.addEventListener("hashchange", () => { readHash(); render(); });
 
-if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "fno", "options", "circuits", "screener", "edge", "portfolio", "calendar"].includes(h)) view = h; }
+if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "fno", "options", "circuits", "screener", "momentum", "portfolio", "calendar"].includes(h)) view = h; }
 tickClock(); setInterval(tickClock, 1000);
 document.addEventListener("mouseover", e => { mmPaused = Boolean(e.target.closest("#mm")); btHover = Boolean(e.target.closest("#bticker")); });
 // ---------- PULSE AGENT: floating assistant (rule-based; advice comes from data/latest.json → advice) ----------

@@ -664,3 +664,11 @@ body.bt-on .toast{bottom:calc(60px + env(safe-area-inset-bottom,0px))}
 .ototal{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:8px 0;padding:8px 10px;border-radius:8px;background:var(--accentbg);border:1px solid var(--line)}
 .ototal span{font-size:13px;font-weight:600}.ototal small{font-weight:400;color:var(--muted)}.ototal b{font:800 17px var(--mono);color:var(--accent-ink)}
 .ochain th.lotc,.ochain td.lotc{background:var(--accentbg);font-weight:600;white-space:nowrap}
+/* ---------- Momentum Quadrant ---------- */
+.mqbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 14px}
+.mq{width:100%;height:auto;display:block}.mq .mqq{font:800 12px var(--mono);letter-spacing:.08em;opacity:.85}
+.mq .mqa{font:600 10.5px var(--mono);fill:var(--muted)}.mq .mqt{font:600 11.5px var(--body);fill:var(--muted)}
+.mq .mql{font:700 11px var(--body);fill:var(--ink);paint-order:stroke;stroke:var(--card);stroke-width:3px;pointer-events:none}
+.mq .mqp{cursor:pointer}.mq .mqp:hover circle{fill-opacity:1;stroke:var(--ink)}
+.mqgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:16px}
+@media (max-width:1100px){.mqgrid{grid-template-columns:repeat(2,1fr)}}@media (max-width:640px){.mqgrid{grid-template-columns:1fr}}
