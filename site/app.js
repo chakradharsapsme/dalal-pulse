@@ -1539,7 +1539,7 @@ document.addEventListener("click", async e => {
   const cr = t.closest("[data-crange]"); if (cr) { ui.crange = cr.dataset.crange; render(); return; }
   const ic = t.closest("[data-icmp]"); if (ic) { const id = ic.dataset.icmp; if (ui.icmp.includes(id)) { if (ui.icmp.length > 1) ui.icmp = ui.icmp.filter(x => x !== id); } else if (ui.icmp.length < 6) ui.icmp.push(id); else toast("Up to 6 indices at a time"); render(); return; }
   if (t.closest("a[href]")) return;
-  const g = t.closest("[data-go]"); if (g) { $("#gsugg").hidden = true; if (g.closest("#drawer")) closeDrawer(); go(g.dataset.go); return; }
+  const g = t.closest("[data-go]"); if (g) { $("#gsugg").hidden = true; if (g.closest("#gsugg")) { $("#gsearch").value = ""; $("#gsearch").blur(); } if (g.closest("#drawer")) closeDrawer(); go(g.dataset.go); return; }
   const s = t.closest("[data-sel]"); if (s) { sel = s.dataset.sel; if (!SNAPSHOT) history.replaceState(null, "", "#news/" + encodeURIComponent(sel)); render(); if (innerWidth <= 900) window.scrollTo({ top: 0 }); return; }
   if (t.closest("[data-back]")) { nav("news"); return; }
   const nf = t.closest("[data-nf]"); if (nf) { ui.nf = nf.dataset.nf; render(); return; }
@@ -1590,17 +1590,40 @@ document.addEventListener("input", e => {
   ui[id === "nq" ? "q" : id === "sq" ? "sq" : "fq"] = e.target.value; const pos = e.target.selectionStart; render(); const el = $("#" + id); el.focus(); el.setSelectionRange(pos, pos);
 });
 let gi = -1;
-$("#gsearch").addEventListener("input", () => {
-  const q = $("#gsearch").value.trim().toLowerCase(), box = $("#gsugg"); gi = -1;
+function searchHits(raw) {
+  const q = raw.trim().toLowerCase().replace(/\s+/g, " "); if (!q || !D) return [];
+  const qs = q.replace(/[^a-z0-9&]/g, ""), score = new Map(), add = (sym, v) => { if (S[sym] && v > (score.get(sym) || 0)) score.set(sym, v); };
+  for (const s of D.stocks) {
+    const sy = s.symbol.toLowerCase(), nm = (s.name || "").toLowerCase(), nms = nm.replace(/[^a-z0-9&]/g, "");
+    if (sy === qs) add(s.symbol, 100); else if (sy.startsWith(qs)) add(s.symbol, 80 - sy.length / 10);
+    if (nm.startsWith(q) || nms.startsWith(qs)) add(s.symbol, 70); else if (new RegExp("\\b" + q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(nm)) add(s.symbol, 60); else if (nms.includes(qs) || sy.includes(qs)) add(s.symbol, 40);
+  }
+  for (const [k, v] of Object.entries(PA_ALIAS)) { if (k === q) add(v, 95); else if (k.startsWith(q) && q.length >= 3) add(v, 65); }
+  if (q.length >= 3 && q.includes("tata motors")) { add("TMPV", 94); add("TMCV", 93); }
+  if (!score.size && qs.length >= 4) { // small typos: one letter off
+    const near = (a, b) => { if (Math.abs(a.length - b.length) > 1) return false; let i = 0, j = 0, e = 0; while (i < a.length && j < b.length) { if (a[i] === b[j]) { i++; j++; continue; } if (++e > 1) return false; if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; } } return e + (a.length - i) + (b.length - j) <= 1; };
+    for (const s of D.stocks) { const w = (s.name || "").toLowerCase().split(/[^a-z0-9]+/)[0]; if (near(qs, s.symbol.toLowerCase()) || (w && near(qs, w))) add(s.symbol, 30); }
+  }
+  return [...score.entries()].sort((a, b) => b[1] - a[1] || (S[b[0]].turnover_cr || 0) - (S[a[0]].turnover_cr || 0)).slice(0, 12).map(([k]) => S[k]);
+}
+function searchRender() {
+  const raw = $("#gsearch").value, q = raw.trim(), box = $("#gsugg"); gi = -1;
   if (!q || !D) { box.hidden = true; return; }
-  const hits = D.stocks.filter(s => s.symbol.toLowerCase().startsWith(q)).concat(D.stocks.filter(s => !s.symbol.toLowerCase().startsWith(q) && (s.symbol.toLowerCase().includes(q) || (s.name || "").toLowerCase().includes(q)))).slice(0, 8);
-  box.innerHTML = hits.map(s => `<button data-go="${esc(s.symbol)}"><span><b>${esc(s.symbol)}</b> <span class="muted" style="font-size:12.5px">${esc(s.name)}</span></span><span class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</span></button>`).join("") || '<div class="muted" style="padding:10px 12px">Not tracked. The site covers the Nifty 200.</div>';
+  const hits = searchHits(q), nse = q.toUpperCase().replace(/[^A-Z0-9&-]/g, "");
+  box.innerHTML = hits.map(s => `<button type="button" data-go="${esc(s.symbol)}"><span class="sg-n"><b>${esc(s.symbol)}</b><span class="muted">${esc(s.name)}</span></span><span class="num ${cls(s.change_pct)}">${s.price != null ? rs(s.price) + " · " : ""}${pct(s.change_pct)}</span></button>`).join("")
+    || `<div class="sg-empty"><b>"${esc(q)}" is not in the Nifty 200 list this site tracks.</b><span class="muted">Try the company or symbol name (e.g. Reliance, SBIN, Tata Motors).</span>${nse.length >= 2 ? `<a href="https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(nse)}" target="_blank" rel="noopener">Look up ${esc(nse)} on NSE ↗</a>` : ""}</div>`;
   box.hidden = false;
-});
+}
+$("#gsearch").addEventListener("input", searchRender);
+$("#gsearch").addEventListener("focus", () => { if ($("#gsearch").value.trim()) searchRender(); });
+$("#gsugg").addEventListener("pointerdown", e => e.preventDefault()); // keep focus so the tap lands on the row
 $("#gsearch").addEventListener("keydown", e => {
-  const items = [...document.querySelectorAll("#gsugg [data-go]")]; if (!items.length) return;
-  if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); gi = (gi + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length; items.forEach((x, i) => x.classList.toggle("on", i === gi)); }
-  if (e.key === "Enter") { go((items[gi] || items[0]).dataset.go); $("#gsugg").hidden = true; $("#gsearch").value = ""; $("#gsearch").blur(); }
+  if (e.key === "Escape") { $("#gsugg").hidden = true; $("#gsearch").blur(); return; }
+  const items = [...document.querySelectorAll("#gsugg [data-go]")];
+  if (e.key === "Enter") { e.preventDefault(); if (!items.length) { const h = searchHits($("#gsearch").value); if (!h.length) { searchRender(); return; } items.push({ dataset: { go: h[0].symbol } }); }
+    go((items[gi] || items[0]).dataset.go); $("#gsugg").hidden = true; $("#gsearch").value = ""; $("#gsearch").blur(); return; }
+  if (!items.length) return;
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); gi = (gi + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length; items.forEach((x, i) => x.classList.toggle("on", i === gi)); items[gi].scrollIntoView({ block: "nearest" }); }
 });
 $("#theme").addEventListener("click", () => {
   const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
