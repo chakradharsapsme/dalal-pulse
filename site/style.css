@@ -726,3 +726,25 @@ body.bt-on .toast{bottom:calc(60px + env(safe-area-inset-bottom,0px))}
   .gy{display:none}
   .gcard{padding:12px}
 }
+/* groups: donuts */
+.gbrow{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.gkey{display:inline-flex;align-items:center;gap:3px;font-size:11.5px;color:var(--muted);margin-left:auto}
+.gkey i{width:14px;height:10px;border-radius:2px;display:inline-block}.gkey span{margin:0 4px}
+.gglance .hd{flex-wrap:wrap;gap:4px 12px}
+.gminis{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:6px;padding:4px 12px 14px}
+.gmini{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 4px;border:1px solid transparent;border-radius:12px;background:none;font:inherit;color:var(--ink);cursor:pointer;text-align:center}
+.gmini:hover{border-color:var(--line);background:var(--paper2)}
+.gmini{min-width:0}.gmini b{font-size:12.5px;line-height:1.2}.gmini>span{font-size:11px;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.gdonut{display:block;flex:none;overflow:visible}
+.gsl{stroke:var(--card);stroke-width:1;transition:opacity .15s}.gsl[data-go]{cursor:pointer}
+.gdonut:hover .gsl{opacity:.55}.gdonut .gsl:hover{opacity:1}
+.gdc{font-weight:700;font-variant-numeric:tabular-nums;fill:var(--ink)}.gdc.up{fill:var(--up)}.gdc.down{fill:var(--down)}
+.gdl{font-size:10.5px;fill:var(--muted)}
+.gviz{display:flex;gap:18px;align-items:center;margin:12px 0 8px}
+.glist{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.glab{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin:4px 0 2px}.glab.up{color:var(--up)}.glab.down{color:var(--down)}
+.glead{display:flex;align-items:center;gap:8px;padding:4px 6px;border:0;border-radius:6px;background:none;font:inherit;color:var(--ink);cursor:pointer;text-align:left}
+.glead:hover{background:var(--paper2)}.glead i{width:10px;height:10px;border-radius:3px;flex:none}.glead b{font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.glead .num{font-size:12.5px}
+.gnone{font-size:12px;padding:2px 6px}
+@media (max-width:640px){.gviz{gap:12px}.gviz .gdonut{width:124px;height:124px}.gkey{margin-left:0}.gminis{grid-template-columns:repeat(3,minmax(0,1fr));gap:2px;padding:4px 4px 10px}.gmini .gdonut{width:62px;height:62px}.gmini>span{font-size:10px}}

@@ -1338,32 +1338,61 @@ function rotationSvg(rot) {
 }
 // ---------- BUSINESS GROUPS: India's big business houses and their listed companies ----------
 const lcr = v => v == null ? "–" : v >= 1e5 ? "₹" + (v / 1e5).toFixed(2) + " L cr" : "₹" + fmt(v, 0) + " cr";
-const G_SORTS = [["cap", "Biggest"], ["best", "Best today"], ["worst", "Worst today"], ["y1", "Best 1 year"]];
+const G_SORTS = [["cap", "Biggest"], ["best", "Best performing"], ["worst", "Weakest"]];
+// performance period for the Groups screen: colours, "leading" lists and sorting follow it
+const G_PER = [["chg", "Today", 3], ["m1", "1 month", 10], ["y1", "1 year", 40]];
+const gPer = () => G_PER.find(p => p[0] === (ui.gper || "chg")) || G_PER[0];
+// diverging colour: red (worse) ← grey (flat) → green (better); strength scaled to the period's typical range
+const gCol = (v, span) => { if (v == null) return "var(--paper2)"; const t = Math.min(Math.abs(v) / span, 1); return `color-mix(in srgb, ${v >= 0 ? "var(--up)" : "var(--down)"} ${Math.round(30 + t * 70)}%, var(--line2))`; };
+// donut: slices = companies sized by market cap (small ones folded into "Others"), coloured by performance
+function gDonut(g, size, mini) {
+  const [k, lbl, span] = gPer(), tot = g.members.reduce((a, m) => a + (m.mcap_cr || 0), 0) || 1;
+  const big = g.members.filter(m => (m.mcap_cr || 0) / tot >= (mini ? 0.04 : 0.025)), rest = g.members.filter(m => !big.includes(m));
+  const sl = big.map(m => ({ sym: m.symbol, name: m.name, v: m.mcap_cr, p: m[k], go: m.tracked ? m.symbol : null }));
+  const rc = rest.reduce((a, m) => a + (m.mcap_cr || 0), 0);
+  if (rc) { const w = rest.filter(m => m[k] != null && m.mcap_cr); const wt = w.reduce((a, m) => a + m.mcap_cr, 0); sl.push({ sym: `Others (${rest.length})`, name: rest.map(m => m.symbol).join(", "), v: rc, p: wt ? w.reduce((a, m) => a + m[k] * m.mcap_cr, 0) / wt : null, other: true }); }
+  const R = size / 2, r0 = R * (mini ? 0.58 : 0.62), gap = sl.length > 1 ? 0.012 : 0;
+  let a = -Math.PI / 2; const P = (ang, rad) => `${(R + rad * Math.cos(ang)).toFixed(2)},${(R + rad * Math.sin(ang)).toFixed(2)}`;
+  const arcs = sl.map(s => { const da = s.v / tot * Math.PI * 2, a0 = a + gap, a1 = a + da - gap; a += da;
+    const lg = a1 - a0 > Math.PI ? 1 : 0, tip = `${s.sym}${s.other ? "" : " · " + s.name} · ${Math.round(s.v / tot * 100)}% of group · ${lbl} ${pct(s.p)}`;
+    const d = da >= Math.PI * 2 - 0.001 ? `M${R},0A${R},${R} 0 1 1 ${R},${2 * R}A${R},${R} 0 1 1 ${R},0ZM${R},${R - r0}A${r0},${r0} 0 1 0 ${R},${R + r0}A${r0},${r0} 0 1 0 ${R},${R - r0}Z`
+      : `M${P(a0, R)}A${R},${R} 0 ${lg} 1 ${P(a1, R)}L${P(a1, r0)}A${r0},${r0} 0 ${lg} 0 ${P(a0, r0)}Z`;
+    return `<path d="${d}" fill-rule="evenodd" fill="${gCol(s.p, span)}" class="gsl"${!mini && s.go ? ` data-go="${esc(s.go)}"` : ""}><title>${esc(tip)}</title></path>`; }).join("");
+  const gv = g[k];
+  return `<svg class="gdonut" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" aria-label="${esc(g.name)}: companies by market value, coloured by ${lbl} performance">${arcs}
+    <text x="${R}" y="${R + (mini ? 4 : -2)}" text-anchor="middle" class="gdc ${cls(gv)}" style="font-size:${mini ? 12 : 17}px">${pct(gv)}</text>${mini ? "" : `<text x="${R}" y="${R + 16}" text-anchor="middle" class="gdl">${lbl}</text>`}</svg>`;
+}
+function gLeaders(g) {
+  const [k, lbl] = gPer(), L = g.members.filter(m => m[k] != null).sort((a, b) => b[k] - a[k]);
+  const it = m => `<button class="glead" ${m.tracked ? `data-go="${esc(m.symbol)}"` : `data-nse="${esc(m.symbol)}"`}><i style="background:${gCol(m[k], gPer()[2])}"></i><b>${esc(m.symbol)}</b><span class="num ${cls(m[k])}">${pct(m[k])}</span></button>`;
+  const top = L.filter(m => m[k] > 0).slice(0, 3), low = L.filter(m => m[k] < 0).slice(-2).reverse();
+  return `<div class="glist"><div class="glab up">▲ Leading · ${lbl}</div>${top.map(it).join("") || '<div class="muted gnone">No company up</div>'}
+    <div class="glab down">▼ Lagging</div>${low.map(it).join("") || '<div class="muted gnone">None down</div>'}</div>`;
+}
 function groupsView() {
   const G = D.groups?.groups || [];
   if (!G.length) return `<div class="fade"><h1 class="page">Business Groups</h1><div class="empty"><b>Group data is on its way</b>It appears after the next data refresh (a few minutes).</div></div>`;
-  const k = ui.gsort || "cap", L = [...G].sort((a, b) => k === "best" ? (b.chg ?? -99) - (a.chg ?? -99) : k === "worst" ? (a.chg ?? 99) - (b.chg ?? 99) : k === "y1" ? (b.y1 ?? -999) - (a.y1 ?? -999) : b.mcap_cr - a.mcap_cr);
-  const total = G.reduce((a, g) => a + g.mcap_cr, 0), byChg = [...G].filter(g => g.chg != null).sort((a, b) => b.chg - a.chg);
+  const k = ui.gsort || "cap", pk = gPer()[0], pl = gPer()[1], L = [...G].sort((a, b) => k === "best" ? (b[pk] ?? -999) - (a[pk] ?? -999) : k === "worst" ? (a[pk] ?? 999) - (b[pk] ?? 999) : b.mcap_cr - a.mcap_cr);
+  const total = G.reduce((a, g) => a + g.mcap_cr, 0), byChg = [...G].filter(g => g[pk] != null).sort((a, b) => b[pk] - a[pk]);
   const kpi = (l, g, v) => `<button class="card kpi gkpi" data-gjump="${g.id}"><div class="l">${l}</div><div class="v" style="font-size:19px">${esc(g.name.replace(/ Group$/, ""))}</div><div class="muted" style="font-size:12.5px">${v}</div></button>`;
   return `<div class="fade"><h1 class="page">Business Groups</h1><p class="sub">India's biggest business houses and every listed company they run, sized by market value. Group moves are weighted by market cap. Tap a company to open it (↗ = not tracked here, opens NSE). Data ${ago(D.groups.updated || D.generated_at)}.</p>
-    <div class="kpis">${kpi("Biggest group", G[0], lcr(G[0].mcap_cr) + " · " + Math.round(G[0].mcap_cr / total * 100) + "% of these groups")}${byChg[0] ? kpi("Best today", byChg[0], `<b class="${cls(byChg[0].chg)}">${pct(byChg[0].chg)}</b> · ${byChg[0].up}/${byChg[0].n} up`) : ""}${byChg.length > 1 ? kpi("Weakest today", byChg[byChg.length - 1], `<b class="${cls(byChg[byChg.length - 1].chg)}">${pct(byChg[byChg.length - 1].chg)}</b> · ${byChg[byChg.length - 1].up}/${byChg[byChg.length - 1].n} up`) : ""}
+    <div class="kpis">${kpi("Biggest group", G[0], lcr(G[0].mcap_cr) + " · " + Math.round(G[0].mcap_cr / total * 100) + "% of these groups")}${byChg[0] ? kpi("Best group · " + pl, byChg[0], `<b class="${cls(byChg[0][pk])}">${pct(byChg[0][pk])}</b> · ${byChg[0].up}/${byChg[0].n} up today`) : ""}${byChg.length > 1 ? kpi("Weakest group · " + pl, byChg[byChg.length - 1], `<b class="${cls(byChg[byChg.length - 1][pk])}">${pct(byChg[byChg.length - 1][pk])}</b> · ${byChg[byChg.length - 1].up}/${byChg[byChg.length - 1].n} up today`) : ""}
       <div class="card kpi"><div class="l">Covered</div><div class="v" style="font-size:19px">${G.length} groups</div><div class="muted" style="font-size:12.5px">${G.reduce((a, g) => a + g.n, 0)} companies · ${lcr(total)}</div></div></div>
-    <div class="gbar"><div class="seg">${G_SORTS.map(([v, l]) => `<button data-gsort="${v}" class="${k === v ? "on" : ""}">${l}</button>`).join("")}</div>
-      <div class="gchips">${L.map(g => `<button data-gjump="${g.id}" class="gchip"><span>${esc(g.name.replace(/ Group$/, ""))}</span><b class="${cls(g.chg)}">${pct(g.chg)}</b></button>`).join("")}</div></div>
+    <div class="gbar"><div class="gbrow"><div class="seg">${G_PER.map(([v, l]) => `<button data-gper="${v}" class="${pk === v ? "on" : ""}">${l}</button>`).join("")}</div><div class="seg">${G_SORTS.map(([v, l]) => `<button data-gsort="${v}" class="${k === v ? "on" : ""}">${l}</button>`).join("")}</div>
+      <span class="gkey"><span>worse</span><i style="background:${gCol(-gPer()[2], gPer()[2])}"></i><i style="background:${gCol(-gPer()[2] / 3, gPer()[2])}"></i><i style="background:${gCol(0, gPer()[2])}"></i><i style="background:${gCol(gPer()[2] / 3, gPer()[2])}"></i><i style="background:${gCol(gPer()[2], gPer()[2])}"></i><span>better</span></span></div>
+      <div class="card gglance"><div class="hd"><h2>At a glance · ${pl}</h2><span class="muted" style="font-size:12.5px">Each ring is one group: slice size = company's market value, colour = how it performed. Tap to jump.</span></div>
+        <div class="gminis">${L.map(g => { const t = g.members.filter(m => m[pk] != null).sort((a, b) => b[pk] - a[pk])[0]; return `<button class="gmini" data-gjump="${g.id}">${gDonut(g, 76, true)}<b>${esc(g.name.replace(/ Group$| family$/, ""))}</b>${t ? `<span class="muted">★ ${esc(t.symbol)} <span class="${cls(t[pk])}">${pct(t[pk])}</span></span>` : ""}</button>`; }).join("")}</div></div></div>
     <div class="ggrid">${L.map(groupCard).join("")}</div>
     <p class="muted" style="font-size:12px;margin-top:12px">Groups are listed companies controlled by the same promoter family or parent (e.g. Tata Sons, Reliance Industries). Market cap = shares issued × price (NSE); "ff" = free-float value where the full count is not available yet. Information only, not investment advice.</p></div>`;
 }
 function groupCard(g) {
-  const tot = g.mcap_cr || 1, big = g.members.filter(m => m.mcap_cr / tot >= 0.02), rest = g.members.filter(m => !(m.mcap_cr / tot >= 0.02));
-  const segCol = c => c == null ? "var(--line2)" : `color-mix(in srgb, ${c >= 0 ? "var(--up)" : "var(--down)"} ${Math.round(35 + Math.min(Math.abs(c), 4) / 4 * 55)}%, var(--card))`;
-  const restCap = rest.reduce((a, m) => a + (m.mcap_cr || 0), 0);
-  const bar = big.map(m => `<span style="flex:${m.mcap_cr};background:${segCol(m.chg)}" title="${esc(m.symbol)} · ${Math.round(m.mcap_cr / tot * 100)}% of group · today ${pct(m.chg)}">${m.mcap_cr / tot >= 0.09 ? esc(m.symbol) : ""}</span>`).join("") + (restCap ? `<span style="flex:${restCap};background:var(--paper2)" title="${rest.length} smaller companies"></span>` : "");
+  const tot = g.mcap_cr || 1;
   const row = m => { const link = m.tracked ? `data-go="${esc(m.symbol)}"` : `data-nse="${esc(m.symbol)}"`;
     return `<button class="grow" ${link}><span class="gnm"><b>${esc(m.symbol)}${m.tracked ? "" : ' <i class="gext">↗</i>'}</b><span class="muted">${esc(m.name)}</span></span><span class="num gst"><span>${rs(m.price, m.price < 100 ? 2 : 0)}</span><b class="${cls(m.chg)}">${pct(m.chg)}</b></span><span class="num gy ${cls(m.y1)}">${pct(m.y1)}</span><span class="num gst"><span>${lcr(m.mcap_cr)}${m.ff ? '<i class="gff">ff</i>' : ""}</span><small class="muted">${(m.mcap_cr || 0) / tot < 0.01 ? "<1" : Math.round(m.mcap_cr / tot * 100)}% of group</small></span></button>`; };
   return `<div class="card gcard" id="grp-${g.id}"><div class="ghd"><div><h2>${esc(g.name)}</h2><div class="muted" style="font-size:12.5px">${esc(g.who)} · ${g.n} listed</div></div>
       <div class="gtot"><div class="gv">${lcr(g.mcap_cr)}</div><div style="font-size:12.5px"><span class="muted">today</span> <b class="${cls(g.chg)}">${pct(g.chg)}</b> <span class="muted">· 1Y</span> <b class="${cls(g.y1)}">${pct(g.y1)}</b></div></div></div>
-    <div class="gcomp">${bar}</div>
-    <div class="gmeta muted"><span>${g.up} of ${g.n} up today</span><span>1M ${pct(g.m1)}</span></div>
+    <div class="gviz">${gDonut(g, 150, false)}${gLeaders(g)}</div>
+    <div class="gmeta muted"><span>${g.up} of ${g.n} up today</span><span>1M ${pct(g.m1)} · 1Y ${pct(g.y1)}</span></div>
     <div class="ghead muted"><span>Company</span><span>Price · today</span><span class="gy">1 year</span><span>Market cap</span></div>
     ${g.members.slice(0, 6).map(row).join("")}${g.n > 6 ? `<div class="gmore">${g.members.slice(6).map(row).join("")}</div><button class="mqmorebtn" data-gmore>+ ${g.n - 6} more companies</button>` : ""}</div>`;
 }
@@ -1589,6 +1618,7 @@ document.addEventListener("click", async e => {
   const sb = t.closest("[data-sub]"); if (sb) { ui.sub = sb.dataset.sub; document.querySelectorAll("[data-sub]").forEach(b => b.classList.toggle("on", b === sb)); drawChart(sel); return; }
   const hp = t.closest("[data-hp]"); if (hp) { ui.hp = hp.dataset.hp; render(); return; }
   const gm = t.closest("[data-gmore]"); if (gm) { gm.previousElementSibling.classList.add("open"); gm.remove(); return; }
+  const gp = t.closest("[data-gper]"); if (gp) { ui.gper = gp.dataset.gper; render(); return; }
   const gs = t.closest("[data-gsort]"); if (gs) { ui.gsort = gs.dataset.gsort; render(); return; }
   const gj = t.closest("[data-gjump]"); if (gj) { const el = $("#grp-" + gj.dataset.gjump); if (el) { el.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" }); el.classList.remove("flashsec"); void el.offsetWidth; el.classList.add("flashsec"); } return; }
   const ns = t.closest("[data-nse]"); if (ns) { window.open("https://www.nseindia.com/get-quotes/equity?symbol=" + encodeURIComponent(ns.dataset.nse), "_blank", "noopener"); return; }

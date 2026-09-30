@@ -9,12 +9,12 @@ const GROUPS = [
   { id: "reliance", name: "Reliance Group", who: "Mukesh Ambani", members: ["RELIANCE", "JIOFIN", "NETWORK18", "ALOKINDS", "JUSTDIAL", "HATHWAY", "DEN", "RIIL"] },
   { id: "hdfc", name: "HDFC Group", who: "HDFC Bank and subsidiaries", members: ["HDFCBANK", "HDFCLIFE", "HDFCAMC", "HDBFS"] },
   { id: "bharti", name: "Bharti Group", who: "Sunil Mittal", members: ["BHARTIARTL", "BHARTIHEXA", "INDUSTOWER"] },
-  { id: "icici", name: "ICICI Group", who: "ICICI Bank and subsidiaries", members: ["ICICIBANK", "ICICIPRULI", "ICICIGI"] },
+  { id: "icici", name: "ICICI Group", who: "ICICI Bank and subsidiaries", members: ["ICICIBANK", "ICICIAMC", "ICICIGI", "ICICIPRULI"] },
   { id: "adani", name: "Adani Group", who: "Gautam Adani", members: ["ADANIPORTS", "ADANIPOWER", "ADANIENT", "ADANIGREEN", "ADANIENSOL", "AMBUJACEM", "ATGL", "ACC", "AWL", "NDTV"] },
   { id: "bajaj", name: "Bajaj Group", who: "Bajaj family (Rahul/Sanjiv/Rajiv Bajaj)", members: ["BAJFINANCE", "BAJAJFINSV", "BAJAJ-AUTO", "BAJAJHFL", "BAJAJHLDNG", "MAHSCOOTER", "BAJAJELEC"] },
   { id: "sbi", name: "SBI Group", who: "State Bank of India and subsidiaries", members: ["SBIN", "SBILIFE", "SBICARD"] },
   { id: "birla", name: "Aditya Birla Group", who: "Kumar Mangalam Birla", members: ["ULTRACEMCO", "HINDALCO", "GRASIM", "ABCAPITAL", "IDEA", "ABSLAMC", "ABREL", "ABFRL", "ABLBL"] },
-  { id: "lt", name: "L&T Group", who: "Larsen & Toubro", members: ["LT", "LTIM", "LTTS", "LTF"] },
+  { id: "lt", name: "L&T Group", who: "Larsen & Toubro", members: ["LT", "LTM", "LTF", "LTTS"] },
   { id: "mahindra", name: "Mahindra Group", who: "Anand Mahindra", members: ["M&M", "TECHM", "M&MFIN", "MAHLIFE", "MHRIL", "MAHLOG", "SWARAJENG"] },
   { id: "vedanta", name: "Vedanta Group", who: "Anil Agarwal", members: ["HINDZINC", "VEDL"] },
   { id: "jsw", name: "JSW Group", who: "Sajjan Jindal", members: ["JSWSTEEL", "JSWENERGY", "JSWINFRA", "JSWCEMENT", "JSWHL"] },
@@ -114,6 +114,13 @@ async function build({ stocks, cacheDir, log }) {
       if (q.regularMarketPrice) fresh[sym] = { price: q.regularMarketPrice, chg: r2(q.regularMarketChangePercent), y1: r2(q.fiftyTwoWeekChangePercent), mcap: q.marketCap || null, name: q.longName || q.shortName }; }
     diag.yahoo = `${yq.length} quotes, ${n} share counts`;
   } catch (e) { diag.yahoo = "failed: " + e.message; }
+  // 2a+) 1-month move for companies the site doesn't track (Yahoo daily chart, small and quick)
+  try { const L = all.filter(s => !S[s]), t1 = Date.now(); let n = 0;
+    const w = async () => { while (L.length && Date.now() - t1 < 25e3) { const s = L.shift();
+      try { const r = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(s + ".NS")}?range=1mo&interval=1d`, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(8000) });
+        const c = (await r.json())?.chart?.result?.[0]?.indicators?.quote?.[0]?.close?.filter(v => v != null) || [];
+        if (c.length > 10) { fresh[s] = { ...(fresh[s] || {}), m1: r2((c[c.length - 1] / c[0] - 1) * 100) }; n++; } } catch {} } };
+    await Promise.all([w(), w(), w(), w(), w(), w()]); diag.yahoo_1m = `${n} ok`; } catch (e) { diag.yahoo_1m = e.message; }
   // 2b) NSE end-of-day market-cap file (PRddmmyy.zip → MCAP*.csv: issue size for every listed company)
   if (all.some(stale)) {
     try { const m = await nseMcapFile(); let n = 0; for (const s of all) if (m.map[s] && stale(s)) { cache[s] = { sh: m.map[s].sh, name: m.map[s].name, t: Date.now(), src: "nse-pr" }; if (!fresh[s] && !tm[s] && !S[s]) fresh[s] = { price: m.map[s].close, chg: null }; n++; } diag.nse_pr = `${m.file}: ${Object.keys(m.map).length} rows, ${n} used`; }
@@ -142,7 +149,7 @@ async function build({ stocks, cacheDir, log }) {
       const sh = c?.sh && (!ffSh || c.sh >= ffSh * 0.98) ? c.sh : null;
       const mcap = sh ? sh * price / 1e7 : f?.mcap ? f.mcap / 1e7 : ffSh ? t.ffmc / 1e7 : null; // ₹ crore
       return { symbol: sym, name: (s?.name || t?.meta?.companyName || c?.name || f?.name || sym).replace(/\s+(Ltd\.?|Limited)$/i, ""), price: r2(price), chg,
-        m1: t ? r2(t.perChange30d) : s?.tech?.ret_1m ?? null, y1: t ? r2(t.perChange365d) : s?.tech?.ret_1y ?? f?.y1 ?? null,
+        m1: t ? r2(t.perChange30d) : s?.tech?.ret_1m ?? f?.m1 ?? null, y1: t ? r2(t.perChange365d) : s?.tech?.ret_1y ?? f?.y1 ?? null,
         mcap_cr: mcap ? Math.round(mcap) : null, ff: !sh && !f?.mcap && !!ffSh, tracked: !!s };
     }).filter(Boolean).sort((a, b) => (b.mcap_cr || 0) - (a.mcap_cr || 0));
     const cap = rows.reduce((a, r) => a + (r.mcap_cr || 0), 0);
