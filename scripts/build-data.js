@@ -127,7 +127,7 @@ async function loadNews(universe) {
   const hist = readJson(path.join(CACHE, "news.json"), {});
   for (const it of items) if (!hist[it.id]) hist[it.id] = { ...it, seen_at: new Date().toISOString() };
   const cutoff = Date.now() - KEEP_H * 3600e3;
-  const keep = Object.values(hist).filter(n => Date.parse(n.published) >= cutoff).sort((a, b) => b.published.localeCompare(a.published)).slice(0, 2500);
+  const keep = Object.values(hist).filter(n => Date.parse(n.published) >= cutoff && (n.official || !news.isJunk(n.title))).sort((a, b) => b.published.localeCompare(a.published)).slice(0, 2500);
   fs.writeFileSync(path.join(CACHE, "news.json"), JSON.stringify(Object.fromEntries(keep.map(n => [n.id, n]))));
   return keep;
 }
