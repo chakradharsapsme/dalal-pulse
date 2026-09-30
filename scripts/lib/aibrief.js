@@ -158,13 +158,6 @@ function build(d, opt = {}) {
     if (e && (e.own || e.all)) { const f = x => x ? `${x.n} cases, rose in 20 sessions ${x.win20}% of the time, typical ${pc(x.med20)}, worst ${pc(x.worst20)}, best ${pc(x.best20)}${x.n60 ? `; after 60 sessions ${x.win60}% up, typical ${pc(x.med60)}` : ""}` : "not enough cases";
       L.push("", `SETUP DÉJÀ-VU (historical analogs, no look-ahead): today's setup = ${e.label}`, `- ${s.symbol}'s own 5-year history: ${f(e.own)}`, `- same setup across all tracked stocks: ${f(e.all)}`, e.odds ? `- blended odds: ${e.odds.win20}% up, typical ${pc(e.odds.med20)}, edge ${e.odds.edge >= 0 ? "+" : ""}${e.odds.edge} pts vs a typical day → ${e.odds.grade}` : ""); }
     if (s.deliv) L.push(`SMART MONEY (NSE delivery): ${s.deliv.tag || "normal"} · delivery ${s.deliv.dp}% vs 20-day avg ${s.deliv.avg_dp}% · delivered qty ${s.deliv.dq_ratio ?? "-"}x normal · price ${pc(s.deliv.chg)}`);
-    const fu = (opt.fund || {})[s.symbol];
-    if (fu) { const v = x => x == null ? "-" : x, cr = x => x == null ? "-" : "₹" + Math.round(x).toLocaleString("en-IN") + " cr";
-      L.push("", "FUNDAMENTALS (Yahoo Finance, refreshed daily)", `Valuation: market cap ${cr(fu.mcap_cr)} | P/E ${v(fu.pe)} (forward ${v(fu.fpe)}) | P/B ${v(fu.pb)} | EV/EBITDA ${v(fu.ev_ebitda)} | dividend yield ${v(fu.divy)}%`,
-        `Quality: ROE ${v(fu.roe)}% | ROA ${v(fu.roa)}% | operating margin ${v(fu.opm)}% | net margin ${v(fu.npm)}% | revenue growth ${v(fu.rev_g)}% | earnings growth ${v(fu.earn_g)}% (latest quarter, y/y)`,
-        `Balance sheet: debt ${cr(fu.debt_cr)} | cash ${cr(fu.cash_cr)} | debt/equity ${v(fu.de)} | current ratio ${v(fu.cur)} | free cash flow ${cr(fu.fcf_cr)}`,
-        `Analysts: ${fu.analysts ? `${fu.analysts} analysts, consensus ${fu.reco || "-"} (mean ${v(fu.reco_mean)} on 1=strong buy..5=sell), mean target ${px(fu.target)} (range ${px(fu.target_lo)}–${px(fu.target_hi)})` : "no coverage data"} | holders: insiders ${v(fu.insiders)}%, institutions ${v(fu.inst)}%`);
-      if (fu.years?.length) L.push(`Yearly revenue / net profit (₹ cr): ${fu.years.map(y => `${y.y}: ${y.rev ?? "-"} / ${y.np ?? "-"}`).join(" · ")}`); }
     if (s.fo) L.push("", `F&O: open interest ${s.fo.oi ?? "-"} (${pc(s.fo.oi_chg_pct)}) → ${s.fo.buildup || "-"} (${s.fo.date || ""})`);
     const o = optStock[s.symbol];
     if (o) L.push(`OPTIONS (${o.expiry}, ${o.days}d): PCR ${o.pcr}, max pain ${o.max_pain}, call wall ${o.call_wall}, put wall ${o.put_wall}, ATM IV ${o.atm_iv}%, expected move ±${o.exp_move_pct}% → ${f2(o.range_lo)}–${f2(o.range_hi)}; options view ${o.view} (lot ${o.lot})`);
@@ -192,12 +185,6 @@ function build(d, opt = {}) {
     }
     files["groups.txt"] = L.join("\n");
   }
-  // ---------- world.txt (global indices, macro cues, Fed/RBI/Govt news) ----------
-  if (d.world) { const w = d.world, L = ["DALAL PULSE — WORLD MARKETS, MACRO CUES AND POLICY NEWS", stamp, "", `GLOBAL CUES FOR INDIA: ${w.cues?.label || "-"} (score ${w.cues?.score ?? "-"})`, ...(w.cues?.lines || []).map(l => "- " + l), "", "WORLD INDICES (last price, day, 1M, 1Y, trend)"];
-    for (const x of w.indices || []) L.push(`- ${x.name} (${x.region}): ${x.price} | ${pc(x.change_pct)} | 1M ${pc(x.m1)} | 1Y ${pc(x.y1)} | ${x.trend || "-"}`);
-    L.push("", "MACRO"); for (const x of w.macro || []) L.push(`- ${x.name}: ${x.price}${x.unit === "%" ? "%" : ""} | day ${pc(x.change_pct)} | 1M ${pc(x.m1)} | 3M ${pc(x.m3)}`);
-    for (const [k, v] of Object.entries(w.news || {})) { L.push("", `NEWS — ${v.label.toUpperCase()}`); for (const n of (v.items || []).slice(0, 8)) L.push(`- [${ist(n.published)}] ${n.tone} | ${n.title} (${n.source})`); }
-    L.push("", DISCLAIMER); files["world.txt"] = L.join("\n"); }
   // ---------- index.txt (guide for AI assistants) ----------
   files["index.txt"] = [
     "DALAL PULSE — DATA FOR AI ASSISTANTS", stamp, "",
@@ -207,7 +194,6 @@ function build(d, opt = {}) {
     `- ${site}data/ai/ideas.txt   — screens: leaders, breakouts, pullbacks, F&O build-ups, options spreads`,
     `- ${site}data/ai/news.txt    — stock news, NSE filings, upcoming results/dividends`,
     `- ${site}data/ai/stocks.txt  — one line per tracked stock`,
-    `- ${site}data/ai/world.txt   — world indices, dollar, US yields, Fed-rate proxy, crude, gold, rupee + Fed / RBI / Government of India news`,
     `- ${site}data/ai/groups.txt  — business groups (Tata, Reliance, Adani, Birla...) with every listed company, market cap and moves`,
     `- ${site}data/ai/stock/<SYMBOL>.txt — full detail for one stock (e.g. RELIANCE, M&M)`,
     `MCP connector: ${site}mcp`, "", DISCLAIMER,

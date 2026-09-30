@@ -293,12 +293,6 @@ async function main() {
     edge: { base: edgeA?.base || null, board: edgeA?.board || null, rotation: rot, delivery: deliv ? { date: deliv.date, days: deliv.days, accumulation: deliv.accumulation, distribution: deliv.distribution, speculative: deliv.speculative } : null }, indices, circuits, news_speed: newsSpeed, options, kite_api_key: cfg.kite_publisher_api_key || null,
     stocks, news: newsOut, w52, calendar: upcoming.slice(0, 600).map(e => ({ ...e, tracked: Boolean(universe[e.symbol]), nifty50: Boolean(universe[e.symbol]?.nifty50) })),
   };
-  // World Indexes screen: global indices, macro cues (dollar, yields, crude, Fed proxy) and policy news (Fed, RBI, Govt)
-  out.world = await attempt("world", () => require("./lib/world").build(log), null);
-  // Stock Analyzer: company fundamentals (valuation, profitability, growth, debt, analyst targets), cached a day per stock
-  const fund = await attempt("fundamentals", () => require("./lib/world").fundamentals(stocks.map(s => s.symbol), CACHE, log), {});
-  if (fund && Object.keys(fund).length) fs.writeFileSync(path.join(OUT, "fund.json"), JSON.stringify({ updated: new Date().toISOString(), stocks: fund }));
-  out.fund_count = fund ? Object.keys(fund).length : 0;
   // Business groups (Tata, Reliance, Adani, ...): listed companies with market cap and moves
   out.groups = await attempt("groups", () => require("./lib/groups").build({ stocks, cacheDir: CACHE, log }), null);
   // Expert Agent: rule-based advice cards (pop up on the site; history in .cache/advice.json)
@@ -306,7 +300,7 @@ async function main() {
   fs.writeFileSync(path.join(OUT, "latest.json"), JSON.stringify(out));
   // small plain-text briefs for the "Dalal Pulse Expert" AI agent / connector (data/ai/*.txt)
   try {
-    const ai = require("./lib/aibrief").build(out, { fund, siteUrl: cfg.custom_domain ? `https://${cfg.custom_domain.trim()}/` : cfg.public_url || undefined });
+    const ai = require("./lib/aibrief").build(out, { siteUrl: cfg.custom_domain ? `https://${cfg.custom_domain.trim()}/` : cfg.public_url || undefined });
     for (const [rel, text] of Object.entries(ai)) { const fp = path.join(OUT, "ai", rel); fs.mkdirSync(path.dirname(fp), { recursive: true }); fs.writeFileSync(fp, text); }
     log(`[ai] ${Object.keys(ai).length} brief files`);
   } catch (e) { log("[ai] " + e.message); }
