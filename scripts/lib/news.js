@@ -117,6 +117,7 @@ function isJunk(title) {
     /(Latest News|Business News|Market News|Stock Market News|Moneycontrol Pro Desktop)\b.*\|/i.test(t) ||
     /^(Business News|Share\/Stock Market News)/i.test(t) ||
     /\s>>\s/.test(t) ||
+    /Profile and Biography|Company Profile|Executive Profile|Stock Quote|Quote & History|Price & Latest News/i.test(t) ||
     /IPO (Date|Details|GMP)|Lot Size|Subscription Status|Allotment Status|Share Price Live|Stock Price Today|IFSC Code|Branch Details|Bank Holiday List/i.test(t);
 }
 
