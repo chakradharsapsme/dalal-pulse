@@ -129,11 +129,12 @@ function countUp(root) {
 // ---------- navigation ----------
 function nav(v, s) {
   view = v; sel = s ?? null;
-  if (!SNAPSHOT) { const h = "#" + v + (sel ? "/" + encodeURIComponent(sel) : ""); if (location.hash !== h) history.replaceState(null, "", h); }
+  if (!SNAPSHOT) { const h = "#" + v + (sel ? "/" + encodeURIComponent(sel) : ""); if (location.hash !== h) history.pushState(null, "", h); }
   render(); window.scrollTo({ top: 0, behavior: reduced ? "auto" : "smooth" });
 }
 function readHash() {
   const [v, s] = location.hash.replace(/^#\/?/, "").split("/");
+  if (!v) { view = "news"; sel = null; return; }
   if (["news", "markets", "indices", "fno", "options", "circuits", "screener", "portfolio", "calendar", "momentum", "groups"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
 }
 const go = sym => nav("news", sym);
@@ -1593,14 +1594,14 @@ document.addEventListener("click", async e => {
   const btp = t.closest("[data-btp]"); if (btp) { const n = impactNews().length || 1; btI = (btI + +btp.dataset.btp + n) % n; renderTicker(); return; }
   const mi = t.closest("[data-mmi]"); if (mi) { mmI = +mi.dataset.mmi; renderMM(); return; }
   const ix = t.closest("[data-idx]"); if (ix) { nav("indices", ix.dataset.idx); return; }
-  const is = t.closest("[data-isel]"); if (is) { sel = is.dataset.isel; view = "indices"; if (!SNAPSHOT) history.replaceState(null, "", "#indices/" + sel); render(); if (innerWidth <= 900) window.scrollTo({ top: 0 }); return; }
+  const is = t.closest("[data-isel]"); if (is) { sel = is.dataset.isel; view = "indices"; if (!SNAPSHOT && location.hash !== "#indices/" + sel) history.pushState(null, "", "#indices/" + sel); render(); if (innerWidth <= 900) window.scrollTo({ top: 0 }); return; }
   if (t.closest("[data-back-idx]")) { nav("indices"); return; }
   const ir = t.closest("[data-irange]"); if (ir) { ui.irange = ir.dataset.irange; document.querySelectorAll("[data-irange]").forEach(b => b.classList.toggle("on", b === ir)); drawIndexChart(sel); return; }
   const cr = t.closest("[data-crange]"); if (cr) { ui.crange = cr.dataset.crange; render(); return; }
   const ic = t.closest("[data-icmp]"); if (ic) { const id = ic.dataset.icmp; if (ui.icmp.includes(id)) { if (ui.icmp.length > 1) ui.icmp = ui.icmp.filter(x => x !== id); } else if (ui.icmp.length < 6) ui.icmp.push(id); else toast("Up to 6 indices at a time"); render(); return; }
   if (t.closest("a[href]")) return;
   const g = t.closest("[data-go]"); if (g) { $("#gsugg").hidden = true; if (g.closest("#gsugg")) { $("#gsearch").value = ""; $("#gsearch").blur(); } if (g.closest("#drawer")) closeDrawer(); go(g.dataset.go); return; }
-  const s = t.closest("[data-sel]"); if (s) { sel = s.dataset.sel; if (!SNAPSHOT) history.replaceState(null, "", "#news/" + encodeURIComponent(sel)); render(); if (innerWidth <= 900) window.scrollTo({ top: 0 }); return; }
+  const s = t.closest("[data-sel]"); if (s) { sel = s.dataset.sel; if (!SNAPSHOT && location.hash !== "#news/" + encodeURIComponent(sel)) history.pushState(null, "", "#news/" + encodeURIComponent(sel)); render(); if (innerWidth <= 900) window.scrollTo({ top: 0 }); return; }
   if (t.closest("[data-back]")) { nav("news"); return; }
   const nf = t.closest("[data-nf]"); if (nf) { ui.nf = nf.dataset.nf; render(); return; }
   const pr = t.closest("[data-preset]"); if (pr) { ui.preset = pr.dataset.preset; ui.slimit = 60; render(); return; }
@@ -1695,7 +1696,7 @@ $("#theme").addEventListener("click", () => {
   const next = cur === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = next; try { localStorage.setItem("dp-theme", next); } catch {}
   if (sel && S[sel]) drawChart(sel);
 });
-if (!SNAPSHOT) window.addEventListener("hashchange", () => { readHash(); render(); });
+if (!SNAPSHOT) { let lastH = location.hash; const onBack = () => { if (location.hash === lastH) return; lastH = location.hash; readHash(); render(); }; window.addEventListener("hashchange", onBack); window.addEventListener("popstate", onBack); const _ps = history.pushState.bind(history); history.pushState = (a, b, h) => { _ps(a, b, h); lastH = location.hash; }; }
 
 if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "fno", "options", "circuits", "screener", "momentum", "groups", "portfolio", "calendar"].includes(h)) view = h; }
 tickClock(); setInterval(tickClock, 1000);
