@@ -169,17 +169,33 @@ async function stockName(sym) {
   return row ? row[1].replace(/\s*\b(Ltd|Limited)\b\.?\s*$/i, "").replace(/\s+/g, " ").trim() : null;
 }
 async function gnewsSearch(q) {
-  const r = await fetch("https://news.google.com/rss/search?q=" + encodeURIComponent(q) + "&hl=en-IN&gl=IN&ceid=IN:en", { headers: { "User-Agent": "Mozilla/5.0", Accept: "application/rss+xml,text/xml,*/*" }, cf: { cacheEverything: true, cacheTtl: 120 } });
-  if (!r.ok) return [];
+  const r = await fetch("https://news.google.com/rss/search?q=" + encodeURIComponent(q) + "&hl=en-IN&gl=IN&ceid=IN:en", { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36", Accept: "application/rss+xml,text/xml,*/*", "Accept-Language": "en-IN,en;q=0.8" }, cf: { cacheEverything: true, cacheTtl: 120 } });
+  NEWS_DIAG.gstatus = r.status; if (!r.ok) return [];
   return [...(await r.text()).matchAll(/<item[\s>][\s\S]*?<\/item>/gi)].map(m => { const b = m[0], src = xtag(b, "source"); let title = xtag(b, "title");
     if (src && title.endsWith(" - " + src)) title = title.slice(0, -(src.length + 3));
     const pub = Date.parse(xtag(b, "pubDate")); return { title, link: xtag(b, "link"), source: src || "News", published: isNaN(pub) ? null : new Date(pub).toISOString() }; });
 }
+const NEWS_DIAG = {};
+async function bingSearch(q) {
+  const r = await fetch("https://www.bing.com/news/search?format=rss&setmkt=en-IN&setlang=en-IN&q=" + encodeURIComponent(q), { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36", Accept: "application/rss+xml,text/xml,*/*", "Accept-Language": "en-IN,en;q=0.8" }, cf: { cacheEverything: true, cacheTtl: 120 } });
+  const t = r.ok ? await r.text() : ""; NEWS_DIAG.bing = `${r.status} ${t.length}`;
+  return [...t.matchAll(/<item[\s>][\s\S]*?<\/item>/gi)].map(m => { const b = m[0]; let link = xtag(b, "link"); const u = link.match(/[?&]url=([^&]+)/); if (u) try { link = decodeURIComponent(u[1]); } catch {}
+    const pub = Date.parse(xtag(b, "pubDate")); const src = (b.match(/<News:Source>([\s\S]*?)<\/News:Source>/i) || [])[1] || (link.match(/https?:\/\/(?:www\.)?([^/]+)/) || [])[1] || "News";
+    return { title: xtag(b, "title"), link, source: xmlDec(src), published: isNaN(pub) ? null : new Date(pub).toISOString() }; });
+}
+async function yahooNews(sym) {
+  const r = await fetch(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sym + ".NS")}&quotesCount=0&newsCount=12`, { headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" }, cf: { cacheEverything: true, cacheTtl: 120 } });
+  NEWS_DIAG.yahoo = String(r.status); if (!r.ok) return [];
+  return ((await r.json()).news || []).map(n => ({ title: n.title, link: n.link, source: n.publisher || "Yahoo Finance", published: n.providerPublishTime ? new Date(n.providerPublishTime * 1000).toISOString() : null }));
+}
 async function liveNews(sym, max = 8) {
   const name = await stockName(sym); if (!name && !NEWS_Q[sym]) return { sym, name: null, items: [] };
   const base = NEWS_Q[sym] || `"${name}"`, key = (NEWS_Q[sym] ? NEWS_Q[sym].replace(/[^A-Za-z0-9& ]/g, " ") : name).toLowerCase().split(/\s+/).filter(w => w.length > 2 && !/^(and|share|the|ltd|limited|india|company|corporation|or|commercial)$/.test(w));
-  let items = await gnewsSearch(`${base} when:1d`);
-  if (items.length < 4) items = items.concat(await gnewsSearch(`${base} when:4d`));
+  const plain = (NEWS_Q[sym] || name).replace(/"/g, "");
+  const got = await Promise.all([gnewsSearch(`${base} when:2d`).catch(() => []), bingSearch(`${plain} share`).catch(() => []), yahooNews(sym).catch(() => [])]);
+  NEWS_DIAG.google = got[0].length; NEWS_DIAG.bing_items = got[1].length; NEWS_DIAG.yahoo_items = got[2].length;
+  let items = got.flat();
+  const cutoff = Date.now() - 5 * 864e5; items = items.filter(i => i.published && Date.parse(i.published) >= cutoff);
   const seen = new Set(), rel = t => { const l = t.toLowerCase(); return key.length ? key.some(w => l.includes(w)) || l.includes(sym.toLowerCase()) : true; };
   items = items.filter(i => i.title && i.published && rel(i.title) && !/profile and biography|stock price today|share price live|stock quote/i.test(i.title))
     .filter(i => { const k = i.title.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 60); if (seen.has(k)) return false; seen.add(k); return true; })
@@ -192,7 +208,7 @@ async function newsApi(request) {
   const url = new URL(request.url);
   const syms = [...new Set((url.searchParams.get("s") || "").toUpperCase().split(",").map(x => x.trim()).filter(x => /^[A-Z0-9&-]{1,20}$/.test(x)))].slice(0, 3);
   const out = await Promise.all(syms.map(s => liveNews(s).catch(() => ({ sym: s, items: [] }))));
-  return new Response(JSON.stringify({ at: new Date().toISOString(), news: out }), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*" } });
+  return new Response(JSON.stringify({ at: new Date().toISOString(), news: out, ...(url.searchParams.get("diag") ? { diag: NEWS_DIAG } : {}) }), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*" } });
 }
 
 // ---------- /agent: the built-in Pulse Agent (Cloudflare Workers AI free allowance; no billing possible) ----------
