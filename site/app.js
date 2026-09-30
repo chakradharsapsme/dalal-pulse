@@ -132,21 +132,22 @@ function countUp(root) {
 // ---------- navigation ----------
 function nav(v, s) {
   view = v; sel = s ?? null;
+  { const g = groupOf(v)[0]; if (g !== "analyzer") { lastInGroup[g] = v; store.set("dp-lastgrp", lastInGroup); } }
   if (!SNAPSHOT) { const h = "#" + v + (sel ? "/" + encodeURIComponent(sel) : ""); if (location.hash !== h) history.pushState(null, "", h); }
   render(); window.scrollTo({ top: 0, behavior: reduced ? "auto" : "smooth" });
 }
 function readHash() {
   const [v, s] = location.hash.replace(/^#\/?/, "").split("/");
   if (!v) { view = "news"; sel = null; return; }
-  if (["news", "markets", "indices", "fno", "options", "circuits", "screener", "portfolio", "calendar", "momentum", "groups"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
+  if (["news", "markets", "indices", "fno", "options", "circuits", "screener", "portfolio", "calendar", "momentum", "groups", "world", "analyzer"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
 }
 const go = sym => nav("news", sym);
 
 function render() {
   if (!D) return;
-  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.nav === view));
+  renderNav();
   const keep = document.querySelector(".list")?.scrollTop;
-  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "fno" ? fnoView() : view === "circuits" ? circuitsView() : view === "options" ? optionsView() : view === "screener" ? screener() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : view === "momentum" ? momentumView() : view === "groups" ? groupsView() : newsView();
+  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "fno" ? fnoView() : view === "circuits" ? circuitsView() : view === "options" ? optionsView() : view === "screener" ? screener() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : view === "momentum" ? momentumView() : view === "groups" ? groupsView() : view === "world" ? worldView() : view === "analyzer" ? analyzerView() : newsView();
   if (view === "portfolio") setTimeout(runXray, 0);
   if (keep && document.querySelector(".list")) document.querySelector(".list").scrollTop = keep;
   if (view === "news") { if (sel && S[sel]) drawChart(sel); document.querySelector(".row.on")?.scrollIntoView({ block: "nearest" }); }
@@ -364,6 +365,7 @@ function stockDetail(sym) {
       <div class="px"><div class="v">${px(s.price)}</div><div class="num ${cls(s.change_pct)}" style="font-weight:700">${pct(s.change_pct)} today</div></div>
       <div class="acts">
         <button class="btn${my.watch.includes(sym) ? " primary" : ""}" data-star="${esc(sym)}">${my.watch.includes(sym) ? "★ Watching" : "☆ Watch"}</button>
+        <button class="btn" data-an="${esc(sym)}">Analyzer</button>
         <a class="btn" href="https://www.tradingview.com/chart/?symbol=NSE:${encodeURIComponent(sym)}" target="_blank" rel="noopener">TradingView ↗</a>
         <a class="btn" href="https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(sym)}" target="_blank" rel="noopener">NSE ↗</a>
         <button class="btn kbtn" data-kbuy="${esc(sym)}"><span class="kz">K</span> Buy</button><button class="btn kbtn sell" data-ksell="${esc(sym)}"><span class="kz">K</span> Sell</button>
@@ -1493,6 +1495,209 @@ function groupCard(g) {
     <div class="ghead muted"><span>Company</span><span>Price · today</span><span class="gy">1 year</span><span>Market cap</span></div>
     ${g.members.slice(0, 6).map(row).join("")}${g.n > 6 ? `<div class="gmore">${g.members.slice(6).map(row).join("")}</div><button class="mqmorebtn" data-gmore>+ ${g.n - 6} more companies</button>` : ""}</div>`;
 }
+// ---------- MENU GROUPS: main sections with sub-tabs ----------
+const NAV_GROUPS = [
+  ["stocks", "Stocks", [["news", "News by stock"], ["portfolio", "Portfolio"], ["screener", "Screener"], ["calendar", "Calendar"]]],
+  ["markets", "Markets", [["markets", "Markets today"], ["world", "World Indexes"], ["momentum", "Momentum"], ["groups", "Groups"], ["indices", "Indian indices"]]],
+  ["fno", "F&O", [["fno", "F&O"], ["options", "Options"], ["circuits", "Circuits"]]],
+  ["analyzer", "Stock Analyzer", []],
+];
+const groupOf = v => (NAV_GROUPS.find(g => g[0] === v || g[2].some(x => x[0] === v)) || NAV_GROUPS[0]);
+function renderNav() {
+  const g = groupOf(view), tabs = $("#tabs"), sub = $("#subtabs"); if (!tabs) return;
+  tabs.querySelectorAll("[data-grp]").forEach(b => b.classList.toggle("on", b.dataset.grp === g[0]));
+  if (sub) { sub.innerHTML = g[2].length ? g[2].map(([v, l]) => `<button data-nav="${v}" class="${view === v ? "on" : ""}">${l}</button>`).join("") : ""; sub.hidden = !g[2].length; }
+}
+const lastInGroup = store.get("dp-lastgrp", {});
+
+// ---------- WORLD INDEXES: global markets, macro cues, Fed / RBI / Government news ----------
+function sparkSvg(a, w = 110, h = 30) {
+  const L = (a || []).filter(v => v != null); if (L.length < 2) return "";
+  const lo = Math.min(...L), hi = Math.max(...L), X = i => i / (L.length - 1) * w, Y = v => h - 2 - (v - lo) / ((hi - lo) || 1) * (h - 4);
+  const up = L[L.length - 1] >= L[0];
+  return `<svg class="spk" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><path d="${L.map((v, i) => (i ? "L" : "M") + X(i).toFixed(1) + " " + Y(v).toFixed(1)).join("")}" fill="none" stroke="${up ? "var(--up)" : "var(--down)"}" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>`;
+}
+function worldView() {
+  const W = D.world;
+  if (!W || !(W.indices || []).length) return `<div class="fade"><h1 class="page">World Indexes</h1><div class="empty"><b>Global data is on its way</b>It appears after the next data refresh (a few minutes).</div></div>`;
+  const regions = ["India", "Americas", "Europe", "Asia"];
+  const localT = x => x.time ? new Date(x.time).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) + " IST" : "";
+  const card = x => `<div class="wcard"><div class="wtop"><b>${esc(x.name)}</b><span class="muted" title="${esc(localT(x))}">${x.trend ? esc(x.trend) : ""}</span></div>
+    <div class="wmid"><span class="num wpx">${fmt(x.price, x.price > 1000 ? 0 : 2)}</span><b class="num ${cls(x.change_pct)}">${pct(x.change_pct)}</b></div>${sparkSvg(x.spark)}
+    <div class="wret">${[["1W", x.w1], ["1M", x.m1], ["1Y", x.y1]].map(([l, v]) => `<span><em>${l}</em><b class="${cls(v)}">${pct(v)}</b></span>`).join("")}</div></div>`;
+  const mac = W.macro || [], cues = W.cues || {}, cc = cues.label === "Supportive" ? "up" : cues.label === "Negative" ? "down" : "warn";
+  const mcard = x => `<div class="mcard"><div class="muted">${esc(x.name)}</div><div><b class="num">${x.unit === "$" ? "$" : x.unit === "₹" ? "₹" : ""}${fmt(x.price, x.price > 1000 ? 0 : 2)}${x.unit === "%" ? "%" : ""}</b> <span class="num ${x.key === "inr" || x.key === "yield" || x.key === "crude" || x.key === "dollar" || x.key === "vix" || x.key === "ivix" ? cls(-(x.change_pct || 0)) : cls(x.change_pct)}">${pct(x.change_pct)}</span></div><div class="muted" style="font-size:11.5px">1M ${pct(x.m1)} · 3M ${pct(x.m3)}</div></div>`;
+  const news = W.news || {};
+  const ncol = k => { const n = news[k]; if (!n) return ""; return `<div class="card"><div class="hd"><h2>${esc(n.label)}</h2><span class="muted" style="font-size:12px">${(n.items || []).length} stories</span></div><div class="bd wnews">${(n.items || []).slice(0, 7).map(i => `<a href="${esc(safeUrl(i.link))}" target="_blank" rel="noopener" class="wn"><span class="tdot ${i.tone}"></span><span>${esc(i.title)}<em class="muted"> · ${esc(i.source)} · ${ago(i.published)}</em></span></a>`).join("") || '<div class="muted">No fresh stories.</div>'}</div></div>`; };
+  return `<div class="fade"><h1 class="page">World Indexes</h1><p class="sub">How the world's markets, the dollar, US interest rates, oil and policy makers are moving, and what that means for Indian stocks. Prices from global exchanges (may be delayed up to 15 min); refreshed with the site. Data ${ago(W.updated)}.</p>
+    <div class="card wcues"><div class="hd"><h2>Global cues for India: <span class="${cc}">${esc(cues.label || "–")}</span></h2><span class="muted" style="font-size:12px">rule-based read of the numbers below</span></div><div class="bd"><ul>${(cues.lines || []).map(l => `<li>${esc(l)}</li>`).join("")}</ul></div></div>
+    <h3 class="wsec">Rates, currency & commodities</h3><div class="mgrid">${mac.map(mcard).join("")}</div>
+    ${regions.map(r => { const L = (W.indices || []).filter(x => x.region === r); return L.length ? `<h3 class="wsec">${r}</h3><div class="wgrid">${L.map(card).join("")}</div>` : ""; }).join("")}
+    <h3 class="wsec">Policy & global news</h3><div class="grid g2">${["fed", "rbi", "govt", "global"].map(ncol).join("")}</div>
+    <p class="muted" style="font-size:12px;margin-top:12px">Colours on rates, dollar, crude and VIX are from India's point of view (a rise is shown red). The US 3-month T-bill yield tracks where markets expect the Fed's policy rate. Information only, not investment advice.</p></div>`;
+}
+
+// ---------- STOCK ANALYZER: technical + fundamental insight for any tracked stock ----------
+let FUND = null, FUND_GEN = null, FUND_LOADING = false;
+async function loadFund() {
+  if (FUND_LOADING || (FUND && FUND_GEN === D.generated_at)) return; FUND_LOADING = true;
+  try { const r = await fetch(`data/fund.json?t=${D.generated_at}`); if (r.ok) { FUND = (await r.json()).stocks || {}; FUND_GEN = D.generated_at; } else FUND = FUND || {}; } catch { FUND = FUND || {}; }
+  FUND_LOADING = false; if (view === "analyzer") render();
+}
+const AN_TABS = [["overview", "Overview"], ["tech", "Technicals"], ["fund", "Fundamentals"], ["peers", "Peers & news"], ["reco", "Recommendation"]];
+const crf = v => v == null ? "–" : (v < 0 ? "−₹" : "₹") + (Math.abs(v) >= 1e5 ? (Math.abs(v) / 1e5).toFixed(2) + " L cr" : fmt(Math.abs(v), 0) + " cr");
+const nf = (v, d = 1, u = "") => v == null ? "–" : fmt(v, d) + u;
+const median = a => { const L = a.filter(v => v != null && isFinite(v)).sort((x, y) => x - y); return L.length ? L[Math.floor(L.length / 2)] : null; };
+function fundScore(s, f) {
+  if (!f) return null;
+  const parts = []; let sc = 50; const add = (l, v) => { if (v) { parts.push([l, Math.round(v)]); sc += v; } };
+  const fin = /Financial/.test(s.industry || "");
+  const peers = D.stocks.filter(x => x.industry === s.industry && x.symbol !== s.symbol).map(x => FUND?.[x.symbol]).filter(Boolean);
+  const mpe = median(peers.map(p => p.pe).filter(v => v > 0 && v < 300));
+  if (f.pe != null && f.pe > 0) add(mpe ? `P/E ${nf(f.pe)} vs sector median ${nf(mpe)}` : `P/E ${nf(f.pe)}`, mpe ? Math.max(-8, Math.min(8, (mpe - f.pe) / mpe * 16)) : f.pe < 20 ? 3 : f.pe > 60 ? -4 : 0);
+  else if (f.pe != null && f.pe <= 0 || (f.eps != null && f.eps < 0)) add("Loss-making (negative earnings)", -10);
+  if (f.roe != null) add(`ROE ${nf(f.roe)}%`, f.roe >= 20 ? 9 : f.roe >= 15 ? 6 : f.roe >= 10 ? 2 : f.roe >= 5 ? -3 : -7);
+  if (f.opm != null && !fin) add(`Operating margin ${nf(f.opm)}%`, f.opm >= 20 ? 4 : f.opm >= 12 ? 2 : f.opm < 5 ? -4 : 0);
+  if (f.rev_g != null) add(`Revenue growth ${nf(f.rev_g)}% y/y`, Math.max(-6, Math.min(7, f.rev_g * 0.35)));
+  if (f.earn_g != null) add(`Earnings growth ${nf(f.earn_g)}% y/y`, Math.max(-7, Math.min(7, f.earn_g * 0.2)));
+  if (f.de != null && !fin) add(`Debt/equity ${nf(f.de, 2)}`, f.de < 0.3 ? 5 : f.de < 0.8 ? 2 : f.de < 1.5 ? -2 : -7);
+  if (f.fcf_cr != null && !fin) add(f.fcf_cr > 0 ? "Positive free cash flow" : "Negative free cash flow", f.fcf_cr > 0 ? 3 : -4);
+  if (f.target && s.price) { const up = (f.target / s.price - 1) * 100; add(`Analyst mean target ${px(f.target)} (${up >= 0 ? "+" : ""}${up.toFixed(0)}%)`, Math.max(-5, Math.min(6, up * 0.25))); }
+  if (f.divy != null && f.divy >= 2) add(`Dividend yield ${nf(f.divy)}%`, 2);
+  const v = Math.max(0, Math.min(100, Math.round(sc)));
+  return { v, parts: parts.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])), grade: v >= 70 ? ["Strong", "up"] : v >= 56 ? ["Good", "up"] : v >= 44 ? ["Average", "warn"] : v >= 30 ? ["Weak", "down"] : ["Poor", "down"] };
+}
+function volRead(s) {
+  const t = s.tech || {}, d = s.deliv, out = []; let v = 0;
+  if (t.vol_ratio != null) { out.push(`Volume ${fmt(t.vol_ratio, 1)}× its 20-day average${t.vol_surge_up ? " on an up day (buyers active)" : t.vol_surge_down ? " on a down day (selling pressure)" : ""}.`); v += t.vol_surge_up ? 8 : t.vol_surge_down ? -8 : t.vol_ratio > 1.5 ? (s.change_pct >= 0 ? 4 : -4) : 0; }
+  if (d) { out.push(`Delivery ${d.dp}% of traded quantity vs ${d.avg_dp}% normally${d.dq_ratio ? `; delivered quantity ${d.dq_ratio}× normal` : ""}${d.tag ? ` → ${d.tag}` : ""}.`); v += /accum/i.test(d.tag || "") ? 10 : /distrib/i.test(d.tag || "") ? -10 : /specul/i.test(d.tag || "") ? -3 : d.dp > d.avg_dp + 8 ? (s.change_pct >= 0 ? 5 : -5) : 0; }
+  if (s.fo?.buildup) { out.push(`F&O open interest ${pct(s.fo.oi_chg_pct)} → ${s.fo.buildup}.`); v += { "Long build-up": 6, "Short covering": 3, "Short build-up": -6, "Long unwinding": -3 }[s.fo.buildup] || 0; }
+  return { v, lines: out };
+}
+function macroRead() {
+  const W = D.world, lines = []; let v = 0;
+  if (W?.cues) { v += Math.max(-8, Math.min(8, (W.cues.score || 0) * 3)); lines.push(`Global cues: ${W.cues.label} (${(W.cues.lines || [])[0] || ""})`); }
+  const tone = k => { const L = (W?.news?.[k]?.items || []).filter(i => Date.now() - Date.parse(i.published) < 3 * 864e5); const p = L.filter(i => i.tone === "positive").length, n = L.filter(i => i.tone === "negative").length; return { p, n, L }; };
+  for (const [k, l] of [["fed", "Fed / US rates"], ["rbi", "RBI"], ["govt", "Government of India"]]) { const t = tone(k); if (!t.L.length) continue; v += t.p > t.n ? 2 : t.n > t.p ? -2 : 0; lines.push(`${l}: ${t.p} positive, ${t.n} negative headline${t.p + t.n === 1 ? "" : "s"} in 3 days${t.L[0] ? ` — latest: "${t.L[0].title}"` : ""}.`); }
+  return { v, lines };
+}
+function sectorRead(s) {
+  const peers = D.stocks.filter(x => x.industry === s.industry && x.tech?.ret_1m != null), n = D.indices?.find(x => x.id === "nifty50");
+  if (!s.industry || peers.length < 2) return { v: 0, line: null };
+  const avg = peers.reduce((a, x) => a + x.tech.ret_1m, 0) / peers.length, rel = avg - (D.nifty_returns?.m1 ?? 0), up = peers.filter(x => x.change_pct > 0).length;
+  return { v: Math.max(-6, Math.min(6, rel * 0.6)), line: `${s.industry}: ${peers.length} tracked stocks, average 1-month move ${pct(avg)} (${rel >= 0 ? "beating" : "lagging"} Nifty by ${Math.abs(rel).toFixed(1)} pts); ${up} of ${peers.length} up today.` };
+}
+function analyzerView() {
+  if (!FUND || FUND_GEN !== D.generated_at) loadFund();
+  const sym = sel && S[sel] ? sel : null, tab = ui.antab || "overview";
+  const recent = store.get("dp-anrecent", []).filter(x => S[x]).slice(0, 8);
+  const quick = [...new Set(recent.concat(my.holdings.map(h => h.symbol), my.watch))].filter(x => S[x]).slice(0, 10);
+  const head = `<h1 class="page">Stock Analyzer</h1><p class="sub">Type any tracked stock to get its complete technical and fundamental picture, how volume and delivery look, what global cues and policy news mean for it, and an overall view.</p>
+    <div class="anbar"><div class="search ansearch"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="anq" placeholder="Stock name or symbol, e.g. Infosys, TMPV, SBI" autocomplete="off" aria-label="Stock to analyse"><div class="sugg" id="ansugg" hidden></div></div>
+    ${quick.length ? `<div class="anquick"><span class="muted">Quick:</span>${quick.map(x => `<button class="gchip" data-an="${esc(x)}">${esc(x)}</button>`).join("")}</div>` : ""}</div>`;
+  if (!sym) return `<div class="fade">${head}<div class="empty" style="margin-top:14px"><b>Pick a stock to analyse</b>Start typing above. Covers all ${D.stocks.length} tracked stocks (Nifty 200 + F&O).</div></div>`;
+  if (recent[0] !== sym) store.set("dp-anrecent", [sym].concat(recent.filter(x => x !== sym)).slice(0, 8));
+  const s = S[sym], t = s.tech || {}, f = FUND?.[sym] || null, ts = paScore(s), fs = fundScore(s, f);
+  const tabs = `<div class="antabs">${AN_TABS.map(([k, l]) => `<button data-antab="${k}" class="${tab === k ? "on" : ""}">${l}</button>`).join("")}</div>`;
+  const top = `<div class="card anhead"><div><div class="anname"><b>${esc(sym)}</b> <span class="muted">${esc((s.name || "").replace(/ Ltd\.?$| Limited$/i, ""))}</span></div><div class="muted" style="font-size:12.5px">${[s.industry, f?.industry, s.nifty50 ? "Nifty 50" : "", s.fo ? "F&O" : ""].filter(Boolean).map(esc).join(" · ")}</div></div>
+    <div class="anpx"><span class="num">${px(s.price)}</span> <b class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</b></div>
+    <div class="anbtns"><button class="btn sm" data-go="${esc(sym)}">Chart & news</button><button class="btn sm" data-anask="${esc(sym)}">Ask Pulse Agent</button></div></div>`;
+  const body = tab === "tech" ? anTech(s) : tab === "fund" ? anFund(s, f, fs) : tab === "peers" ? anPeers(s) : tab === "reco" ? anReco(s, f, ts, fs) : anOverview(s, f, ts, fs);
+  if (tab === "tech") setTimeout(() => anPatterns(sym), 0);
+  return `<div class="fade">${head}${top}${tabs}<div class="anbody">${body}</div><p class="muted" style="font-size:12px;margin-top:12px">Technicals from NSE prices; fundamentals from Yahoo Finance (refreshed daily, may lag the latest results); rule-based scoring. Information only, not investment advice.</p></div>`;
+}
+const meterH = (label, sc, note) => `<div class="card anmeter"><div class="muted">${label}</div>${sc ? `<div class="anbig ${sc.grade[1]}">${sc.v}<small>/100</small></div><div class="pa-gbar"><i style="width:${sc.v}%" class="${sc.grade[1]}"></i></div><b class="${sc.grade[1]}">${sc.grade[0]}</b>` : `<div class="anbig muted">–</div><div class="muted" style="font-size:12px">${note || "Loading…"}</div>`}</div>`;
+function overallOf(s, f, ts, fs) {
+  const vr = volRead(s), mr = macroRead(), sr = sectorRead(s);
+  let v = ts.v * (fs ? 0.4 : 0.7) + (fs ? fs.v * 0.35 : 0) + 50 * (fs ? 0.25 : 0.3) + vr.v * 0.6 + mr.v * 0.5 + sr.v * 0.6;
+  v = Math.max(0, Math.min(100, Math.round(v)));
+  const g = v >= 68 ? ["Positive · Buy on dips", "up"] : v >= 56 ? ["Mildly positive · Accumulate slowly", "up"] : v >= 45 ? ["Neutral · Hold / wait", "warn"] : v >= 33 ? ["Cautious · Reduce on rises", "down"] : ["Negative · Avoid for now", "down"];
+  return { v, grade: g, vr, mr, sr };
+}
+function anOverview(s, f, ts, fs) {
+  const o = overallOf(s, f, ts, fs);
+  const pros = ts.parts.filter(x => x[1] > 0).map(x => x[0]).concat(fs ? fs.parts.filter(x => x[1] > 0).map(x => x[0]) : []).slice(0, 6);
+  const cons = ts.parts.filter(x => x[1] < 0).map(x => x[0]).concat(fs ? fs.parts.filter(x => x[1] < 0).map(x => x[0]) : []).slice(0, 6);
+  return `<div class="angrid3">${meterH("Technical score", ts)}${meterH("Fundamental score", fs, FUND ? "Fundamentals not available yet for this stock (they fill in over the next refreshes)." : "Loading fundamentals…")}${meterH("Overall view", { v: o.v, grade: [o.grade[0], o.grade[1]] })}</div>
+    <div class="grid g2" style="margin-top:14px"><div class="card"><div class="hd"><h2 class="up">Strengths</h2></div><div class="bd"><ul class="anlist">${pros.map(x => `<li>${esc(x)}</li>`).join("") || '<li class="muted">None stand out.</li>'}</ul></div></div>
+    <div class="card"><div class="hd"><h2 class="down">Red flags</h2></div><div class="bd"><ul class="anlist">${cons.map(x => `<li>${esc(x)}</li>`).join("") || '<li class="muted">None stand out.</li>'}</ul></div></div></div>
+    <div class="card" style="margin-top:14px"><div class="hd"><h2>Key numbers</h2></div><div class="bd"><div class="stats">${[
+      ["Trend", esc(s.tech?.trend || "–")], ["RSI (14)", nf(s.tech?.rsi14, 0)], ["RS rating", s.tech?.rs_rating ?? "–"], ["1Y return", `<span class="${cls(s.tech?.ret_1y)}">${pct(s.tech?.ret_1y)}</span>`],
+      ["Market cap", crf(f?.mcap_cr)], ["P/E", nf(f?.pe)], ["ROE", nf(f?.roe, 1, "%")], ["Debt/equity", nf(f?.de, 2)],
+      ["Revenue growth", nf(f?.rev_g, 1, "%")], ["Profit growth", nf(f?.earn_g, 1, "%")], ["Dividend yield", nf(f?.divy, 2, "%")], ["Analyst target", f?.target ? `${px(f.target)} <span class="muted" style="font-size:11px">${pct((f.target / s.price - 1) * 100)}</span>` : "–"],
+    ].map(([l, v]) => `<div class="stat"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("")}</div></div></div>
+    ${f?.about ? `<div class="card" style="margin-top:14px"><div class="hd"><h2>About the company</h2></div><div class="bd"><p style="margin:0;font-size:13.5px;line-height:1.55">${esc(f.about)}${f.about.length >= 600 ? "…" : ""}</p></div></div>` : ""}`;
+}
+function anTech(s) {
+  const t = s.tech || {}, row = (l, v, why) => `<tr><td class="l">${l}</td><td class="num">${v}</td><td class="l muted">${why}</td></tr>`;
+  const vs = ma => ma ? `${px(ma)} <span class="${s.price >= ma ? "up" : "down"}">(${s.price >= ma ? "above" : "below"})</span>` : "–";
+  const vr = volRead(s);
+  return `<div class="card"><div class="tblwrap"><table class="tbl antbl"><thead><tr><th class="l">Indicator</th><th>Value</th><th class="l">What it means</th></tr></thead><tbody>
+    ${row("Trend", esc(t.trend || "–"), t.above_50 && t.above_200 ? "Price above both key averages: buyers in control." : !t.above_50 && !t.above_200 ? "Below both averages: sellers in control; wait for a base." : "Mixed: trend is changing.")}
+    ${row("20-day average", vs(t.sma20), "Short-term direction.")}${row("50-day average", vs(t.sma50), "Medium-term trend line many traders watch.")}${row("200-day average", vs(t.sma200), "Long-term trend: above = long-term healthy.")}
+    ${row("RSI (14)", nf(t.rsi14, 0), t.rsi14 > 70 ? "Overbought: strong, but late to chase." : t.rsi14 < 30 ? "Oversold: bounce possible, not a trend change." : t.rsi14 > 55 ? "Healthy momentum." : "Soft momentum.")}
+    ${row("MACD", t.macd_state ? (t.macd_state === "bull" ? '<span class="up">bullish</span>' : '<span class="down">bearish</span>') + (t.macd_cross ? " · fresh cross" : "") : "–", "Direction of short-term momentum.")}
+    ${row("Bollinger Bands", t.bb_pos == null ? "–" : (t.bb_pos > 1 ? "above upper" : t.bb_pos < 0 ? "below lower" : t.bb_pos > 0.5 ? "upper half" : "lower half") + (t.bb_squeeze ? " · squeeze" : ""), t.bb_squeeze ? "Squeeze: a big move often follows." : "Where price sits in its normal range.")}
+    ${row("Support", t.support ? `${px(t.support)} <span class="muted">${pct(t.to_support_pct)}</span>` : "–", "Level where buyers stepped in before.")}
+    ${row("Resistance", t.resistance ? `${px(t.resistance)} <span class="muted">${pct(t.to_resistance_pct)}</span>` : "none nearby", "Level where sellers appeared before.")}
+    ${row("52-week range", `${px(t.low52)} – ${px(t.high52)}`, `${pct(t.from_high_pct)} from the high.`)}
+    ${row("Relative strength", t.rs_rating == null ? "–" : `${t.rs_rating}/99`, "Performance vs all tracked stocks (70+ = leader).")}
+    ${row("vs Nifty (3M / 1Y)", `<span class="${cls(t.rel_3m)}">${pct(t.rel_3m)}</span> / <span class="${cls(t.rel_1y)}">${pct(t.rel_1y)}</span>`, "Beating or lagging the market.")}
+    ${row("Returns", `1W ${pct(t.ret_1w)} · 1M ${pct(t.ret_1m)} · 3M ${pct(t.ret_3m)} · 1Y ${pct(t.ret_1y)}`, "")}
+    </tbody></table></div></div>
+    <div class="grid g2" style="margin-top:14px"><div class="card"><div class="hd"><h2>Volume & quantity</h2></div><div class="bd"><ul class="anlist">${vr.lines.map(l => `<li>${esc(l)}</li>`).join("") || '<li class="muted">No volume data.</li>'}</ul></div></div>
+    <div class="card"><div class="hd"><h2>Candle patterns · last 20 sessions</h2></div><div class="bd" id="anpat"><div class="muted">Reading the chart…</div></div></div></div>`;
+}
+async function anPatterns(sym) {
+  const box = $("#anpat"); if (!box) return;
+  try { if (!charts[sym] || charts[sym]._gen !== D.generated_at) { const r = await fetch(`data/charts/${sym.replace(/[^A-Z0-9&-]/gi, "_")}.json?t=${D.generated_at}`); const j = await r.json(); j._gen = D.generated_at; charts[sym] = j; } } catch { box.innerHTML = '<div class="muted">Chart data unavailable.</div>'; return; }
+  const all = chartRows(charts[sym]), pts = all.slice(-60), found = chPatterns(pts).filter(p => p.i >= pts.length - 20).reverse();
+  const evs = chartEvents(charts[sym]), done = evs.filter(e => e.r20 != null && btSig(e.s)), ok = done.filter(e => btSig(e.s).dir === "down" ? e.r20 < 0 : e.r20 > 0).length;
+  if (!$("#anpat")) return;
+  $("#anpat").innerHTML = (found.length ? `<ul class="anlist">${found.slice(0, 8).map(p => { const P = CH_PATS.find(z => z[0] === p.k); return `<li><b class="${P[3] === "up" ? "up" : P[3] === "down" ? "down" : ""}">${P[1]}</b> ${esc(P[2])} · ${new Date(pts[p.i].t).toLocaleDateString("en-IN", { day: "numeric", month: "short" })} <span class="muted">— ${esc(P[4])}</span></li>`; }).join("")}</ul>` : '<div class="muted">No notable candle patterns in the last 20 sessions.</div>')
+    + (done.length ? `<p class="muted" style="font-size:12.5px;margin:8px 0 0">Past signals on this stock (2 years): ${ok} of ${done.length} (${Math.round(ok / done.length * 100)}%) went the expected way over 20 sessions.</p>` : "");
+}
+function anFund(s, f, fs) {
+  if (!FUND) return '<div class="card"><div class="bd muted">Loading fundamentals…</div></div>';
+  if (!f) return '<div class="empty"><b>Fundamentals not available yet</b>They are collected for all tracked stocks over the next few data refreshes (about 80 stocks per refresh).</div>';
+  const blk = (title, rows) => `<div class="card"><div class="hd"><h2>${title}</h2></div><div class="bd"><table class="tbl antbl"><tbody>${rows.filter(Boolean).map(([l, v, n]) => `<tr><td class="l">${l}</td><td class="num">${v}</td><td class="l muted">${n || ""}</td></tr>`).join("")}</tbody></table></div></div>`;
+  const good = (v, g, b, hi = true) => v == null ? "" : (hi ? v >= g : v <= g) ? '<span class="up">good</span>' : (hi ? v <= b : v >= b) ? '<span class="down">weak</span>' : "fair";
+  const bars = (L, k, label) => { const V = L.map(x => x[k]).filter(v => v != null); if (!V.length) return ""; const mx = Math.max(...V.map(Math.abs)) || 1;
+    return `<div class="anbars"><div class="muted" style="font-size:12px;margin-bottom:4px">${label}</div>${L.map(x => `<div class="anbr"><span>${esc(String(x.y || x.d))}</span><i style="width:${Math.max(2, Math.abs(x[k] || 0) / mx * 100)}%" class="${(x[k] || 0) < 0 ? "neg" : ""}"></i><b class="num">${x[k] == null ? "–" : fmt(x[k], 0)}</b></div>`).join("")}</div>`; };
+  return `${fs ? `<div class="card anfs"><div class="bd"><b>Fundamental score ${fs.v}/100 · <span class="${fs.grade[1]}">${fs.grade[0]}</span></b><div class="muted" style="font-size:12.5px;margin-top:4px">${fs.parts.map(p => `${esc(p[0])} (${p[1] > 0 ? "+" : ""}${p[1]})`).join(" · ")}</div></div></div>` : ""}
+    <div class="grid g2" style="margin-top:14px">
+    ${blk("Valuation", [["Market cap", crf(f.mcap_cr)], ["P/E (trailing)", nf(f.pe), "price ÷ last 12 months' earnings"], ["P/E (forward)", nf(f.fpe), "on next year's expected earnings"], ["P/B", nf(f.pb, 2), "price ÷ book value"], ["EV/EBITDA", nf(f.ev_ebitda), "value of the whole business ÷ cash profit"], ["PEG", nf(f.peg, 2), "P/E ÷ growth (under 1 = cheap for its growth)"], ["EPS (TTM)", f.eps != null ? px(f.eps) : "–"], ["Book value / share", f.bv != null ? px(f.bv) : "–"]])}
+    ${blk("Profitability & growth", [["ROE", nf(f.roe, 1, "%"), good(f.roe, 15, 8)], ["ROA", nf(f.roa, 1, "%")], ["Operating margin", nf(f.opm, 1, "%"), good(f.opm, 18, 6)], ["Net margin", nf(f.npm, 1, "%")], ["Revenue (12 months)", crf(f.rev_cr)], ["Revenue growth (y/y)", nf(f.rev_g, 1, "%"), good(f.rev_g, 12, 0)], ["Earnings growth (y/y)", nf(f.earn_g, 1, "%"), good(f.earn_g, 15, 0)]])}
+    ${blk("Balance sheet & cash", [["Total debt", crf(f.debt_cr)], ["Cash", crf(f.cash_cr)], ["Debt / equity", nf(f.de, 2), /Financial/.test(s.industry || "") ? "banks/NBFCs naturally carry debt" : good(f.de, 0.5, 1.5, false)], ["Current ratio", nf(f.cur, 2), "above 1 = can pay short-term bills"], ["Operating cash flow", crf(f.ocf_cr)], ["Free cash flow", crf(f.fcf_cr), f.fcf_cr == null ? "" : f.fcf_cr > 0 ? '<span class="up">positive</span>' : '<span class="down">negative</span>']])}
+    ${blk("Dividends, owners & analysts", [["Dividend yield", nf(f.divy, 2, "%")], ["Payout ratio", nf(f.payout, 0, "%")], ["Beta", nf(f.beta, 2), "1 = moves with the market"], ["Promoters / insiders", nf(f.insiders, 1, "%")], ["Institutions", nf(f.inst, 1, "%")], f.analysts ? ["Analysts", `${f.analysts} · ${esc(String(f.reco || "").replace(/_/g, " "))}`, f.reco_mean ? `mean ${f.reco_mean} (1 = strong buy, 5 = sell)` : ""] : null, f.target ? ["Mean target", `${px(f.target)} <span class="${cls(f.target - s.price)}">${pct((f.target / s.price - 1) * 100)}</span>`, `range ${px(f.target_lo)} – ${px(f.target_hi)}`] : null])}
+    </div>
+    ${(f.years?.length || f.quarters?.length) ? `<div class="grid g2" style="margin-top:14px"><div class="card"><div class="hd"><h2>Yearly results (₹ crore)</h2></div><div class="bd">${bars(f.years || [], "rev", "Revenue")}${bars(f.years || [], "np", "Net profit")}</div></div>
+      <div class="card"><div class="hd"><h2>Recent quarters (₹ crore)</h2></div><div class="bd">${bars(f.quarters || [], "rev", "Revenue")}${bars(f.quarters || [], "np", "Net profit")}</div></div></div>` : ""}`;
+}
+function anPeers(s) {
+  const L = D.stocks.filter(x => x.industry === s.industry).map(x => ({ s: x, f: FUND?.[x.symbol] })).sort((a, b) => (b.f?.mcap_cr || 0) - (a.f?.mcap_cr || 0)).slice(0, 14);
+  const news = (s.news_ids || []).map(id => D.news.find(n => n.id === id)).filter(Boolean).slice(0, 8);
+  return `<div class="card"><div class="hd"><h2>${esc(s.industry || "Sector")} peers</h2><span class="muted" style="font-size:12px">tracked stocks in the same industry, biggest first</span></div><div class="tblwrap"><table class="tbl"><thead><tr><th class="l">Stock</th><th>Price</th><th>Day</th><th>1Y</th><th>P/E</th><th>ROE</th><th>D/E</th><th>Mkt cap</th><th>Tech</th></tr></thead><tbody>
+    ${L.map(({ s: x, f }) => `<tr data-an="${esc(x.symbol)}" class="${x.symbol === s.symbol ? "anme" : ""}"><td class="l"><b>${esc(x.symbol)}</b></td><td class="num">${px(x.price)}</td><td class="num ${cls(x.change_pct)}">${pct(x.change_pct)}</td><td class="num ${cls(x.tech?.ret_1y)}">${pct(x.tech?.ret_1y)}</td><td class="num">${nf(f?.pe)}</td><td class="num">${nf(f?.roe, 1, "%")}</td><td class="num">${nf(f?.de, 2)}</td><td class="num">${crf(f?.mcap_cr)}</td><td class="num">${paScore(x).v}</td></tr>`).join("")}</tbody></table></div></div>
+    <div class="card" style="margin-top:14px"><div class="hd"><h2>News on ${esc(s.symbol)}</h2><button class="btn sm" data-anlive="${esc(s.symbol)}">Search the web now</button></div><div class="bd" id="anlive">${news.map(n => `<div class="wn"><span class="tdot ${n.tone}"></span><span><a href="${esc(safeUrl(n.link))}" target="_blank" rel="noopener">${esc(n.title)}</a><em class="muted"> · ${esc(n.source || "")} · ${ago(n.published)}</em></span></div>`).join("") || '<div class="muted">No stories in the site feed in the last few days. Tap "Search the web now".</div>'}
+    ${(s.events || []).length ? `<div style="margin-top:10px">${s.events.map(e => `<div><span class="badge ${e.type === "Results" ? "n50" : "watch"}">${esc(e.type)}</span> <b class="num">${esc(e.date)}</b> <span class="muted">${esc(e.detail)}</span></div>`).join("")}</div>` : ""}</div></div>`;
+}
+function anReco(s, f, ts, fs) {
+  const o = overallOf(s, f, ts, fs), p = paPlan(s), t = s.tech || {};
+  const sec = (title, sc, lines) => `<div class="card"><div class="hd"><h2>${title}</h2>${sc != null ? `<span class="badge ${sc > 0 ? "bullish" : sc < 0 ? "bearish" : "neutral"}">${sc > 0 ? "supports" : sc < 0 ? "weighs" : "neutral"}</span>` : ""}</div><div class="bd"><ul class="anlist">${lines.filter(Boolean).map(l => `<li>${esc(l)}</li>`).join("") || '<li class="muted">No data.</li>'}</ul></div></div>`;
+  const plan = p ? `<div class="pa-plan"><span>Buy zone near <b>${px(p.entry)}</b></span><span>Stop-loss <b class="down">${px(p.stop)}</b> (−${p.risk_pct}%)</span><span>Target <b class="up">${px(p.target)}</b></span><span>Reward : risk <b>${p.rr}</b></span></div>` : "";
+  return `<div class="card anreco ${o.grade[1]}"><div class="bd"><div class="muted">Overall view (rule-based)</div><div class="anverdict ${o.grade[1]}">${o.grade[0]}</div><div class="pa-gbar" style="max-width:360px"><i style="width:${o.v}%" class="${o.grade[1]}"></i></div><div class="muted" style="font-size:12.5px;margin-top:4px">Score ${o.v}/100 = technicals (${ts.v}) + fundamentals (${fs ? fs.v : "n/a"}) + volume/delivery + sector + global & policy cues.</div>
+      ${o.grade[1] === "up" || o.grade[1] === "warn" ? plan : `<p class="muted" style="margin:8px 0 0">No buy plan while the picture is ${o.grade[1] === "down" ? "negative" : "unclear"}. ${t.support ? `Watch for a base above support ${px(t.support)}.` : ""}</p>`}</div></div>
+    <div class="grid g2" style="margin-top:14px">
+      ${sec("Technicals", ts.v - 50, ts.parts.slice(0, 5).map(x => `${x[0]} (${x[1] > 0 ? "+" : ""}${x[1]})`))}
+      ${sec("Fundamentals", fs ? fs.v - 50 : null, fs ? fs.parts.slice(0, 5).map(x => `${x[0]} (${x[1] > 0 ? "+" : ""}${x[1]})`) : ["Not available yet for this stock."])}
+      ${sec("Volume & quantity (delivery, F&O)", o.vr.v, o.vr.lines)}
+      ${sec("Sector", o.sr.v, [o.sr.line])}
+      ${sec("World influence (global cues, Fed, dollar, crude)", D.world?.cues?.score ?? null, (D.world?.cues?.lines || []).slice(0, 5))}
+      ${sec("Indian policy (RBI, Government decisions)", null, o.mr.lines.slice(1))}
+    </div>
+    <p class="muted" style="font-size:12.5px;margin-top:10px">For a written analyst view that also reads the newest web news, tap <b>Ask Pulse Agent</b> above. Rule-based view, not investment advice; always size positions so a stop-loss hit is a small loss.</p>`;
+}
 // ---------- MOMENTUM QUADRANT: what is moving up today, for indices and stocks ----------
 const MQ_SETS = [["indices", "Indices"], ["n50", "Nifty 50"], ["n200", "Nifty 200"], ["fo", "F&O stocks"], ["mine", "My stocks"]];
 const MQ_Q = {
@@ -1664,6 +1869,11 @@ function checkAlerts(first) {
 // ---------- events ----------
 document.addEventListener("click", async e => {
   const t = e.target;
+  const gp0 = t.closest("[data-grp]"); if (gp0) { const g = NAV_GROUPS.find(x => x[0] === gp0.dataset.grp); if (g[0] === "analyzer") nav("analyzer", sel && S[sel] ? sel : null); else nav(g[0] === groupOf(view)[0] ? g[2][0][0] : (lastInGroup[g[0]] && g[2].some(x => x[0] === lastInGroup[g[0]]) ? lastInGroup[g[0]] : g[2][0][0])); return; }
+  const an = t.closest("[data-an]"); if (an) { $("#ansugg") && ($("#ansugg").hidden = true); nav("analyzer", an.dataset.an); return; }
+  const at = t.closest("[data-antab]"); if (at) { ui.antab = at.dataset.antab; render(); return; }
+  const ak = t.closest("[data-anask]"); if (ak) { if (!PA.open) paToggle(true); paAsk(null, `Give me a full analysis of ${ak.dataset.anask}: why it is moving (latest news), technicals, fundamentals, volume/delivery, sector, global cues and Indian policy impact, and your recommendation with a trade plan.`); return; }
+  const al = t.closest("[data-anlive]"); if (al) { al.disabled = true; al.textContent = "Searching…"; paNews([al.dataset.anlive]).then(nl => { const b = $("#anlive"); if (b) b.insertAdjacentHTML("afterbegin", paNewsHtml(nl, true) || '<div class="muted">No fresh web stories found.</div>'); al.textContent = "Searched just now"; }); return; }
   const n = t.closest("[data-nav]"); if (n) { nav(n.dataset.nav); return; }
   if (t.closest("#bell")) { const dr = $("#drawer"); if (dr.hidden) openDrawer(); else closeDrawer(); return; }
   if (t.closest("[data-dclose]")) { closeDrawer(); return; }
@@ -1740,7 +1950,7 @@ document.addEventListener("click", async e => {
   if (t.id === "notif") { try { await Notification.requestPermission(); } catch {} render(); return; }
   if (t.id === "copyBk") { const el = $("#bk"); try { await navigator.clipboard.writeText(el.value); toast("Code copied"); } catch { el.select(); toast("Press Ctrl+C to copy the selected code"); } return; }
   if (t.id === "doRs") { try { const v = JSON.parse(decodeURIComponent(escape(atob($("#rs").value.trim())))); my = { holdings: v.holdings || [], watch: v.watch || [], alerts: v.alerts || [] }; saveMy(); render(); toast("Portfolio restored"); } catch { toast("That code didn't work. Copy the whole code and try again."); } return; }
-  if (!t.closest(".search")) $("#gsugg").hidden = true;
+  if (!t.closest(".search")) { $("#gsugg").hidden = true; if ($("#ansugg")) $("#ansugg").hidden = true; }
 });
 document.addEventListener("change", e => {
   if (e.target.id === "acap") { const v = Math.max(10000, Math.round(+e.target.value || 0)); agentCfg.capital = v; store.set("dp-agent", agentCfg); render(); return; }
@@ -1779,6 +1989,9 @@ function searchRender() {
   box.hidden = false;
 }
 $("#gsearch").addEventListener("input", searchRender);
+document.addEventListener("input", e => { if (e.target.id !== "anq") return; const q = e.target.value.trim(), box = $("#ansugg"); if (!box) return; if (!q) { box.hidden = true; return; }
+  const h = searchHits(q); box.innerHTML = h.map(s => `<button type="button" data-an="${esc(s.symbol)}"><span class="sg-n"><b>${esc(s.symbol)}</b><span class="muted">${esc(s.name)}</span></span><span class="num ${cls(s.change_pct)}">${pct(s.change_pct)}</span></button>`).join("") || `<div class="sg-empty"><b>Not in the tracked list</b><span class="muted">The analyzer covers the Nifty 200 + F&O stocks.</span></div>`; box.hidden = false; });
+document.addEventListener("keydown", e => { if (e.target.id !== "anq" || e.key !== "Enter") return; e.preventDefault(); const h = searchHits(e.target.value); if (h[0]) nav("analyzer", h[0].symbol); });
 $("#gsearch").addEventListener("focus", () => { if ($("#gsearch").value.trim()) searchRender(); });
 $("#gsugg").addEventListener("pointerdown", e => e.preventDefault()); // keep focus so the tap lands on the row
 $("#gsearch").addEventListener("keydown", e => {
@@ -1796,7 +2009,7 @@ $("#theme").addEventListener("click", () => {
 });
 if (!SNAPSHOT) { let lastH = location.hash; const onBack = () => { if (location.hash === lastH) return; lastH = location.hash; readHash(); render(); }; window.addEventListener("hashchange", onBack); window.addEventListener("popstate", onBack); const _ps = history.pushState.bind(history); history.pushState = (a, b, h) => { _ps(a, b, h); lastH = location.hash; }; }
 
-if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "fno", "options", "circuits", "screener", "momentum", "groups", "portfolio", "calendar"].includes(h)) view = h; }
+if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "fno", "options", "circuits", "screener", "momentum", "groups", "world", "analyzer", "portfolio", "calendar"].includes(h)) view = h; }
 tickClock(); setInterval(tickClock, 1000);
 document.addEventListener("mouseover", e => { mmPaused = Boolean(e.target.closest("#mm")); btHover = Boolean(e.target.closest("#bticker")); });
 // ---------- PULSE AGENT: floating assistant (rule-based; advice comes from data/latest.json → advice) ----------

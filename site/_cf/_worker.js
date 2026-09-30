@@ -38,6 +38,8 @@ const TOOLS = [
   { name: "live_quote", title: "Live prices",
     description: "Live NSE prices right now (exchange feed, ~15 s cache): last price, % change vs previous close, day high/low and quote time in IST. Accepts up to 8 NSE symbols, plus NIFTY, BANKNIFTY, SENSEX, VIX. Call this first for any question about current prices or 'right now'.",
     inputSchema: { type: "object", properties: { symbols: { type: "string", description: "Comma-separated NSE symbols, e.g. RELIANCE,HDFCBANK,NIFTY" } }, required: ["symbols"] } },
+  { name: "world_markets", title: "World markets & policy", file: "world.txt",
+    description: "World indices (US, Europe, Asia), US dollar index, US 10-year yield, US 3-month T-bill (Fed-rate proxy), Brent crude, gold, USD/INR, VIX, a rule-based read of what global cues mean for Indian stocks, and the latest Fed, RBI, Government of India and global-cue news." },
   { name: "live_news", title: "Latest news right now",
     description: "Searches the web at this moment for the newest news about one Indian stock (Google News, all Indian business sites), newest first with how long ago each story was published. Use it to explain why a stock is moving today.",
     inputSchema: { type: "object", properties: { symbol: { type: "string", description: "NSE symbol, e.g. INFY" } }, required: ["symbol"] } },
@@ -233,10 +235,10 @@ HOW TO ANSWER
 const PLAN_SYSTEM = `You are the planning step of a stock-market research agent for Indian stocks (NSE). Read the conversation and the latest user message and decide what data to fetch.
 Reply with ONE JSON object only, no prose:
 {"symbols":[up to 3 NSE symbols from the LIST that the user means, resolving it/this/that from the conversation],
- "tools":[any of "market","ideas","news","all_stocks"],
+ "tools":[any of "market","ideas","news","all_stocks","world"],
  "task":"one short line describing what the user wants",
  "clarify":null or "one short clarifying question (only if the request is truly impossible to interpret)"}
-Rules: company names, nicknames or misspellings map to the closest symbol in LIST. Use "market" for anything about the overall market, Nifty, sectors or 'today'. Use "ideas" for recommendations/what to buy/setups/best stocks/options ideas. Use "news" for news/results/events. Use "all_stocks" to scan or rank many stocks.`;
+Rules: company names, nicknames or misspellings map to the closest symbol in LIST. Use "market" for anything about the overall market, Nifty, sectors or 'today'. Use "ideas" for recommendations/what to buy/setups/best stocks/options ideas. Use "news" for news/results/events. Use "all_stocks" to scan or rank many stocks. Use "world" for global markets, US/Fed, interest rates, crude, dollar, rupee, RBI or Government of India policy, or when asked for a full recommendation.`;
 function agentCors(req) {
   const o = req.headers.get("Origin") || "";
   const ok = /^https:\/\/(dalalpulse\.pages\.dev|[a-z0-9-]+\.dalalpulse\.pages\.dev|chakradharsapsme\.github\.io|(www\.)?dalalpulse\.com)$/.test(o) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o);
@@ -309,19 +311,20 @@ async function agent(request, env) {
       { role: "user", content: `LIST (SYMBOL|Company):\n${names}\n\nCONVERSATION SO FAR:\n${hist.map(m => `${m.role}: ${m.content.slice(0, 350)}`).join("\n") || "(none)"}\n\nSITE PARSER HINTS: symbols=${hints.join(",") || "none"}, intent=${String(body.intent || "").slice(0, 20) || "none"}\n\nLATEST USER MESSAGE: ${q}` }], 300);
     const m = pl.text.match(/\{[\s\S]*\}/); const j = m ? JSON.parse(m[0]) : {};
     plan.symbols = [...new Set((j.symbols || []).map(x => String(x).toUpperCase()).filter(x => known.has(x)).concat(hints))].slice(0, 3);
-    plan.tools = (j.tools || []).filter(x => ["market", "ideas", "news", "all_stocks"].includes(x));
+    plan.tools = (j.tools || []).filter(x => ["market", "ideas", "news", "all_stocks", "world"].includes(x));
+    if (/\b(fed|federal reserve|global|world|us market|wall street|crude|oil|dollar|rupee|rbi|repo|government|govt|policy|budget|gst|tariff|recommend|recommendation)\b/i.test(q) && !plan.tools.includes("world")) plan.tools.push("world");
     plan.task = String(j.task || "").slice(0, 160); plan.clarify = j.clarify ? String(j.clarify).slice(0, 200) : null;
     step(`Understood: ${plan.task || "your question"}${plan.symbols.length ? ` (${plan.symbols.join(", ")})` : ""}`);
   } catch { step("Understood your question (site parser)"); }
   if (plan.clarify && !plan.symbols.length && !plan.tools.length) return J({ answer: plan.clarify, clarify: true, steps, model: "planner", ms: Date.now() - t0 });
   if (!plan.tools.includes("market")) plan.tools.unshift("market");
-  step(`Plan: ${["live prices", ...plan.tools.map(t => ({ market: "market brief", ideas: "screens & ideas", news: "news & events", all_stocks: "all-stock scan" }[t])), ...plan.symbols.map(s => `${s} research`)].join(" → ")}`);
+  step(`Plan: ${["live prices", ...plan.tools.map(t => ({ market: "market brief", ideas: "screens & ideas", news: "news & events", all_stocks: "all-stock scan", world: "world markets & policy news" }[t])), ...plan.symbols.map(s => `${s} research`)].join(" → ")}`);
   // 2) TOOLS
   const liveSyms = [...new Set(plan.symbols.concat("NIFTY", /bank ?nifty|banknifty/i.test(q) ? ["BANKNIFTY"] : []))].slice(0, 6);
   const [lq, docs, files, lnews] = await Promise.all([
     Promise.all(liveSyms.map(async s => [s, await quote1(s)])),
     Promise.all(plan.symbols.map(s => getText(`stock/${encodeURIComponent(s.replace(/[^A-Z0-9&-]/g, "_"))}.txt`))),
-    Promise.all(plan.tools.map(t => getText({ market: "market.txt", ideas: "ideas.txt", news: "news.txt", all_stocks: "stocks.txt" }[t]))),
+    Promise.all(plan.tools.map(t => getText({ market: "market.txt", ideas: "ideas.txt", news: "news.txt", all_stocks: "stocks.txt", world: "world.txt" }[t]))),
     Promise.all(plan.symbols.map(s => liveNews(s, 8).catch(() => ({ sym: s, items: [] })))),
   ]);
   step(`Searched the web for the newest news: ${lnews.map(n => `${n.sym} ${n.items.length} stor${n.items.length === 1 ? "y" : "ies"}${n.items[0] ? ` (latest ${agoTxt(n.items[0].ago_min)})` : ""}`).join(", ") || "no stock named"}`);
@@ -331,7 +334,7 @@ async function agent(request, env) {
   step(`Read ${docs.filter(Boolean).length + files.filter(Boolean).length} research file(s); computed ${desks.length} trade plan(s)`);
   const ist = new Date(Date.now() + 5.5 * 3600e3), hh = ist.getUTCHours() * 60 + ist.getUTCMinutes(), wd = ist.getUTCDay(), open = wd >= 1 && wd <= 5 && hh >= 555 && hh <= 930;
   const istT = t => t ? new Date(Date.parse(t) + 5.5 * 3600e3).toISOString().slice(0, 16).replace("T", " ") + " IST" : "?";
-  const lim = { market: 5500, ideas: 7000, news: 5000, all_stocks: 8000 };
+  const lim = { market: 5500, ideas: 7000, news: 5000, all_stocks: 8000, world: 5000 };
   const ctx = [
     `NOW: ${ist.toISOString().slice(0, 16).replace("T", " ")} IST · NSE market ${open ? "OPEN" : "CLOSED"}`,
     `TASK: ${plan.task || q}`,
