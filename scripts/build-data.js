@@ -174,8 +174,10 @@ async function main() {
   const deliv = await attempt("edge_delivery", () => edge.delivery(syms, CACHE, log), null);
 
   // charts (one small file per stock, loaded when you open it): price rows + this stock's past signals
+  // wk = weekly bars (5 years), mo = monthly bars since listing (for the 2Y / 3Y / 5Y / All chart ranges)
+  const maxh = await attempt("max_history", () => technicals.longHistory(Object.keys(techs), CACHE, log), {});
   for (const [s, t] of Object.entries(techs)) {
-    fs.writeFileSync(path.join(OUT, "charts", s.replace(/[^A-Z0-9&-]/gi, "_") + ".json"), JSON.stringify({ v: 2, rows: t.series, ev: bt.perStock[s] || [] }));
+    fs.writeFileSync(path.join(OUT, "charts", s.replace(/[^A-Z0-9&-]/gi, "_") + ".json"), JSON.stringify({ v: 3, rows: t.series, wk: t.weekly || [], mo: maxh?.[s] || null, ev: bt.perStock[s] || [] }));
   }
 
   // news: tone + symbol matching

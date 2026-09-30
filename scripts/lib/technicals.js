@@ -15,7 +15,7 @@ async function history(yahooSymbol, range = RANGE) {
       const res = (await r.json())?.chart?.result?.[0];
       if (!res?.timestamp) throw new Error("no data");
       const q = res.indicators.quote[0];
-      const rows = res.timestamp.map((t, i) => ({ t: t * 1000, c: q.close[i], v: q.volume[i] || 0, h: q.high[i] ?? q.close[i], l: q.low[i] ?? q.close[i] })).filter(r => r.c != null);
+      const rows = res.timestamp.map((t, i) => ({ t: t * 1000, o: q.open?.[i] ?? q.close[i], c: q.close[i], v: q.volume[i] || 0, h: q.high[i] ?? q.close[i], l: q.low[i] ?? q.close[i] })).filter(r => r.c != null);
       return { rows, meta: res.meta };
     } catch (e) { lastErr = e; if (e.final) break; await new Promise(r => setTimeout(r, 900 * (a + 1))); }
   }
@@ -163,17 +163,48 @@ async function analyse(nseSymbol) {
   const tech = compute(rows, meta.regularMarketPrice);
   const ind = indicators(rows);
   const from = Math.max(0, rows.length - CHART_BARS);
-  // chart rows: [time, close, 50dma, 200dma, bbUpper, bbLower, macd, macdSignal, rsi, volume]
+  // chart rows: [time, close, 50dma, 200dma, bbUpper, bbLower, macd, macdSignal, rsi, volume, open, high, low]
   const series = [];
   for (let i = from; i < rows.length; i++) series.push([Math.round(rows[i].t / 1000), r2(rows[i].c), r2(ind.s50[i]), r2(ind.s200[i]), r2(ind.bbU[i]), r2(ind.bbL[i]),
-    ind.macd[i] == null ? null : Math.round(ind.macd[i] * 1000) / 1000, ind.sig[i] == null ? null : Math.round(ind.sig[i] * 1000) / 1000, ind.rsi[i] == null ? null : Math.round(ind.rsi[i] * 10) / 10, rows[i].v || 0]);
+    ind.macd[i] == null ? null : Math.round(ind.macd[i] * 1000) / 1000, ind.sig[i] == null ? null : Math.round(ind.sig[i] * 1000) / 1000, ind.rsi[i] == null ? null : Math.round(ind.rsi[i] * 10) / 10, rows[i].v || 0, r2(rows[i].o), r2(rows[i].h), r2(rows[i].l)]);
   // day change: if the last daily bar is today's session, compare with the bar before it
   const ist = ms => new Date(ms + 5.5 * 3600e3).toISOString().slice(0, 10);
   const lastBarDay = ist(rows[rows.length - 1].t), liveDay = meta.regularMarketTime ? ist(meta.regularMarketTime * 1000) : lastBarDay;
   const prev = lastBarDay === liveDay ? rows[rows.length - 2]?.c : rows[rows.length - 1].c;
   const price = meta.regularMarketPrice ?? rows[rows.length - 1].c;
   const quote = { price: r2(price), prev_close: r2(prev), change_pct: prev ? r2((price / prev - 1) * 100) : null, as_of: meta.regularMarketTime ? new Date(meta.regularMarketTime * 1000).toISOString() : null };
-  return { tech, series, quote, rows, ind, updated: new Date().toISOString() };
+  const weekly = toBars(rows, "w");
+  return { tech, series, weekly, quote, rows, ind, updated: new Date().toISOString() };
+}
+
+
+// OHLCV bars grouped by IST week ("w") or month ("m"): [time, open, high, low, close, volume]
+function toBars(rows, per) {
+  const out = []; let cur = null, key = null;
+  for (const r of rows) {
+    const d = new Date(r.t + 5.5 * 3600e3);
+    const k = per === "m" ? d.getUTCFullYear() * 12 + d.getUTCMonth() : Math.floor((d.getTime() / 864e5 + 3) / 7); // weeks start Monday
+    if (k !== key) { if (cur) out.push(cur); key = k; cur = [Math.round(r.t / 1000), r2(r.o ?? r.c), r2(r.h), r2(r.l), r2(r.c), r.v || 0]; }
+    else { cur[2] = r2(Math.max(cur[2], r.h)); cur[3] = r2(Math.min(cur[3], r.l)); cur[4] = r2(r.c); cur[5] += r.v || 0; }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+// Full listed history as monthly bars (Yahoo "max"), cached for a day; refreshed a few dozen stocks per run
+async function longHistory(symbols, cacheDir, log, budget = 45) {
+  const fs = require("fs"), path = require("path"), dir = path.join(cacheDir, "maxhist"); fs.mkdirSync(dir, { recursive: true });
+  const file = s => path.join(dir, s.replace(/[^A-Z0-9&-]/gi, "_") + ".json"), out = {}, need = [];
+  for (const s of symbols) { try { const j = JSON.parse(fs.readFileSync(file(s), "utf8")); out[s] = j.bars; if (Date.now() - j.t > 20 * 3600e3) need.push(s); } catch { need.push(s); } }
+  const todo = need.slice(0, budget); let ok = 0;
+  const w = async () => { while (todo.length) { const s = todo.shift();
+    try { const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(s + ".NS")}?range=max&interval=1mo`;
+      const r = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" }, signal: AbortSignal.timeout(15000) });
+      const res = (await r.json())?.chart?.result?.[0]; const q = res?.indicators?.quote?.[0]; if (!q) continue;
+      const bars = res.timestamp.map((t, i) => [t, r2(q.open[i] ?? q.close[i]), r2(q.high[i] ?? q.close[i]), r2(q.low[i] ?? q.close[i]), r2(q.close[i]), q.volume[i] || 0]).filter(b => b[4] != null);
+      if (bars.length) { out[s] = bars; fs.writeFileSync(file(s), JSON.stringify({ t: Date.now(), bars })); ok++; } } catch {} } };
+  await Promise.all([w(), w(), w(), w()]);
+  log(`[maxhist] ${ok} refreshed, ${Object.keys(out).length}/${symbols.length} available`);
+  return out;
 }
 
 async function analyseMany(symbols, log, concurrency = 6) {
@@ -185,4 +216,4 @@ async function analyseMany(symbols, log, concurrency = 6) {
   return out;
 }
 
-module.exports = { analyse, analyseMany, compute, history, indicators, snapshotAt, crossedUp, crossedDown, CHART_BARS };
+module.exports = { analyse, analyseMany, toBars, longHistory, compute, history, indicators, snapshotAt, crossedUp, crossedDown, CHART_BARS };

@@ -24,6 +24,9 @@ const saveMy = () => store.set("dp-my", my);
 const isMine = s => my.watch.includes(s) || my.holdings.some(h => h.symbol === s);
 const ui = { nf: "withnews", q: "", preset: "all", sort: { k: "change_pct", d: -1 }, w52: "highs", w52s: "all", cal: "tracked", range: 252, sq: "",
   ov: { ma: true, bb: false, sr: true, sig: true }, sub: "vol", hp: "change_pct", hm: "ind", bh: 20, bdir: "all", irange: "1d", crange: "252", icmp: [], fq: "", ff: "all", fsort: { k: "score", d: -1 }, bm: "fo", bsize: "turnover", sgrp: "Popular", suni: "n200", sview: "cards", slimit: 60, smore: false, cside: "upper", cband: "all", csort: "turnover", ccap: "all", climit: 60, odir: "all", osym: "NIFTY", olimit: 9 };
+// chart preferences (line/candles, selected signals) remembered in this browser
+function savePrefs() { try { localStorage.setItem("dp-chart", JSON.stringify({ ctype: ui.ctype, pats: ui.pats })); } catch {} }
+try { const cp = JSON.parse(localStorage.getItem("dp-chart") || "null"); if (cp) { if (cp.ctype) ui.ctype = cp.ctype; if (Array.isArray(cp.pats)) ui.pats = cp.pats; } } catch {}
 const charts = window.__DP_CHARTS__ || {};
 
 // ---------- data ----------
@@ -377,9 +380,10 @@ function stockDetail(sym) {
     ${dejaCard(s)}${delivLine(s)}
     <div class="sect"><h3>News · ${news.length}</h3>${news.length ? news.map(newsItem).join("") : '<div class="muted">No Moneycontrol stories in the last few days.</div>'}</div>
     <div class="sect"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px"><h3 style="margin:0">Price chart</h3>
-      <div class="seg">${[[21, "1M"], [63, "3M"], [126, "6M"], [252, "1Y"]].map(([n, l]) => `<button data-range="${n}" class="${ui.range === n ? "on" : ""}" aria-label="${range[n]}">${l}</button>`).join("")}</div></div>
-      <div class="ctrls"><span class="muted">Show</span>${[["ma", "Averages"], ["bb", "Bollinger Bands"], ["sr", "Support / resistance"], ["sig", "Past signals"]].map(([k, l]) => `<button class="tog${ui.ov[k] ? " on" : ""}" data-ov="${k}" aria-pressed="${ui.ov[k]}">${l}</button>`).join("")}
+      <div class="seg chrng">${CH_RANGES.map(([k, l, lab]) => `<button data-range="${k}" class="${String(ui.range) === k ? "on" : ""}" aria-label="${lab}">${l}</button>`).join("")}</div></div>
+      <div class="ctrls"><span class="muted">Chart</span><div class="seg">${[["line", "Line"], ["candle", "Candles"]].map(([k, l]) => `<button data-ctype="${k}" class="${(ui.ctype || "line") === k ? "on" : ""}">${l}</button>`).join("")}</div><span class="muted" style="margin-left:6px">Show</span>${[["ma", "Averages"], ["bb", "Bollinger Bands"], ["sr", "Support / resistance"], ["sig", "Past signals"]].map(([k, l]) => `<button class="tog${ui.ov[k] ? " on" : ""}" data-ov="${k}" aria-pressed="${ui.ov[k]}">${l}</button>`).join("")}
         <span class="muted" style="margin-left:6px">Lower panel</span><div class="seg">${[["vol", "Volume"], ["rsi", "RSI"], ["macd", "MACD"]].map(([k, l]) => `<button data-sub="${k}" class="${ui.sub === k ? "on" : ""}">${l}</button>`).join("")}</div></div>
+      <div class="ctrls patbar" id="patbar"></div>
       <div class="legend" id="legend"></div>
       <div class="chart" id="chart"><div class="skeleton" style="height:330px"></div></div></div>
     <div class="sect" id="pastsig"></div>
@@ -407,54 +411,130 @@ function stockDetail(sym) {
       <div class="muted" style="font-size:12px;margin-top:8px">Kept privately in this browser.</div>
     </div>`;
 }
-const chartRows = ch => (Array.isArray(ch) ? ch : ch.rows).map(r => ({ t: r[0] * 1000, c: r[1], s50: r[2], s200: r[3], bu: r[4], bl: r[5], macd: r[6], sig: r[7], rsi: r[8], v: r[9] }));
+const chartRows = ch => (Array.isArray(ch) ? ch : ch.rows).map(r => ({ t: r[0] * 1000, c: r[1], s50: r[2], s200: r[3], bu: r[4], bl: r[5], macd: r[6], sig: r[7], rsi: r[8], v: r[9], o: r[10] ?? null, h: r[11] ?? null, l: r[12] ?? null }));
 const chartEvents = ch => Array.isArray(ch) ? [] : ch.ev || [];
+// chart ranges: daily bars up to 1 year, weekly bars for 2-5 years, monthly bars since listing for "All"
+const CH_RANGES = [["21", "1M", "month"], ["63", "3M", "3 months"], ["126", "6M", "6 months"], ["252", "1Y", "year"], ["2y", "2Y", "2 years"], ["3y", "3Y", "3 years"], ["5y", "5Y", "5 years"], ["all", "All", "all years"]];
+// candle patterns and other signals the reader can switch on; tag = the symbol drawn on the chart
+const CH_PATS = [
+  ["beng", "BE", "Bullish engulfing", "up", "A green candle that fully covers the previous red one: buyers took over."],
+  ["hammer", "H", "Hammer", "up", "Long lower wick after a fall: sellers pushed down, buyers pushed back."],
+  ["mstar", "MS", "Morning star", "up", "Three-candle turn after a fall: big red, small pause, strong green."],
+  ["gc", "GC", "Golden cross", "up", "Short average crosses above the long average: trend turning up."],
+  ["gapu", "GU", "Gap up", "up", "Opens above the previous candle's high."],
+  ["doji", "D", "Doji", "flat", "Open ≈ close: indecision, often before a turn."],
+  ["seng", "SE", "Bearish engulfing", "down", "A red candle that fully covers the previous green one: sellers took over."],
+  ["sstar", "SS", "Shooting star", "down", "Long upper wick after a rise: buyers faded, sellers pushed back."],
+  ["estar", "ES", "Evening star", "down", "Three-candle turn after a rise: big green, small pause, strong red."],
+  ["dc", "DC", "Death cross", "down", "Short average crosses below the long average: trend turning down."],
+  ["gapd", "GD", "Gap down", "down", "Opens below the previous candle's low."],
+];
+const PAT_DEFAULT = ["beng", "seng", "hammer", "sstar", "gc", "dc"];
+// indicators for weekly / monthly bars (the daily file already carries them)
+function chInd(pts, sp, lp) {
+  const c = pts.map(p => p.c), sma = (n, i) => i + 1 < n ? null : c.slice(i + 1 - n, i + 1).reduce((a, b) => a + b, 0) / n;
+  const ema = n => { const k = 2 / (n + 1), o = []; c.forEach((v, i) => o.push(i ? v * k + o[i - 1] * (1 - k) : v)); return o; };
+  const e12 = ema(12), e26 = ema(26), m = c.map((v, i) => e12[i] - e26[i]), sg = []; m.forEach((v, i) => sg.push(i ? v * 0.2 + sg[i - 1] * 0.8 : v));
+  let ag = 0, al = 0;
+  pts.forEach((p, i) => {
+    p.s50 = sma(sp, i); p.s200 = sma(lp, i);
+    const b = sma(20, i); if (b != null) { const sd = Math.sqrt(c.slice(i - 19, i + 1).reduce((a, v) => a + (v - b) ** 2, 0) / 20); p.bu = b + 2 * sd; p.bl = b - 2 * sd; } else p.bu = p.bl = null;
+    p.macd = i >= 25 ? m[i] : null; p.sig = i >= 33 ? sg[i] : null;
+    if (i) { const d = c[i] - c[i - 1], g = Math.max(d, 0), l = Math.max(-d, 0); if (i <= 14) { ag += g / 14; al += l / 14; } else { ag = (ag * 13 + g) / 14; al = (al * 13 + l) / 14; } }
+    p.rsi = i >= 14 ? (al === 0 ? 100 : 100 - 100 / (1 + ag / al)) : null;
+  });
+  return pts;
+}
+function chPatterns(pts) {
+  const out = [], hasOhlc = pts.some(p => p.o != null && p.h != null);
+  for (let i = 1; i < pts.length; i++) {
+    const p = pts[i], q = pts[i - 1], add = k => out.push({ i, k });
+    if (p.s50 != null && p.s200 != null && q.s50 != null && q.s200 != null) { if (q.s50 <= q.s200 && p.s50 > p.s200) add("gc"); if (q.s50 >= q.s200 && p.s50 < p.s200) add("dc"); }
+    if (!hasOhlc || p.o == null || q.o == null) continue;
+    const body = Math.abs(p.c - p.o), rng = p.h - p.l || 1e-9, up = p.h - Math.max(p.c, p.o), dn = Math.min(p.c, p.o) - p.l;
+    const prior = pts[Math.max(0, i - 5)].c, fell = p.c < prior || q.c < prior, rose = p.c > prior || q.c > prior;
+    if (body <= rng * 0.1 && rng > 0) add("doji");
+    else {
+      if (dn >= 2 * body && up <= body * 0.6 && fell) add("hammer");
+      if (up >= 2 * body && dn <= body * 0.6 && rose) add("sstar");
+    }
+    if (q.c < q.o && p.c > p.o && p.o <= q.c && p.c >= q.o && body > Math.abs(q.c - q.o)) add("beng");
+    if (q.c > q.o && p.c < p.o && p.o >= q.c && p.c <= q.o && body > Math.abs(q.c - q.o)) add("seng");
+    if (q.h != null && p.l > q.h) add("gapu"); if (q.l != null && p.h < q.l) add("gapd");
+    if (i >= 2) { const a = pts[i - 2]; if (a.o != null) { const ab = Math.abs(a.c - a.o), qb = Math.abs(q.c - q.o), mid = (a.o + a.c) / 2;
+      if (a.c < a.o && qb < ab * 0.4 && p.c > p.o && p.c > mid && fell) add("mstar");
+      if (a.c > a.o && qb < ab * 0.4 && p.c < p.o && p.c < mid && rose) add("estar"); } }
+  }
+  return out;
+}
 async function drawChart(sym) {
   const box = $("#chart"); if (!box) return;
   try { if (!charts[sym]) { const r = await fetch(`data/charts/${sym.replace(/[^A-Z0-9&-]/gi, "_")}.json?t=${D.generated_at}`); charts[sym] = await r.json(); } }
   catch { box.innerHTML = '<div class="muted">Chart unavailable.</div>'; return; }
   if (!$("#chart") || sel !== sym) return;
-  const all = chartRows(charts[sym]), evs = chartEvents(charts[sym]), t = S[sym]?.tech || {};
+  const ch = charts[sym], all = chartRows(ch), evs = chartEvents(ch), t = S[sym]?.tech || {};
   renderPastSignals(sym, evs);
-  const pts = all.slice(-ui.range);
-  if (pts.length < 2) { $("#chart").innerHTML = '<div class="muted">Chart unavailable.</div>'; return; }
+  const rk = String(ui.range), rdef = CH_RANGES.find(r => r[0] === rk) || CH_RANGES[3];
+  const barOf = b => ({ t: b[0] * 1000, o: b[1], h: b[2], l: b[3], c: b[4], v: b[5] });
+  let pts, per = "d", note = "";
+  if (/^\d+$/.test(rk)) pts = all.slice(-+rk);
+  else if (rk === "all" && ch.mo?.length > 2) { per = "m"; pts = chInd(ch.mo.map(barOf), 12, 40); }
+  else if (ch.wk?.length > 2) { per = "w"; const all5 = chInd(ch.wk.map(barOf), 10, 40); pts = rk === "2y" ? all5.slice(-104) : rk === "3y" ? all5.slice(-156) : all5; if (rk === "all") note = "Full history is still loading; showing 5 years."; }
+  else { pts = all; note = "Longer history appears after the next data refresh."; }
+  if (!pts || pts.length < 2) { $("#chart").innerHTML = '<div class="muted">Chart unavailable.</div>'; return; }
+  const hasOhlc = pts.some(p => p.o != null && p.h != null), candle = ui.ctype === "candle" && hasOhlc;
+  const unit = per === "d" ? "day" : per === "w" ? "week" : "month", avgL = per === "d" ? ["50-day avg", "200-day avg"] : per === "w" ? ["10-week avg", "40-week avg"] : ["12-month avg", "40-month avg"];
   const hasPro = pts.some(p => p.bu != null || p.v != null);
   const sub = hasPro ? ui.sub : null;
   const W = 720, L = 8, R = 60, T = 12, MH = 250, GAP = 26, SH = sub ? 86 : 0, H = MH + (sub ? GAP + SH : 0) + 22;
-  const ov = ui.ov, keys = ["c"].concat(ov.ma ? ["s50", "s200"] : [], ov.bb && hasPro ? ["bu", "bl"] : []);
+  const ov = ui.ov, keys = ["c"].concat(ov.ma ? ["s50", "s200"] : [], ov.bb && hasPro ? ["bu", "bl"] : [], candle ? ["h", "l"] : []);
   const vals = pts.flatMap(p => keys.map(k => p[k])).filter(v => v != null);
-  if (ov.sr && t.support) vals.push(t.support); if (ov.sr && t.resistance && t.resistance < Math.max(...vals) * 1.15) vals.push(t.resistance);
-  let lo = Math.min(...vals), hi = Math.max(...vals); const pd = (hi - lo) * 0.08 || 1; lo -= pd; hi += pd;
-  const x = i => L + i / (pts.length - 1) * (W - L - R), y = v => T + (1 - (v - lo) / (hi - lo)) * (MH - T - 4);
+  if (per === "d" && ov.sr && t.support) vals.push(t.support); if (per === "d" && ov.sr && t.resistance && t.resistance < Math.max(...vals) * 1.15) vals.push(t.resistance);
+  let lo = Math.min(...vals), hi = Math.max(...vals); const pd = (hi - lo) * 0.1 || 1; lo -= pd; hi += pd;
+  const x = i => L + (pts.length === 1 ? 0.5 : i / (pts.length - 1)) * (W - L - R), y = v => T + (1 - (v - lo) / (hi - lo)) * (MH - T - 4);
   const line = (k, yf = y) => { let d = "", on = false; pts.forEach((p, i) => { if (p[k] == null) { on = false; return; } d += (on ? "L" : "M") + x(i).toFixed(1) + " " + yf(p[k]).toFixed(1); on = true; }); return d; };
   const last = pts[pts.length - 1], chg = (last.c / pts[0].c - 1) * 100;
   const dot = (k, c) => last[k] == null ? "" : `<circle cx="${x(pts.length - 1)}" cy="${y(last[k])}" r="3.5" fill="${c}" stroke="var(--card)" stroke-width="2"/>`;
-  const dfmt = tt => new Date(tt).toLocaleDateString("en-IN", { day: "numeric", month: "short", ...(ui.range > 130 ? { year: "2-digit" } : {}) });
+  const spanDays = (last.t - pts[0].t) / 864e5;
+  const dfmt = tt => new Date(tt).toLocaleDateString("en-IN", spanDays > 1500 ? { month: "short", year: "numeric" } : { day: "numeric", month: "short", ...(spanDays > 190 ? { year: "2-digit" } : {}) });
   const ticks = [0, 1, 2, 3].map(i => lo + (hi - lo) * (i + 0.5) / 4);
-  // Bollinger band fill
   let bbFill = "";
   if (ov.bb && hasPro) {
     const up = [], dn = []; pts.forEach((p, i) => { if (p.bu != null && p.bl != null) { up.push([x(i), y(p.bu)]); dn.push([x(i), y(p.bl)]); } });
     if (up.length > 1) bbFill = `<path d="M${up.map(q => q[0].toFixed(1) + " " + q[1].toFixed(1)).join("L")}L${dn.reverse().map(q => q[0].toFixed(1) + " " + q[1].toFixed(1)).join("L")}Z" fill="var(--s4)" opacity=".10"/>
       <path d="${line("bu")}" fill="none" stroke="var(--s4)" stroke-width="1.3" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/><path d="${line("bl")}" fill="none" stroke="var(--s4)" stroke-width="1.3" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>`;
   }
-  // support / resistance
   const hline = (v, col, lab) => v == null || v < lo || v > hi ? "" : `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="${col}" stroke-width="1.4" stroke-dasharray="6 4" vector-effect="non-scaling-stroke"/><rect x="${W - R + 2}" y="${y(v) - 9}" width="${R - 4}" height="18" rx="4" fill="${col}"/><text x="${W - R / 2}" y="${y(v) + 4}" font-size="10" font-weight="700" text-anchor="middle" fill="#fff">${lab}</text>`;
-  const sr = ov.sr ? hline(t.support, "var(--up)", "SUP") + hline(t.resistance, "var(--down)", "RES") : "";
-  // past-signal markers
+  const sr = ov.sr && per === "d" ? hline(t.support, "var(--up)", "SUP") + hline(t.resistance, "var(--down)", "RES") : "";
+  // price: line or candles
+  const bw = Math.max(1, Math.min(14, (W - L - R) / pts.length * 0.62));
+  const priceSvg = candle ? pts.map((p, i) => { if (p.o == null) return ""; const upc = p.c >= p.o, col = upc ? "var(--up)" : "var(--down)", yt = y(Math.max(p.o, p.c)), yb = y(Math.min(p.o, p.c));
+      return `<line x1="${x(i).toFixed(1)}" x2="${x(i).toFixed(1)}" y1="${y(p.h).toFixed(1)}" y2="${y(p.l).toFixed(1)}" stroke="${col}" stroke-width="1" vector-effect="non-scaling-stroke"/><rect x="${(x(i) - bw / 2).toFixed(1)}" y="${yt.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, yb - yt).toFixed(1)}" fill="${upc ? "var(--card)" : col}" stroke="${col}" stroke-width="1" vector-effect="non-scaling-stroke"/>`; }).join("")
+    : `<path d="${line("c")}L${x(pts.length - 1)} ${MH - 4}L${x(0)} ${MH - 4}Z" fill="url(#ga)"/><path d="${line("c")}" fill="none" stroke="var(--s1)" stroke-width="2.2" vector-effect="non-scaling-stroke"/>`;
+  // past back-tested signals (mapped to the bar that contains the date)
   let marks = "";
   if (ov.sig && evs.length) {
-    const idx = {}; pts.forEach((p, i) => { idx[new Date(p.t + 5.5 * 3600e3).toISOString().slice(0, 10)] = i; });
-    for (const e of evs) { const i = idx[e.d]; if (i == null) continue; const g = btSig(e.s); if (!g) continue;
-      const upSig = g.dir === "up", yy = y(pts[i].c) + (upSig ? 14 : -14), xx = x(i);
+    for (const e of evs) { const et = Date.parse(e.d + "T12:00:00+05:30"); if (et < pts[0].t - 864e5 || et > last.t + 40 * 864e5) continue;
+      let i = pts.length - 1; while (i > 0 && pts[i].t > et) i--; const g = btSig(e.s); if (!g) continue;
+      const upSig = g.dir === "up", base = candle ? (upSig ? pts[i].l : pts[i].h) : pts[i].c, yy = y(base) + (upSig ? 14 : -14), xx = x(i);
       marks += `<path d="${upSig ? `M${xx} ${yy - 6}l5 8h-10z` : `M${xx} ${yy + 6}l5 -8h-10z`}" fill="${upSig ? "var(--up)" : "var(--down)"}" opacity=".9"><title>${esc(g.name)} · ${esc(e.d)}${e.r20 != null ? ` · next 20 sessions ${pct(e.r20)}` : ""}</title></path>`; }
   }
+  // candle patterns & crosses
+  const on = new Set(ui.pats || PAT_DEFAULT), found = chPatterns(pts), picked = found.filter(f => on.has(f.k)), byBar = {};
+  // keep the chart readable: every average cross, plus the most recent 24 candle patterns
+  const MAXP = 24, crosses = picked.filter(f => f.k === "gc" || f.k === "dc"), cand = picked.filter(f => f.k !== "gc" && f.k !== "dc");
+  const shown = crosses.concat(cand.slice(-MAXP)), capped = cand.length > MAXP;
+  for (const f of found) (byBar[f.i] = byBar[f.i] || []).push(f.k);
+  const stack = {};
+  const patSvg = shown.map(f => { const P = CH_PATS.find(z => z[0] === f.k), p = pts[f.i], below = P[3] !== "down", n = stack[f.i + (below ? "b" : "a")] = (stack[f.i + (below ? "b" : "a")] || 0) + 1;
+    const base = below ? (p.l ?? p.c) : (p.h ?? p.c), yy = y(base) + (below ? 12 + (n - 1) * 15 : -12 - (n - 1) * 15), col = P[3] === "up" ? "var(--up)" : P[3] === "down" ? "var(--down)" : "var(--warn)", w = P[1].length * 6.5 + 6;
+    return `<g class="cpat"><rect x="${(x(f.i) - w / 2).toFixed(1)}" y="${(yy - 7).toFixed(1)}" width="${w}" height="13" rx="3" fill="${col}"/><text x="${x(f.i).toFixed(1)}" y="${(yy + 3).toFixed(1)}" text-anchor="middle" font-size="9.5" font-weight="700" fill="#fff">${P[1]}</text><title>${esc(P[2])} · ${new Date(p.t).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })} · ${esc(P[4])}</title></g>`; }).join("");
   // lower panel
   let subSvg = "";
   const sy0 = MH + GAP, sy1 = sy0 + SH;
   if (sub === "vol") {
-    const vmax = Math.max(1, ...pts.map(p => p.v || 0)), bw = Math.max(1, (W - L - R) / pts.length - 0.8);
-    subSvg = pts.map((p, i) => { const hgt = (p.v || 0) / vmax * SH; const upd = i ? p.c >= pts[i - 1].c : true; return `<rect x="${(x(i) - bw / 2).toFixed(1)}" y="${(sy1 - hgt).toFixed(1)}" width="${bw.toFixed(1)}" height="${hgt.toFixed(1)}" fill="${upd ? "var(--up)" : "var(--down)"}" opacity=".55"/>`; }).join("")
+    const vmax = Math.max(1, ...pts.map(p => p.v || 0));
+    subSvg = pts.map((p, i) => { const hgt = (p.v || 0) / vmax * SH; const upd = p.o != null ? p.c >= p.o : i ? p.c >= pts[i - 1].c : true; return `<rect x="${(x(i) - bw / 2).toFixed(1)}" y="${(sy1 - hgt).toFixed(1)}" width="${bw.toFixed(1)}" height="${hgt.toFixed(1)}" fill="${upd ? "var(--up)" : "var(--down)"}" opacity=".55"/>`; }).join("")
       + `<text x="${W - R + 7}" y="${sy0 + 10}" font-size="10.5" fill="var(--muted)">Volume</text>`;
   } else if (sub === "rsi") {
     const ry = v => sy0 + (1 - v / 100) * SH;
@@ -463,36 +543,45 @@ async function drawChart(sym) {
       <path d="${line("rsi", ry)}" fill="none" stroke="var(--s5)" stroke-width="1.8" vector-effect="non-scaling-stroke"/>`;
   } else if (sub === "macd") {
     const mv = pts.flatMap(p => [p.macd, p.sig, p.macd != null && p.sig != null ? p.macd - p.sig : null]).filter(v => v != null);
-    const mx = Math.max(1e-9, ...mv.map(Math.abs)), my = v => sy0 + SH / 2 - v / mx * (SH / 2 - 2), bw = Math.max(1, (W - L - R) / pts.length - 0.8);
+    const mx = Math.max(1e-9, ...mv.map(Math.abs)), my = v => sy0 + SH / 2 - v / mx * (SH / 2 - 2);
     subSvg = `<line x1="${L}" x2="${W - R}" y1="${my(0)}" y2="${my(0)}" stroke="var(--line2)"/>`
       + pts.map((p, i) => { if (p.macd == null || p.sig == null) return ""; const hv = p.macd - p.sig; return `<rect x="${(x(i) - bw / 2).toFixed(1)}" y="${Math.min(my(0), my(hv)).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.abs(my(hv) - my(0)).toFixed(1)}" fill="${hv >= 0 ? "var(--up)" : "var(--down)"}" opacity=".45"/>`; }).join("")
       + `<path d="${line("macd", my)}" fill="none" stroke="var(--s1)" stroke-width="1.6" vector-effect="non-scaling-stroke"/><path d="${line("sig", my)}" fill="none" stroke="var(--s2)" stroke-width="1.6" vector-effect="non-scaling-stroke"/>
       <text x="${W - R + 7}" y="${sy0 + 10}" font-size="10.5" fill="var(--muted)">MACD</text>`;
   }
-  const lg = [["var(--s1)", "Price"]].concat(ov.ma ? [["var(--s2)", "50-day avg"], ["var(--s3)", "200-day avg"]] : [], ov.bb && hasPro ? [["var(--s4)", "Bollinger Bands (20, 2)"]] : [], ov.sr ? [["var(--up)", "Support"], ["var(--down)", "Resistance"]] : [],
+  const lg = [[candle ? "linear-gradient(90deg,var(--up) 50%,var(--down) 50%)" : "var(--s1)", candle ? `Candles (1 per ${unit})` : "Price"]].concat(ov.ma ? [["var(--s2)", avgL[0]], ["var(--s3)", avgL[1]]] : [], ov.bb && hasPro ? [["var(--s4)", "Bollinger Bands (20, 2)"]] : [], ov.sr && per === "d" ? [["var(--up)", "Support"], ["var(--down)", "Resistance"]] : [],
     sub === "rsi" ? [["var(--s5)", "RSI (14)"]] : sub === "macd" ? [["var(--s1)", "MACD"], ["var(--s2)", "Signal line"]] : []);
   $("#legend").innerHTML = lg.map(([c, l]) => `<span><i style="background:${c}"></i>${l}</span>`).join("") + (ov.sig && evs.length ? `<span><b class="up">▲</b>/<b class="down">▼</b> past signals (hover)</span>` : "");
-  $("#chart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:${Math.round(H * 0.94)}px" role="img" aria-label="${esc(sym)} price chart">
+  // pattern chips with counts in view
+  const cnt = k => found.filter(f => f.k === k).length;
+  const pb = $("#patbar"); if (pb) pb.innerHTML = `<span class="muted">Signals</span>${CH_PATS.map(([k, tag, name, dir, tip]) => { const n = cnt(k), needO = !["gc", "dc"].includes(k) && !hasOhlc;
+      return `<button class="ptog ${dir}${on.has(k) ? " on" : ""}" data-pat="${k}" aria-pressed="${on.has(k)}" title="${esc(tip)}"${needO ? " disabled" : ""}><b>${tag}</b>${name}<em>${needO ? "–" : n}</em></button>`; }).join("")}<button class="ptog all" data-pat="*">${on.size ? "Clear" : "All"}</button>`;
+  const lastPat = [...found].reverse().find(f => on.has(f.k));
+  const bull = picked.filter(f => CH_PATS.find(z => z[0] === f.k)[3] === "up").length, bear = picked.filter(f => CH_PATS.find(z => z[0] === f.k)[3] === "down").length;
+  $("#chart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="height:${Math.round(H * 0.94)}px" role="img" aria-label="${esc(sym)} ${candle ? "candlestick" : "price"} chart, ${rdef[2]}">
     <defs><linearGradient id="ga" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--s1)" stop-opacity=".22"/><stop offset="1" stop-color="var(--s1)" stop-opacity="0"/></linearGradient></defs>
     ${ticks.map(g => `<line x1="${L}" x2="${W - R}" y1="${y(g)}" y2="${y(g)}" stroke="var(--line)"/><text x="${W - R + 7}" y="${y(g) + 4}" font-size="10.5" fill="var(--muted)">${fmt(g, g > 1000 ? 0 : 1)}</text>`).join("")}
     ${[0, Math.floor(pts.length / 2), pts.length - 1].map(i => `<text x="${x(i)}" y="${H - 6}" font-size="11" fill="var(--muted)" text-anchor="${i === 0 ? "start" : i === pts.length - 1 ? "end" : "middle"}">${dfmt(pts[i].t)}</text>`).join("")}
     ${bbFill}
-    <path d="${line("c")}L${x(pts.length - 1)} ${MH - 4}L${x(0)} ${MH - 4}Z" fill="url(#ga)"/>
     ${ov.ma ? `<path d="${line("s200")}" fill="none" stroke="var(--s3)" stroke-width="2" vector-effect="non-scaling-stroke"/><path d="${line("s50")}" fill="none" stroke="var(--s2)" stroke-width="2" vector-effect="non-scaling-stroke"/>` : ""}
-    <path d="${line("c")}" fill="none" stroke="var(--s1)" stroke-width="2.2" vector-effect="non-scaling-stroke"/>
-    ${sr}${marks}
-    ${ov.ma ? dot("s200", "var(--s3)") + dot("s50", "var(--s2)") : ""}${dot("c", "var(--s1)")}
+    ${priceSvg}
+    ${sr}${marks}${patSvg}
+    ${ov.ma ? dot("s200", "var(--s3)") + dot("s50", "var(--s2)") : ""}${candle ? "" : dot("c", "var(--s1)")}
     ${subSvg}
     <line id="xh" y1="${T}" y2="${sub ? sy1 : MH}" stroke="var(--muted)" stroke-dasharray="3 3" visibility="hidden"/>
     <rect id="hit" x="${L}" y="${T}" width="${W - L - R}" height="${(sub ? sy1 : MH) - T}" fill="transparent"/>
   </svg><div class="tip" id="tip" hidden></div>
-  <div class="muted" style="font-size:12.5px;margin-top:6px">Last ${{ 21: "month", 63: "3 months", 126: "6 months", 252: "year" }[ui.range]}: <b class="num ${cls(chg)}">${pct(chg)}</b> · price ${px(last.c)}${last.s50 ? ` · 50-day ${px(last.s50)}` : ""}${last.s200 ? ` · 200-day ${px(last.s200)}` : ""}</div>`;
+  <div class="muted" style="font-size:12.5px;margin-top:6px">Last ${rdef[2]}: <b class="num ${cls(chg)}">${pct(chg)}</b> · price ${px(last.c)}${ov.ma && last.s50 ? ` · ${avgL[0]} ${px(last.s50)}` : ""}${ov.ma && last.s200 ? ` · ${avgL[1]} ${px(last.s200)}` : ""}${per !== "d" ? ` · 1 ${candle ? "candle" : "point"} = 1 ${unit}` : ""}${note ? ` · ${note}` : ""}</div>
+  ${on.size ? `<div class="patsum">${picked.length ? `In view: <b class="up">${bull} bullish</b> · <b class="down">${bear} bearish</b> signal${picked.length === 1 ? "" : "s"}${capped ? ` (chart marks the latest ${MAXP} candle patterns; pick fewer signals or a shorter range to see all)` : ""}${lastPat ? ` · latest <b>${esc(CH_PATS.find(z => z[0] === lastPat.k)[2])}</b> on ${new Date(pts[lastPat.i].t).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}` : ""}` : "None of the selected signals in this period."} <span class="muted">Patterns are hints, not guarantees: confirm with volume and the next candles.</span></div>` : ""}`;
   const svg = $("#chart svg"), tip = $("#tip"), xh = $("#xh");
   const move = cx => {
     const b = svg.getBoundingClientRect(), sx = (cx - b.left) / b.width * W;
     const i = Math.max(0, Math.min(pts.length - 1, Math.round((sx - L) / (W - L - R) * (pts.length - 1)))), p = pts[i];
     xh.setAttribute("x1", x(i)); xh.setAttribute("x2", x(i)); xh.setAttribute("visibility", "visible");
-    tip.hidden = false; tip.innerHTML = `<b>${new Date(p.t).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</b><br>Price ${px(p.c)}${ov.ma && p.s50 ? `<br><span style="color:var(--s2)">■</span> 50-day ${px(p.s50)}` : ""}${ov.ma && p.s200 ? `<br><span style="color:var(--s3)">■</span> 200-day ${px(p.s200)}` : ""}${ov.bb && p.bu != null ? `<br><span style="color:var(--s4)">■</span> Bands ${px(p.bl)} – ${px(p.bu)}` : ""}${p.rsi != null ? `<br>RSI ${fmt(p.rsi, 0)}` : ""}${p.macd != null && p.sig != null ? ` · MACD ${p.macd > p.sig ? "▲" : "▼"}` : ""}${p.v ? `<br>Volume ${fmt(p.v, 0)}` : ""}`;
+    const pn = (byBar[i] || []).map(k => CH_PATS.find(z => z[0] === k)).map(P => `<br><b class="${P[3] === "up" ? "up" : P[3] === "down" ? "down" : ""}">${P[1]}</b> ${esc(P[2])}`).join("");
+    tip.hidden = false; tip.innerHTML = `<b>${per === "m" ? new Date(p.t).toLocaleDateString("en-IN", { month: "short", year: "numeric" }) : (per === "w" ? "Week of " : "") + new Date(p.t).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}</b>`
+      + (p.o != null && p.h != null ? `<br>O ${px(p.o)} · H ${px(p.h)}<br>L ${px(p.l)} · C ${px(p.c)}` : `<br>Price ${px(p.c)}`)
+      + `${ov.ma && p.s50 ? `<br><span style="color:var(--s2)">■</span> ${avgL[0]} ${px(p.s50)}` : ""}${ov.ma && p.s200 ? `<br><span style="color:var(--s3)">■</span> ${avgL[1]} ${px(p.s200)}` : ""}${sub === "rsi" && p.rsi != null ? `<br>RSI ${fmt(p.rsi, 0)}` : ""}${sub === "vol" && p.v ? `<br>Volume ${fmt(p.v, 0)}` : ""}${pn}`;
     const lx = x(i) / W * b.width; tip.style.left = (lx > b.width - 190 ? lx - 180 : lx + 12) + "px"; tip.style.top = "6px";
   };
   svg.onmousemove = e => move(e.clientX); svg.ontouchmove = e => move(e.touches[0].clientX);
@@ -1631,7 +1720,9 @@ document.addEventListener("click", async e => {
   const bh = t.closest("[data-bh]"); if (bh) { ui.bh = +bh.dataset.bh; render(); return; }
   const bd = t.closest("[data-bdir]"); if (bd) { ui.bdir = bd.dataset.bdir; render(); return; }
   if (t.closest("[data-rs]")) { ui.preset = "rslead"; ui.sgrp = "Popular"; ui.suni = "all"; ui.sort = { k: "rs_rating", d: -1 }; nav("screener"); return; }
-  const rg = t.closest("[data-range]"); if (rg) { ui.range = +rg.dataset.range; document.querySelectorAll("[data-range]").forEach(b => b.classList.toggle("on", b === rg)); drawChart(sel); return; }
+  const ct = t.closest("[data-ctype]"); if (ct) { ui.ctype = ct.dataset.ctype; savePrefs(); document.querySelectorAll("[data-ctype]").forEach(b => b.classList.toggle("on", b === ct)); drawChart(sel); return; }
+  const pt = t.closest("[data-pat]"); if (pt) { const cur = new Set(ui.pats || PAT_DEFAULT), k = pt.dataset.pat; if (k === "*") ui.pats = cur.size ? [] : CH_PATS.map(z => z[0]); else { cur.has(k) ? cur.delete(k) : cur.add(k); ui.pats = [...cur]; } savePrefs(); drawChart(sel); return; }
+  const rg = t.closest("[data-range]"); if (rg) { ui.range = /^\d+$/.test(rg.dataset.range) ? +rg.dataset.range : rg.dataset.range; document.querySelectorAll("[data-range]").forEach(b => b.classList.toggle("on", b === rg)); drawChart(sel); return; }
   const st = t.closest("[data-star]"); if (st) { const sy = st.dataset.star; my.watch = my.watch.includes(sy) ? my.watch.filter(x => x !== sy) : [...my.watch, sy]; saveMy(); render(); toast(my.watch.includes(sy) ? `${sy} is on your watchlist` : `${sy} removed from your watchlist`); return; }
   const hs = t.closest("[data-hsave]"); if (hs) { const sy = hs.dataset.hsave, q = +$("#hq").value, a = +$("#ha").value; if (!(q > 0 && a > 0)) { toast("Enter the quantity and your average buy price"); return; }
     const h = my.holdings.find(x => x.symbol === sy); if (h) Object.assign(h, { qty: q, avg: a }); else my.holdings.push({ symbol: sy, qty: q, avg: a }); saveMy(); render(); toast(`${sy} saved to your portfolio`); return; }

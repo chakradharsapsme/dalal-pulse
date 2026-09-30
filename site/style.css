@@ -748,3 +748,18 @@ body.bt-on .toast{bottom:calc(60px + env(safe-area-inset-bottom,0px))}
 .glead .num{font-size:12.5px}
 .gnone{font-size:12px;padding:2px 6px}
 @media (max-width:640px){.gviz{gap:12px}.gviz .gdonut{width:124px;height:124px}.gkey{margin-left:0}.gminis{grid-template-columns:repeat(3,minmax(0,1fr));gap:2px;padding:4px 4px 10px}.gmini .gdonut{width:62px;height:62px}.gmini>span{font-size:10px}}
+/* chart: ranges, candle patterns */
+.chrng{flex-wrap:wrap}.chrng button{padding-inline:9px}
+.patbar{gap:5px}
+.ptog{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);background:var(--paper);color:var(--muted);border-radius:999px;padding:2px 9px 2px 3px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.ptog b{display:inline-block;min-width:22px;padding:1px 4px;border-radius:5px;font-size:10px;color:#fff;text-align:center;background:var(--muted)}
+.ptog.up b{background:var(--up)}.ptog.down b{background:var(--down)}.ptog.flat b{background:var(--warn)}
+.ptog em{font-style:normal;font-size:10.5px;color:var(--muted);background:var(--paper2);border-radius:999px;padding:0 6px}
+.ptog.on{color:var(--ink);border-color:var(--ink2);background:var(--card)}
+.ptog:not(.on) b{opacity:.45}
+.ptog[disabled]{opacity:.45;cursor:not-allowed}
+.ptog.all{padding:2px 10px;color:var(--peacock)}
+.patsum{font-size:12.5px;margin-top:6px;line-height:1.5}
+.cpat{cursor:help}
+@media (max-width:640px){.patbar{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px}.ptog{flex:none}}
+.md>.detail,.md>.master{min-width:0}
