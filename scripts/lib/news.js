@@ -23,6 +23,8 @@ const FAST_FEEDS = {
   "NDTV Profit": "https://feeds.feedburner.com/ndtvprofit-latest",
   "Financial Express Markets": "https://www.financialexpress.com/market/feed/",
   "BusinessLine Markets": "https://www.thehindubusinessline.com/markets/feeder/default.rss",
+  "Bloomberg Markets": "https://feeds.bloomberg.com/markets/news.rss",
+  "Bloomberg Economics": "https://feeds.bloomberg.com/economics/news.rss",
 };
 // the publication each feed belongs to (shown to readers)
 const PUBLISHER = name => /^MC /.test(name) ? "Moneycontrol" : name.replace(/ (Markets|Stocks|Companies|Business)$/, "");
@@ -34,8 +36,13 @@ const GOOGLE_FEEDS = {
   "Google News: MC markets": gnews("site:moneycontrol.com/news/business/markets when:2d"),
   "Google News: MC earnings": gnews("site:moneycontrol.com/news/business/earnings when:3d"),
   "Google News: MC companies": gnews("site:moneycontrol.com/news/business/companies when:2d"),
+  "Google News: Bloomberg India": gnews("site:bloomberg.com India when:2d"),
+  "Google News: Bloomberg India markets": gnews("site:bloomberg.com (Nifty OR Sensex OR \"Indian stocks\" OR rupee OR RBI OR Adani OR Reliance OR Tata) when:3d"),
 };
 const isGoogle = name => name.startsWith("Google News");
+const gPub = name => /Bloomberg/.test(name) ? "Bloomberg" : "Moneycontrol";
+// Bloomberg covers the whole world: keep only stories about India
+const INDIA_RE = /\b(India|Indian|Indians|Nifty|Sensex|rupee|RBI|Mumbai|Delhi|Bengaluru|Modi|SEBI|NSE|BSE|Adani|Ambani|Reliance|Tata|Infosys|Wipro|HDFC|ICICI|Bharti|Airtel|Mahindra|Bajaj|Vedanta|Zomato|Eternal|Paytm|Jio)\b/i;
 
 // Words that often signal a price-moving story. Used only to highlight, never to trade.
 const SIGNAL_WORDS = {
@@ -119,14 +126,15 @@ async function fetchAll(log, watchlist) {
     for (const e of entries) {
       let title = e.title;
       if (!title) continue;
-      if (isGoogle(source)) title = title.replace(/\s+-\s+Moneycontrol(\.com)?$/i, "");
-      else title = title.replace(/\s+[-|]\s+(Moneycontrol|The Economic Times|ET Markets|Mint|Business Standard|CNBC-TV18|NDTV Profit|Financial Express|BusinessLine)$/i, "");
+      if (/Bloomberg/.test(source) && !INDIA_RE.test(title + " " + (e.summary || ""))) continue;
+      if (isGoogle(source)) title = title.replace(/\s+-\s+(Moneycontrol|Bloomberg)(\.com)?$/i, "");
+      else title = title.replace(/\s+[-|]\s+(Moneycontrol|The Economic Times|ET Markets|Mint|Business Standard|CNBC-TV18|NDTV Profit|Financial Express|BusinessLine|Bloomberg)$/i, "");
       if (isJunk(title)) continue;
       const d = new Date(e.pubDate);
       items.push({
         // id per publisher, so the same headline on two sites stays separate until clusterStories() compares their times
-        id: crypto.createHash("sha1").update((isGoogle(source) ? "Moneycontrol" : PUBLISHER(source)) + "|" + title.toLowerCase()).digest("hex").slice(0, 16),
-        title, summary: e.summary, link: e.link, source, publisher: isGoogle(source) ? "Moneycontrol" : PUBLISHER(source), via_google: isGoogle(source),
+        id: crypto.createHash("sha1").update((isGoogle(source) ? gPub(source) : PUBLISHER(source)) + "|" + title.toLowerCase()).digest("hex").slice(0, 16),
+        title, summary: e.summary, link: e.link, source, publisher: isGoogle(source) ? gPub(source) : PUBLISHER(source), via_google: isGoogle(source),
         published: (isNaN(d) ? new Date() : d).toISOString(),
         signals: signals(title + " " + e.summary),
       });
