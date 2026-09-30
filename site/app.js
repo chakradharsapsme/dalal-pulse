@@ -469,8 +469,15 @@ function chPatterns(pts) {
 }
 async function drawChart(sym) {
   const box = $("#chart"); if (!box) return;
-  try { if (!charts[sym]) { const r = await fetch(`data/charts/${sym.replace(/[^A-Z0-9&-]/gi, "_")}.json?t=${D.generated_at}`); charts[sym] = await r.json(); } }
-  catch { box.innerHTML = '<div class="muted">Chart unavailable.</div>'; return; }
+  // (re)load the chart file when it is missing, from an older data refresh, or lacks the long-range bars this period needs
+  const longR = !/^\d+$/.test(String(ui.range)), cc = charts[sym];
+  const stale = !cc || (cc._gen && cc._gen !== D.generated_at) || (longR && !cc.wk?.length && !cc._tried);
+  if (stale) {
+    if (cc) box.style.opacity = ".45";
+    try { const r = await fetch(`data/charts/${sym.replace(/[^A-Z0-9&-]/gi, "_")}.json?t=${D.generated_at}${cc ? "&r=" + Date.now() : ""}`, cc ? { cache: "no-store" } : {}); const j = await r.json(); j._gen = D.generated_at; j._tried = true; charts[sym] = j; }
+    catch { if (!cc) { box.innerHTML = '<div class="muted">Chart unavailable.</div>'; return; } }
+    box.style.opacity = "";
+  }
   if (!$("#chart") || sel !== sym) return;
   const ch = charts[sym], all = chartRows(ch), evs = chartEvents(ch), t = S[sym]?.tech || {};
   renderPastSignals(sym, evs);
@@ -479,7 +486,7 @@ async function drawChart(sym) {
   let pts, per = "d", note = "";
   if (/^\d+$/.test(rk)) pts = all.slice(-+rk);
   else if (rk === "all" && ch.mo?.length > 2) { per = "m"; pts = chInd(ch.mo.map(barOf), 12, 40); }
-  else if (ch.wk?.length > 2) { per = "w"; const all5 = chInd(ch.wk.map(barOf), 10, 40); pts = rk === "2y" ? all5.slice(-104) : rk === "3y" ? all5.slice(-156) : all5; if (rk === "all") note = "Full history is still loading; showing 5 years."; }
+  else if (ch.wk?.length > 2) { per = "w"; const all5 = chInd(ch.wk.map(barOf), 10, 40); pts = rk === "2y" ? all5.slice(-104) : rk === "3y" ? all5.slice(-156) : all5; if (rk === "all") note = "Full history for this stock is still being collected (ready within the hour); showing 5 years for now."; }
   else { pts = all; note = "Longer history appears after the next data refresh."; }
   if (!pts || pts.length < 2) { $("#chart").innerHTML = '<div class="muted">Chart unavailable.</div>'; return; }
   const hasOhlc = pts.some(p => p.o != null && p.h != null), candle = ui.ctype === "candle" && hasOhlc;

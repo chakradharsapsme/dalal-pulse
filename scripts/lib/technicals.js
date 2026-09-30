@@ -191,7 +191,7 @@ function toBars(rows, per) {
   return out;
 }
 // Full listed history as monthly bars (Yahoo "max"), cached for a day; refreshed a few dozen stocks per run
-async function longHistory(symbols, cacheDir, log, budget = 45) {
+async function longHistory(symbols, cacheDir, log, budget = 120) {
   const fs = require("fs"), path = require("path"), dir = path.join(cacheDir, "maxhist"); fs.mkdirSync(dir, { recursive: true });
   const file = s => path.join(dir, s.replace(/[^A-Z0-9&-]/gi, "_") + ".json"), out = {}, need = [];
   for (const s of symbols) { try { const j = JSON.parse(fs.readFileSync(file(s), "utf8")); out[s] = j.bars; if (Date.now() - j.t > 20 * 3600e3) need.push(s); } catch { need.push(s); } }
@@ -202,7 +202,7 @@ async function longHistory(symbols, cacheDir, log, budget = 45) {
       const res = (await r.json())?.chart?.result?.[0]; const q = res?.indicators?.quote?.[0]; if (!q) continue;
       const bars = res.timestamp.map((t, i) => [t, r2(q.open[i] ?? q.close[i]), r2(q.high[i] ?? q.close[i]), r2(q.low[i] ?? q.close[i]), r2(q.close[i]), q.volume[i] || 0]).filter(b => b[4] != null);
       if (bars.length) { out[s] = bars; fs.writeFileSync(file(s), JSON.stringify({ t: Date.now(), bars })); ok++; } } catch {} } };
-  await Promise.all([w(), w(), w(), w()]);
+  await Promise.all([w(), w(), w(), w(), w(), w()]);
   log(`[maxhist] ${ok} refreshed, ${Object.keys(out).length}/${symbols.length} available`);
   return out;
 }
