@@ -120,11 +120,12 @@ async function summary(sym, ses) {
   const qt = (q.incomeStatementHistoryQuarterly?.incomeStatementHistory || []).map(x => ({ d: raw(x.endDate) ? new Date(raw(x.endDate) * 1000).toISOString().slice(0, 7) : null, rev: raw(x.totalRevenue), np: raw(x.netIncome) })).filter(x => x.d && x.rev).reverse();
   const cf = (q.cashflowStatementHistory?.cashflowStatements || []).map(x => ({ y: raw(x.endDate) ? new Date(raw(x.endDate) * 1000).getUTCFullYear() : null, ocf: raw(x.totalCashFromOperatingActivities), capex: raw(x.capitalExpenditures) })).filter(x => x.y).reverse();
   const cr = v => v == null ? null : Math.round(v / 1e7); // ₹ crore
+  const eps = raw(ks.trailingEps), bvps = raw(ks.bookValue), roeY = pctv(fd.returnOnEquity) ?? (eps != null && bvps > 0 ? r2(eps / bvps * 100) : null);
   return {
     t: Date.now(), sector: ap.sector || null, industry: ap.industry || null, employees: ap.fullTimeEmployees || null, about: ap.longBusinessSummary ? String(ap.longBusinessSummary).slice(0, 600) : null,
     mcap_cr: cr(raw(sd.marketCap)), pe: r2(raw(sd.trailingPE)), fpe: r2(raw(sd.forwardPE) ?? raw(ks.forwardPE)), pb: r2(raw(ks.priceToBook)), ev_ebitda: r2(raw(ks.enterpriseToEbitda)), peg: r2(raw(ks.pegRatio)),
     eps: r2(raw(ks.trailingEps)), feps: r2(raw(ks.forwardEps)), bv: r2(raw(ks.bookValue)), divy: pctv(sd.dividendYield), payout: pctv(sd.payoutRatio), beta: r2(raw(sd.beta) ?? raw(ks.beta)),
-    roe: pctv(fd.returnOnEquity), roa: pctv(fd.returnOnAssets), npm: pctv(fd.profitMargins), opm: pctv(fd.operatingMargins), gpm: pctv(fd.grossMargins), ebitdam: pctv(fd.ebitdaMargins),
+    roe: roeY, roa: pctv(fd.returnOnAssets), npm: pctv(fd.profitMargins), opm: pctv(fd.operatingMargins), gpm: pctv(fd.grossMargins), ebitdam: pctv(fd.ebitdaMargins),
     rev_g: pctv(fd.revenueGrowth), earn_g: pctv(fd.earningsGrowth), rev_cr: cr(raw(fd.totalRevenue)), ebitda_cr: cr(raw(fd.ebitda)),
     debt_cr: cr(raw(fd.totalDebt)), cash_cr: cr(raw(fd.totalCash)), de: raw(fd.debtToEquity) != null ? r2(raw(fd.debtToEquity) / 100) : null, cur: r2(raw(fd.currentRatio)), qr: r2(raw(fd.quickRatio)),
     fcf_cr: cr(raw(fd.freeCashflow)), ocf_cr: cr(raw(fd.operatingCashflow)),
