@@ -291,6 +291,8 @@ async function main() {
     edge: { base: edgeA?.base || null, board: edgeA?.board || null, rotation: rot, delivery: deliv ? { date: deliv.date, days: deliv.days, accumulation: deliv.accumulation, distribution: deliv.distribution, speculative: deliv.speculative } : null }, indices, circuits, news_speed: newsSpeed, options, kite_api_key: cfg.kite_publisher_api_key || null,
     stocks, news: newsOut, w52, calendar: upcoming.slice(0, 600).map(e => ({ ...e, tracked: Boolean(universe[e.symbol]), nifty50: Boolean(universe[e.symbol]?.nifty50) })),
   };
+  // Business groups (Tata, Reliance, Adani, ...): listed companies with market cap and moves
+  out.groups = await attempt("groups", () => require("./lib/groups").build({ stocks, cacheDir: CACHE, log }), null);
   // Expert Agent: rule-based advice cards (pop up on the site; history in .cache/advice.json)
   try { out.advice = require("./lib/advisor").run(out, CACHE); log(`[advice] ${out.advice.new_ids.length} new, ${out.advice.items.length} kept, stance ${out.advice.stance}`); } catch (e) { log("[advice] " + e.message); }
   fs.writeFileSync(path.join(OUT, "latest.json"), JSON.stringify(out));

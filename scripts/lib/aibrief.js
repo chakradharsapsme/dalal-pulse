@@ -174,6 +174,17 @@ function build(d, opt = {}) {
     files[`stock/${fileSym(s.symbol)}.txt`] = L.join("\n");
   }
 
+  // ---------- groups.txt (business houses) ----------
+  if (d.groups?.groups?.length) {
+    const lc = v => v == null ? "-" : "₹" + (v / 1e5).toFixed(2) + " lakh cr";
+    const L = ["DALAL PULSE — BUSINESS GROUPS (Tata, Reliance, Adani, ...). Market cap in ₹ lakh crore; group moves are market-cap weighted.", stamp, ""];
+    for (const g of d.groups.groups) {
+      L.push(`${g.name} (${g.who}) — ${g.n} listed cos, mcap ${lc(g.mcap_cr)}, today ${pc(g.chg)}, 1M ${pc(g.m1)}, 1Y ${pc(g.y1)}, ${g.up}/${g.n} up today`);
+      for (const m of g.members) L.push(`  - ${m.symbol} ${m.name}: ${inr(m.price)} today ${pc(m.chg)}, 1Y ${pc(m.y1)}, mcap ${lc(m.mcap_cr)}${m.ff ? " (free-float)" : ""}`);
+      L.push("");
+    }
+    files["groups.txt"] = L.join("\n");
+  }
   // ---------- index.txt (guide for AI assistants) ----------
   files["index.txt"] = [
     "DALAL PULSE — DATA FOR AI ASSISTANTS", stamp, "",
@@ -183,6 +194,7 @@ function build(d, opt = {}) {
     `- ${site}data/ai/ideas.txt   — screens: leaders, breakouts, pullbacks, F&O build-ups, options spreads`,
     `- ${site}data/ai/news.txt    — stock news, NSE filings, upcoming results/dividends`,
     `- ${site}data/ai/stocks.txt  — one line per tracked stock`,
+    `- ${site}data/ai/groups.txt  — business groups (Tata, Reliance, Adani, Birla...) with every listed company, market cap and moves`,
     `- ${site}data/ai/stock/<SYMBOL>.txt — full detail for one stock (e.g. RELIANCE, M&M)`,
     `MCP connector: ${site}mcp`, "", DISCLAIMER,
   ].join("\n");

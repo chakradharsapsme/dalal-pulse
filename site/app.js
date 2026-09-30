@@ -134,7 +134,7 @@ function nav(v, s) {
 }
 function readHash() {
   const [v, s] = location.hash.replace(/^#\/?/, "").split("/");
-  if (["news", "markets", "indices", "fno", "options", "circuits", "screener", "portfolio", "calendar", "momentum"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
+  if (["news", "markets", "indices", "fno", "options", "circuits", "screener", "portfolio", "calendar", "momentum", "groups"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
 }
 const go = sym => nav("news", sym);
 
@@ -142,7 +142,7 @@ function render() {
   if (!D) return;
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.nav === view));
   const keep = document.querySelector(".list")?.scrollTop;
-  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "fno" ? fnoView() : view === "circuits" ? circuitsView() : view === "options" ? optionsView() : view === "screener" ? screener() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : view === "momentum" ? momentumView() : newsView();
+  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "fno" ? fnoView() : view === "circuits" ? circuitsView() : view === "options" ? optionsView() : view === "screener" ? screener() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : view === "momentum" ? momentumView() : view === "groups" ? groupsView() : newsView();
   if (view === "portfolio") setTimeout(runXray, 0);
   if (keep && document.querySelector(".list")) document.querySelector(".list").scrollTop = keep;
   if (view === "news") { if (sel && S[sel]) drawChart(sel); document.querySelector(".row.on")?.scrollIntoView({ block: "nearest" }); }
@@ -1336,6 +1336,37 @@ function rotationSvg(rot) {
         <circle cx="${X(lx).toFixed(1)}" cy="${Y(ly).toFixed(1)}" r="5.5" fill="${qc[i.quad]}" stroke="var(--card)" stroke-width="1.5"><title>${esc(i.name)}: ${i.quad} (RS ${lx}, momentum ${ly})</title></circle>
         <text x="${(X(lx) + 8).toFixed(1)}" y="${(Y(ly) + 4).toFixed(1)}" class="rl">${esc(i.name)}</text></g>`; }).join("")}</svg>`;
 }
+// ---------- BUSINESS GROUPS: India's big business houses and their listed companies ----------
+const lcr = v => v == null ? "–" : v >= 1e5 ? "₹" + (v / 1e5).toFixed(2) + " L cr" : "₹" + fmt(v, 0) + " cr";
+const G_SORTS = [["cap", "Biggest"], ["best", "Best today"], ["worst", "Worst today"], ["y1", "Best 1 year"]];
+function groupsView() {
+  const G = D.groups?.groups || [];
+  if (!G.length) return `<div class="fade"><h1 class="page">Business Groups</h1><div class="empty"><b>Group data is on its way</b>It appears after the next data refresh (a few minutes).</div></div>`;
+  const k = ui.gsort || "cap", L = [...G].sort((a, b) => k === "best" ? (b.chg ?? -99) - (a.chg ?? -99) : k === "worst" ? (a.chg ?? 99) - (b.chg ?? 99) : k === "y1" ? (b.y1 ?? -999) - (a.y1 ?? -999) : b.mcap_cr - a.mcap_cr);
+  const total = G.reduce((a, g) => a + g.mcap_cr, 0), byChg = [...G].filter(g => g.chg != null).sort((a, b) => b.chg - a.chg);
+  const kpi = (l, g, v) => `<button class="card kpi gkpi" data-gjump="${g.id}"><div class="l">${l}</div><div class="v" style="font-size:19px">${esc(g.name.replace(/ Group$/, ""))}</div><div class="muted" style="font-size:12.5px">${v}</div></button>`;
+  return `<div class="fade"><h1 class="page">Business Groups</h1><p class="sub">India's biggest business houses and every listed company they run, sized by market value. Group moves are weighted by market cap. Tap a company to open it (↗ = not tracked here, opens NSE). Data ${ago(D.groups.updated || D.generated_at)}.</p>
+    <div class="kpis">${kpi("Biggest group", G[0], lcr(G[0].mcap_cr) + " · " + Math.round(G[0].mcap_cr / total * 100) + "% of these groups")}${byChg[0] ? kpi("Best today", byChg[0], `<b class="${cls(byChg[0].chg)}">${pct(byChg[0].chg)}</b> · ${byChg[0].up}/${byChg[0].n} up`) : ""}${byChg.length > 1 ? kpi("Weakest today", byChg[byChg.length - 1], `<b class="${cls(byChg[byChg.length - 1].chg)}">${pct(byChg[byChg.length - 1].chg)}</b> · ${byChg[byChg.length - 1].up}/${byChg[byChg.length - 1].n} up`) : ""}
+      <div class="card kpi"><div class="l">Covered</div><div class="v" style="font-size:19px">${G.length} groups</div><div class="muted" style="font-size:12.5px">${G.reduce((a, g) => a + g.n, 0)} companies · ${lcr(total)}</div></div></div>
+    <div class="gbar"><div class="seg">${G_SORTS.map(([v, l]) => `<button data-gsort="${v}" class="${k === v ? "on" : ""}">${l}</button>`).join("")}</div>
+      <div class="gchips">${L.map(g => `<button data-gjump="${g.id}" class="gchip"><span>${esc(g.name.replace(/ Group$/, ""))}</span><b class="${cls(g.chg)}">${pct(g.chg)}</b></button>`).join("")}</div></div>
+    <div class="ggrid">${L.map(groupCard).join("")}</div>
+    <p class="muted" style="font-size:12px;margin-top:12px">Groups are listed companies controlled by the same promoter family or parent (e.g. Tata Sons, Reliance Industries). Market cap = shares issued × price (NSE); "ff" = free-float value where the full count is not available yet. Information only, not investment advice.</p></div>`;
+}
+function groupCard(g) {
+  const tot = g.mcap_cr || 1, big = g.members.filter(m => m.mcap_cr / tot >= 0.02), rest = g.members.filter(m => !(m.mcap_cr / tot >= 0.02));
+  const segCol = c => c == null ? "var(--line2)" : `color-mix(in srgb, ${c >= 0 ? "var(--up)" : "var(--down)"} ${Math.round(35 + Math.min(Math.abs(c), 4) / 4 * 55)}%, var(--card))`;
+  const restCap = rest.reduce((a, m) => a + (m.mcap_cr || 0), 0);
+  const bar = big.map(m => `<span style="flex:${m.mcap_cr};background:${segCol(m.chg)}" title="${esc(m.symbol)} · ${Math.round(m.mcap_cr / tot * 100)}% of group · today ${pct(m.chg)}">${m.mcap_cr / tot >= 0.09 ? esc(m.symbol) : ""}</span>`).join("") + (restCap ? `<span style="flex:${restCap};background:var(--paper2)" title="${rest.length} smaller companies"></span>` : "");
+  const row = m => { const link = m.tracked ? `data-go="${esc(m.symbol)}"` : `data-nse="${esc(m.symbol)}"`;
+    return `<button class="grow" ${link}><span class="gnm"><b>${esc(m.symbol)}${m.tracked ? "" : ' <i class="gext">↗</i>'}</b><span class="muted">${esc(m.name)}</span></span><span class="num gst"><span>${rs(m.price, m.price < 100 ? 2 : 0)}</span><b class="${cls(m.chg)}">${pct(m.chg)}</b></span><span class="num gy ${cls(m.y1)}">${pct(m.y1)}</span><span class="num gst"><span>${lcr(m.mcap_cr)}${m.ff ? '<i class="gff">ff</i>' : ""}</span><small class="muted">${(m.mcap_cr || 0) / tot < 0.01 ? "<1" : Math.round(m.mcap_cr / tot * 100)}% of group</small></span></button>`; };
+  return `<div class="card gcard" id="grp-${g.id}"><div class="ghd"><div><h2>${esc(g.name)}</h2><div class="muted" style="font-size:12.5px">${esc(g.who)} · ${g.n} listed</div></div>
+      <div class="gtot"><div class="gv">${lcr(g.mcap_cr)}</div><div style="font-size:12.5px"><span class="muted">today</span> <b class="${cls(g.chg)}">${pct(g.chg)}</b> <span class="muted">· 1Y</span> <b class="${cls(g.y1)}">${pct(g.y1)}</b></div></div></div>
+    <div class="gcomp">${bar}</div>
+    <div class="gmeta muted"><span>${g.up} of ${g.n} up today</span><span>1M ${pct(g.m1)}</span></div>
+    <div class="ghead muted"><span>Company</span><span>Price · today</span><span class="gy">1 year</span><span>Market cap</span></div>
+    ${g.members.slice(0, 6).map(row).join("")}${g.n > 6 ? `<div class="gmore">${g.members.slice(6).map(row).join("")}</div><button class="mqmorebtn" data-gmore>+ ${g.n - 6} more companies</button>` : ""}</div>`;
+}
 // ---------- MOMENTUM QUADRANT: what is moving up today, for indices and stocks ----------
 const MQ_SETS = [["indices", "Indices"], ["n50", "Nifty 50"], ["n200", "Nifty 200"], ["fo", "F&O stocks"], ["mine", "My stocks"]];
 const MQ_Q = {
@@ -1557,6 +1588,10 @@ document.addEventListener("click", async e => {
   const ov = t.closest("[data-ov]"); if (ov) { ui.ov[ov.dataset.ov] = !ui.ov[ov.dataset.ov]; ov.classList.toggle("on", ui.ov[ov.dataset.ov]); ov.setAttribute("aria-pressed", ui.ov[ov.dataset.ov]); drawChart(sel); return; }
   const sb = t.closest("[data-sub]"); if (sb) { ui.sub = sb.dataset.sub; document.querySelectorAll("[data-sub]").forEach(b => b.classList.toggle("on", b === sb)); drawChart(sel); return; }
   const hp = t.closest("[data-hp]"); if (hp) { ui.hp = hp.dataset.hp; render(); return; }
+  const gm = t.closest("[data-gmore]"); if (gm) { gm.previousElementSibling.classList.add("open"); gm.remove(); return; }
+  const gs = t.closest("[data-gsort]"); if (gs) { ui.gsort = gs.dataset.gsort; render(); return; }
+  const gj = t.closest("[data-gjump]"); if (gj) { const el = $("#grp-" + gj.dataset.gjump); if (el) { el.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" }); el.classList.remove("flashsec"); void el.offsetWidth; el.classList.add("flashsec"); } return; }
+  const ns = t.closest("[data-nse]"); if (ns) { window.open("https://www.nseindia.com/get-quotes/equity?symbol=" + encodeURIComponent(ns.dataset.nse), "_blank", "noopener"); return; }
   const mqm = t.closest("[data-mqmore]"); if (mqm) { mqm.parentElement.classList.add("open"); mqm.remove(); return; }
   const mqj = t.closest("[data-mqsec]"); if (mqj) { const el = document.getElementById("mqsec-" + mqj.dataset.mqsec); if (el) { el.scrollIntoView({ behavior: "smooth", block: "start" }); el.classList.remove("flashsec"); void el.offsetWidth; el.classList.add("flashsec"); } else nav("indices"); return; }
   const mqs = t.closest("[data-mq]"); if (mqs) { ui.mq = mqs.dataset.mq; render(); return; }
@@ -1632,7 +1667,7 @@ $("#theme").addEventListener("click", () => {
 });
 if (!SNAPSHOT) window.addEventListener("hashchange", () => { readHash(); render(); });
 
-if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "fno", "options", "circuits", "screener", "momentum", "portfolio", "calendar"].includes(h)) view = h; }
+if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "fno", "options", "circuits", "screener", "momentum", "groups", "portfolio", "calendar"].includes(h)) view = h; }
 tickClock(); setInterval(tickClock, 1000);
 document.addEventListener("mouseover", e => { mmPaused = Boolean(e.target.closest("#mm")); btHover = Boolean(e.target.closest("#bticker")); });
 // ---------- PULSE AGENT: floating assistant (rule-based; advice comes from data/latest.json → advice) ----------
