@@ -763,3 +763,14 @@ body.bt-on .toast{bottom:calc(60px + env(safe-area-inset-bottom,0px))}
 .cpat{cursor:help}
 @media (max-width:640px){.patbar{flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px}.ptog{flex:none}}
 .md>.detail,.md>.master{min-width:0}
+/* Pulse Agent: live web news */
+.pa-news-live{margin:10px 0;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--paper)}
+.pa-news-live summary{cursor:pointer;font-weight:700;font-size:13px;display:flex;align-items:center;gap:7px}
+.pa-dot{width:8px;height:8px;border-radius:50%;background:var(--down);box-shadow:0 0 0 0 var(--down);animation:padot 1.6s infinite}
+@keyframes padot{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--down) 60%,transparent)}100%{box-shadow:0 0 0 7px transparent}}
+.pa-nl b{display:block;font-size:12px;margin:8px 0 2px;color:var(--muted)}
+.pa-nl ul{margin:6px 0;padding-left:18px}.pa-nl li{font-size:13px;margin:5px 0;line-height:1.35}
+.pa-nl li a{color:var(--ink);text-decoration:none}.pa-nl li a:hover{text-decoration:underline}
+.pa-nl li.fresh::marker{color:var(--down)}
+.pa-think .pa-news-live{margin-top:8px}
+@media (prefers-reduced-motion:reduce){.pa-dot{animation:none}}

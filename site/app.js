@@ -1893,6 +1893,17 @@ async function paLive(syms) {
   } catch {}
   return out;
 }
+// newest headlines about the stocks in a question, searched on the web at the moment of asking (Cloudflare /news)
+async function paNews(syms) {
+  const want = syms.filter(x => S[x] || /^[A-Z0-9&-]{2,20}$/.test(x)).slice(0, 3); if (!want.length || SNAPSHOT) return [];
+  try { const r = await fetch("/news?s=" + encodeURIComponent(want.join(",")), { cache: "no-store", signal: AbortSignal.timeout(8000) }); if (r.ok) return (await r.json()).news || []; } catch {}
+  return [];
+}
+const paAgo = m => m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
+function paNewsHtml(list, open) {
+  const L = (list || []).filter(n => n.items && n.items.length); if (!L.length) return "";
+  return `<details class="pa-news-live"${open ? " open" : ""}><summary><span class="pa-dot"></span>Latest news right now · ${L.map(n => `${esc(n.sym)} ${n.items.length}`).join(" · ")}</summary>${L.map(n => `<div class="pa-nl">${L.length > 1 ? `<b>${esc(n.sym)}</b>` : ""}<ul>${n.items.slice(0, 6).map(i => `<li class="${i.ago_min < 180 ? "fresh" : ""}"><a href="${esc(safeUrl(i.link))}" target="_blank" rel="noopener">${esc(i.title)}</a><span class="muted"> · ${esc(i.source)} · ${paAgo(i.ago_min)}</span></li>`).join("")}</ul></div>`).join("")}<div class="muted" style="font-size:11px">Searched on the web when you asked (Google News, all Indian business sites). Headlines only; tap to read the source.</div></details>`;
+}
 const PA_HIST = store.get("dp-pahist", []);
 function paMd(md) {
   const inl = t => esc(t).replace(/&lt;br\s*\/?&gt;/gi, "<br>").replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g, "$1<i>$2</i>").replace(/`([^`]+)`/g, "<code>$1</code>");
@@ -1966,6 +1977,8 @@ async function paAsk(key, text) {
     const q = paSimple(ruleText), found = paFindStocks(q); if (!found.length && !paSectorOf(" " + q + " ")) { const fz = paFuzzy(ruleText); if (fz) found.push(fz.sym); }
     const cardHtml = key && ["ideas", "open", "options", "help"].includes(key) ? paAnswer(key, text) : paRoute(ruleText);
     const syms = (PA.lastSyms && PA.lastSyms.length ? PA.lastSyms : found).slice(0, 3);
+    const newsP = paNews(syms); // start the web news search now, show it while the agent works
+    newsP.then(nl => { const h = paNewsHtml(nl, true); if (h && think.isConnected) { const d = document.createElement("div"); d.innerHTML = h; think.append(d); } });
     const live = await paLive(syms.concat(/bank ?nifty/.test(q) ? ["BANKNIFTY"] : []));
     // 2) the AI agent reasons over live prices + research files, with conversation memory
     let ai = null, err = null;
@@ -1979,6 +1992,8 @@ async function paAsk(key, text) {
     }
     const wait = Math.max(0, 2600 - (Date.now() - t0)); if (wait) await new Promise(r => setTimeout(r, wait)); // take a moment: no instant canned replies
     clearInterval(iv); think.remove();
+    let newsL = ai && Array.isArray(ai.news) && ai.news.some(n => n.items?.length) ? ai.news : await Promise.race([newsP, new Promise(r => setTimeout(() => r([]), 1500))]);
+    const newsHtml = paNewsHtml(newsL, true);
     if (ai && ai.live) for (const [k, v] of Object.entries(ai.live)) if (v && v.price) { live[k] = v; if (S[k]) { S[k].price = v.price; if (v.change_pct != null) S[k].change_pct = v.change_pct; } }
     if (ai && ai.symbols && ai.symbols.length) { PAX.sym = ai.symbols[0]; PAX.syms = ai.symbols; PA.lastSyms = ai.symbols; paSaveCtx(); }
     const L = Object.keys(live).filter(k => k !== "NIFTY"), tt = live[L[0]]?.time || live.NIFTY?.time;
@@ -1987,12 +2002,12 @@ async function paAsk(key, text) {
     if (ai) {
       const secs = ((Date.now() - t0) / 1000).toFixed(1);
       ai.answer = ai.answer.replace(/(the |our )?DESK QUANT MODEL/gi, "our quant model").replace(/Based on our quant model/g, "Per our quant model");
-      html = stamp + `<div class="pa-ai">${paMd(ai.answer)}</div>
+      html = stamp + `<div class="pa-ai">${paMd(ai.answer)}</div>${newsHtml}
         <details class="pa-work"><summary>Worked for ${secs}s · ${(ai.steps || []).length} steps · ${esc(ai.model || "AI")}</summary><ol>${(ai.steps || []).map(x => `<li>${esc(x.d)}</li>`).join("")}</ol></details>
         <details class="pa-data"><summary>Data snapshot used</summary>${cardHtml}</details>` + paFollow(paNext(PA.lastIntent, (ai.symbols && ai.symbols.length) ? ai.symbols : syms));
       PA_HIST.push({ role: "user", content: text }, { role: "assistant", content: ai.answer.slice(0, 1500) });
     } else {
-      html = stamp + (err && err !== "ai_not_configured" ? `<div class="pa-ctx">AI analyst is busy (${esc(String(err))}); showing the rule-based analysis.</div>` : "") + cardHtml;
+      html = stamp + (err && err !== "ai_not_configured" ? `<div class="pa-ctx">AI analyst is busy (${esc(String(err))}); showing the rule-based analysis.</div>` : "") + newsHtml + cardHtml;
       const d = document.createElement("div"); d.innerHTML = cardHtml; PA_HIST.push({ role: "user", content: text }, { role: "assistant", content: d.textContent.replace(/\s+/g, " ").slice(0, 700) });
     }
     while (PA_HIST.length > 16) PA_HIST.shift(); store.set("dp-pahist", PA_HIST);
