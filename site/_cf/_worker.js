@@ -181,7 +181,7 @@ async function bingSearch(q) {
   const t = r.ok ? await r.text() : ""; NEWS_DIAG.bing = `${r.status} ${t.length}`;
   return [...t.matchAll(/<item[\s>][\s\S]*?<\/item>/gi)].map(m => { const b = m[0]; let link = xtag(b, "link"); const u = link.match(/[?&]url=([^&]+)/); if (u) try { link = decodeURIComponent(u[1]); } catch {}
     const pub = Date.parse(xtag(b, "pubDate")); const src = (b.match(/<News:Source>([\s\S]*?)<\/News:Source>/i) || [])[1] || (link.match(/https?:\/\/(?:www\.)?([^/]+)/) || [])[1] || "News";
-    return { title: xtag(b, "title"), link, source: xmlDec(src), published: isNaN(pub) ? null : new Date(pub).toISOString() }; });
+    return { title: xtag(b, "title"), link, source: xmlDec(src).replace(/\s+on MSN$/i, ""), published: isNaN(pub) ? null : new Date(pub).toISOString() }; });
 }
 async function yahooNews(sym) {
   const r = await fetch(`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(sym + ".NS")}&quotesCount=0&newsCount=12`, { headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" }, cf: { cacheEverything: true, cacheTtl: 120 } });
