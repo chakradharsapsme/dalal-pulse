@@ -774,3 +774,33 @@ body.bt-on .toast{bottom:calc(60px + env(safe-area-inset-bottom,0px))}
 .pa-nl li.fresh::marker{color:var(--down)}
 .pa-think .pa-news-live{margin-top:8px}
 @media (prefers-reduced-motion:reduce){.pa-dot{animation:none}}
+/* ---------- Ask AI (top button + right drawer) ---------- */
+.askbtn{display:inline-flex;align-items:center;gap:7px;border:0;border-radius:999px;padding:8px 15px;font:inherit;font-weight:700;font-size:13.5px;color:#fff;cursor:pointer;white-space:nowrap;
+  background:linear-gradient(135deg,var(--peacock),color-mix(in srgb,var(--peacock) 55%,var(--accent)));box-shadow:0 2px 10px color-mix(in srgb,var(--peacock) 35%,transparent);transition:transform .15s,box-shadow .15s}
+.askbtn:hover{transform:translateY(-1px);box-shadow:0 4px 16px color-mix(in srgb,var(--peacock) 45%,transparent)}
+.askbtn.on{outline:2px solid var(--accent);outline-offset:2px}
+.ask-drawer{position:fixed;top:0;right:0;bottom:0;width:min(480px,100vw);z-index:400;background:var(--card);color:var(--ink);border-left:1px solid var(--line);box-shadow:-12px 0 40px rgba(0,0,0,.18);display:flex;flex-direction:column;animation:askin .22s ease}
+.ask-drawer[hidden]{display:none}
+@keyframes askin{from{transform:translateX(30px);opacity:0}to{transform:none;opacity:1}}
+.ask-head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)}
+.ask-head strong{font-size:16px}.ask-head .muted{font-size:12.5px}
+.ask-hbtns{display:flex;align-items:center;gap:8px}
+.ask-hbtns .linkish{white-space:nowrap;border:0;background:none;color:var(--peacock);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer}
+.ask-log{flex:1;overflow-y:auto;padding:14px 16px;display:grid;gap:10px;align-content:start}
+.ask-intro p{margin:0 0 4px;color:var(--muted);font-size:13.5px;line-height:1.5}
+.ask-q{justify-self:end;max-width:85%;background:var(--peacock);color:#fff;border-radius:14px 14px 4px 14px;padding:8px 12px;white-space:pre-wrap;font-size:14px}
+.ask-a{max-width:100%;background:var(--paper);border:1px solid var(--line);border-radius:14px 14px 14px 4px;padding:10px 12px;font-size:14px;line-height:1.5;min-width:0}
+.ask-a .pa-ai h5{margin:10px 0 4px;font-size:14px}.ask-a .pa-ai p{margin:0 0 8px}.ask-a .pa-ai ul,.ask-a .pa-ai ol{margin:4px 0 8px;padding-left:18px}
+.ask-a .pa-t{font-size:12.5px;border-collapse:collapse;margin:6px 0;display:block;overflow-x:auto}.ask-a .pa-t td,.ask-a .pa-t th{border:1px solid var(--line);padding:3px 6px}
+.ask-wait{display:flex;gap:8px;align-items:center;color:var(--muted)}
+.ask-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.ask-chip{border:1px solid var(--line2);background:var(--card);color:var(--ink);border-radius:999px;padding:5px 11px;font:inherit;font-size:12.5px;cursor:pointer;text-align:left}
+.ask-chip:hover{border-color:var(--peacock);color:var(--peacock)}
+.ask-meta{font-size:11.5px;margin-top:6px}
+.ask-form{display:flex;gap:8px;padding:12px 16px 6px;border-top:1px solid var(--line)}
+.ask-form textarea{flex:1;min-width:0;resize:none;border:1px solid var(--line);border-radius:10px;padding:8px 10px;font:inherit;font-size:14px;background:var(--paper);color:var(--ink)}
+.ask-form textarea:focus{outline:none;border-color:var(--peacock)}
+.ask-foot{font-size:11px;padding:0 16px calc(10px + env(safe-area-inset-bottom,0px))}
+@media(max-width:900px){.askbtn{order:3;padding:7px 12px}}
+@media(max-width:700px){.ask-drawer{width:100vw;border-left:0}.askbtn span{display:none}.askbtn{padding:8px 10px}}
+@media(max-width:1480px) and (min-width:901px){.askbtn{padding:7px 11px;font-size:13px}.search input{width:128px}.search input:focus{width:200px}}

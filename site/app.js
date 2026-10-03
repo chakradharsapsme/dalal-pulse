@@ -1493,6 +1493,92 @@ function groupCard(g) {
     <div class="ghead muted"><span>Company</span><span>Price · today</span><span class="gy">1 year</span><span>Market cap</span></div>
     ${g.members.slice(0, 6).map(row).join("")}${g.n > 6 ? `<div class="gmore">${g.members.slice(6).map(row).join("")}</div><button class="mqmorebtn" data-gmore>+ ${g.n - 6} more companies</button>` : ""}</div>`;
 }
+// ---------- ASK AI: a chat drawer opened from the top of every page (Applywise-style) ----------
+// Same free analyst brain as the Pulse Agent (/agent on Cloudflare Workers AI): it plans, pulls live prices,
+// Dalal Pulse research and the newest web news, computes trade plans exactly, then answers with follow-up ideas.
+const ASK = { open: false, busy: false, ctl: null, chat: store.get("dp-askai", []) };
+const askSave = () => { ASK.chat = ASK.chat.slice(-40); store.set("dp-askai", ASK.chat.map(m => ({ q: m.q, a: m.a, follow: m.follow, syms: m.syms, at: m.at, news: m.news, live: m.live }))); };
+function askCtxSym() { const cur = (view === "news" || view === "options") && sel && S[sel] ? sel : null; return cur || [...ASK.chat].reverse().find(m => m.syms && m.syms[0])?.syms[0] || null; }
+function askStarters() {
+  const s = askCtxSym();
+  return s ? [`Why is ${s} moving today?`, `Is ${s} a buy now? Give entry, stop-loss and target`, `${s} technicals: trend, key levels and momentum`, `Compare ${s} with its sector peers`, `What is the F&O and options view on ${s}?`, `What could go wrong with ${s}? Bull vs bear case`]
+    : ["How is the Indian market today and what should I do?", "Give me today's 3 best stock setups with entry, stop and target", "Which sectors are leading and which are weak right now?", "What is the options view for Nifty and Bank Nifty?", "Review my portfolio and tell me what to hold, add or exit", "Explain FII and DII flows and what they mean today"];
+}
+function askDraw(focus) {
+  const d = $("#askDrawer"); if (!d) return;
+  const s = askCtxSym();
+  d.innerHTML = `<div class="ask-head"><div><strong>Ask AI</strong><span class="muted"> · senior market analyst${s ? ` · ${esc(s)}` : ""}</span></div>
+      <div class="ask-hbtns">${ASK.chat.length ? `<button class="linkish" type="button" data-ak="clear">Clear chat</button>` : ""}<button class="iconbtn" type="button" data-ak="close" aria-label="Close">×</button></div></div>
+    <div class="ask-log" id="askLog">
+      ${ASK.chat.length ? "" : `<div class="ask-intro"><p>Ask anything about the Indian market: a stock, a sector, options, your portfolio, the news, or a market concept. Each answer checks live prices, Dalal Pulse research and the newest web news first, then reasons like a senior analyst.</p>
+        <div class="ask-chips">${askStarters().map(q => `<button type="button" class="ask-chip" data-aq="${esc(q)}">${esc(q)}</button>`).join("")}</div></div>`}
+      ${ASK.chat.map((m, i) => `<div class="ask-q">${esc(m.q)}</div><div class="ask-a">${m.a ? (m.live ? `<div class="pa-live">● ${m.live}</div>` : "") + `<div class="pa-ai">${paMd(m.a)}</div>` + (m.news ? paNewsHtml(m.news, false) : "") + (m.meta ? `<div class="ask-meta muted">${m.meta}</div>` : "")
+        + ((m.follow || []).length ? `<div class="ask-chips">${m.follow.map(q => `<button type="button" class="ask-chip" data-aq="${esc(q)}">${esc(q)}</button>`).join("")}</div>` : "")
+        : (ASK.busy && i === ASK.chat.length - 1 ? `<div class="ask-wait"><span class="pa-spin"></span><span id="askStep">Understanding your question…</span></div><div id="askNews"></div>` : '<span class="muted">Stopped.</span>')}</div>`).join("")}
+    </div>
+    <form class="ask-form" id="askForm"><textarea id="askIn" rows="2" placeholder="Ask about a stock, sector, options, your portfolio… or anything" aria-label="Your question"${ASK.busy ? " disabled" : ""}></textarea>
+      ${ASK.busy ? `<button class="btn" type="button" data-ak="stop">Stop</button>` : `<button class="btn primary" type="submit">Ask</button>`}</form>
+    <div class="ask-foot muted">Free AI on Cloudflare · live prices + Dalal Pulse data + web news · information only, not investment advice.</div>`;
+  const log = $("#askLog"); log.scrollTop = log.scrollHeight;
+  if (focus !== false && !ASK.busy) $("#askIn")?.focus({ preventScroll: true });
+}
+function askToggle(force) {
+  ASK.open = force ?? !ASK.open;
+  let d = $("#askDrawer");
+  if (ASK.open) {
+    if (!d) { d = document.createElement("aside"); d.id = "askDrawer"; d.className = "ask-drawer"; d.setAttribute("role", "dialog"); d.setAttribute("aria-label", "Ask AI"); document.body.append(d); }
+    d.hidden = false; document.body.classList.add("ask-on"); askDraw();
+  } else if (d) { d.hidden = true; document.body.classList.remove("ask-on"); }
+  $("#askBtn")?.classList.toggle("on", ASK.open);
+}
+async function askQ(q) {
+  q = String(q || "").trim(); if (!q || ASK.busy) return;
+  ASK.busy = true; const m = { q, a: "", at: new Date().toISOString() }; ASK.chat.push(m); askDraw(false);
+  const steps = ["Understanding your question…", "Planning which data to check…", "Fetching live prices…", "Searching the web for the newest news…", "Reading Dalal Pulse research…", "Analysing trend, strength, levels, news and risk…", "Writing the answer…"];
+  let si = 0; const iv = setInterval(() => { si = Math.min(si + 1, steps.length - 1); const e = $("#askStep"); if (e) e.textContent = steps[si]; }, 1600);
+  const t0 = Date.now();
+  try {
+    ASK.ctl = new AbortController();
+    if (!SNAPSHOT && D && Date.now() - Date.parse(D.generated_at) > 4 * 60e3) { try { await load(false); } catch {} }
+    const sq = paSimple(q); let syms = paFindStocks(sq); if (!syms.length && !paSectorOf(" " + sq + " ")) { const fz = paFuzzy(q); if (fz) syms.push(fz.sym); }
+    if (!syms.length && /\b(it|this|that|its|the stock|this stock|same)\b/i.test(q)) { const c = askCtxSym(); if (c) syms = [c]; }
+    syms = syms.slice(0, 3);
+    const newsP = paNews(syms); newsP.then(nl => { const h = paNewsHtml(nl, true), b = $("#askNews"); if (h && b) b.innerHTML = h; });
+    const live = await paLive(syms.concat(/bank ?nifty/i.test(q) ? ["BANKNIFTY"] : []));
+    const holdings = my.holdings.slice(0, 12).map(h => `${h.symbol} ${h.qty}@${h.avg}`).join(", ");
+    const r = await fetch("/agent", { method: "POST", headers: { "Content-Type": "application/json", "X-DP-Client": "web" }, signal: AbortSignal.any ? AbortSignal.any([ASK.ctl.signal, AbortSignal.timeout(80000)]) : ASK.ctl.signal,
+      body: JSON.stringify({ question: q, symbols: syms, intent: "", history: ASK.chat.slice(0, -1).slice(-6).flatMap(x => x.a ? [{ role: "user", content: x.q }, { role: "assistant", content: x.a.slice(0, 1400) }] : []), user: { capital: agentCfg?.capital, risk: agentCfg?.risk, holdings }, desk: paDesk(syms) }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.answer) throw new Error(j.error === "ai_unavailable" ? "the AI analyst is busy, please try again in a minute" : j.error || ("HTTP " + r.status));
+    for (const [k, v] of Object.entries(j.live || {})) if (v && v.price) live[k] = v;
+    const L = Object.keys(live).filter(k => k !== "NIFTY");
+    m.live = Object.keys(live).length ? `Live ${L.map(k => `${esc(k)} ${px(live[k].price)} <b class="${cls(live[k].change_pct)}">${pct(live[k].change_pct)}</b>`).join(" · ")}${L.length ? " · " : ""}${live.NIFTY ? `Nifty ${fmt(live.NIFTY.price, 0)} <b class="${cls(live.NIFTY.change_pct)}">${pct(live.NIFTY.change_pct)}</b>` : ""}` : "";
+    m.a = j.answer.replace(/(the |our )?DESK QUANT MODEL/gi, "our quant model");
+    m.syms = (j.symbols && j.symbols.length) ? j.symbols : syms;
+    m.news = (j.news || []).some(n => n.items?.length) ? j.news : await Promise.race([newsP, new Promise(res => setTimeout(() => res(null), 1200))]);
+    m.follow = (j.follow_ups || []).length ? j.follow_ups : paNext("", m.syms).filter(Boolean).slice(0, 3);
+    m.meta = `Worked ${((Date.now() - t0) / 1000).toFixed(0)}s · ${(j.steps || []).length} steps · ${esc(j.model || "AI")}`;
+    if (m.syms[0]) { PAX.sym = m.syms[0]; paSaveCtx(); }
+  } catch (e) {
+    if (e.name === "AbortError") { ASK.chat.pop(); } else { m.a = `Sorry, that did not work (${e.message}). Please try again.`; }
+  }
+  clearInterval(iv); ASK.busy = false; ASK.ctl = null; askSave(); askDraw();
+}
+document.addEventListener("click", e => {
+  const t = e.target;
+  if (t.closest("#askBtn")) { askToggle(); return; }
+  const d = t.closest("#askDrawer"); if (!d) return;
+  const q = t.closest("[data-aq]"); if (q) { askQ(q.dataset.aq); return; }
+  const k = t.closest("[data-ak]"); if (!k) return;
+  if (k.dataset.ak === "close") { ASK.ctl?.abort(); askToggle(false); }
+  if (k.dataset.ak === "stop") ASK.ctl?.abort();
+  if (k.dataset.ak === "clear") { ASK.chat = []; askSave(); askDraw(); }
+});
+document.addEventListener("submit", e => { if (e.target.id !== "askForm") return; e.preventDefault(); const i = $("#askIn"); const v = i.value; i.value = ""; askQ(v); });
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && ASK.open) { ASK.ctl?.abort(); askToggle(false); }
+  if (e.key === "Enter" && !e.shiftKey && e.target.id === "askIn") { e.preventDefault(); $("#askForm").requestSubmit(); }
+});
 // ---------- MOMENTUM QUADRANT: what is moving up today, for indices and stocks ----------
 const MQ_SETS = [["indices", "Indices"], ["n50", "Nifty 50"], ["n200", "Nifty 200"], ["fo", "F&O stocks"], ["mine", "My stocks"]];
 const MQ_Q = {
@@ -1902,7 +1988,7 @@ async function paNews(syms) {
 const paAgo = m => m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
 function paNewsHtml(list, open) {
   const L = (list || []).filter(n => n.items && n.items.length); if (!L.length) return "";
-  return `<details class="pa-news-live"${open ? " open" : ""}><summary><span class="pa-dot"></span>Latest news right now · ${L.map(n => `${esc(n.sym)} ${n.items.length}`).join(" · ")}</summary>${L.map(n => `<div class="pa-nl">${L.length > 1 ? `<b>${esc(n.sym)}</b>` : ""}<ul>${n.items.slice(0, 6).map(i => `<li class="${i.ago_min < 180 ? "fresh" : ""}"><a href="${esc(safeUrl(i.link))}" target="_blank" rel="noopener">${esc(i.title)}</a><span class="muted"> · ${esc(i.source)} · ${paAgo(i.ago_min)}</span></li>`).join("")}</ul></div>`).join("")}<div class="muted" style="font-size:11px">Searched on the web when you asked (Google News, all Indian business sites). Headlines only; tap to read the source.</div></details>`;
+  return `<details class="pa-news-live"${open ? " open" : ""}><summary><span class="pa-dot"></span>Latest news right now · ${L.map(n => `${esc(n.sym)} ${n.items.length}`).join(" · ")}</summary>${L.map(n => `<div class="pa-nl">${L.length > 1 ? `<b>${esc(n.sym)}</b>` : ""}<ul>${n.items.slice(0, 6).map(i => `<li class="${i.ago_min < 180 ? "fresh" : ""}"><a href="${esc(safeUrl(i.link))}" target="_blank" rel="noopener">${esc(i.title)}</a><span class="muted"> · ${esc(i.source)} · ${paAgo(i.ago_min)}</span></li>`).join("")}</ul></div>`).join("")}<div class="muted" style="font-size:11px">Searched on the web when you asked (Indian and global business news sites). Headlines only; tap to read the source.</div></details>`;
 }
 const PA_HIST = store.get("dp-pahist", []);
 function paMd(md) {
@@ -2004,7 +2090,7 @@ async function paAsk(key, text) {
       ai.answer = ai.answer.replace(/(the |our )?DESK QUANT MODEL/gi, "our quant model").replace(/Based on our quant model/g, "Per our quant model");
       html = stamp + `<div class="pa-ai">${paMd(ai.answer)}</div>${newsHtml}
         <details class="pa-work"><summary>Worked for ${secs}s · ${(ai.steps || []).length} steps · ${esc(ai.model || "AI")}</summary><ol>${(ai.steps || []).map(x => `<li>${esc(x.d)}</li>`).join("")}</ol></details>
-        <details class="pa-data"><summary>Data snapshot used</summary>${cardHtml}</details>` + paFollow(paNext(PA.lastIntent, (ai.symbols && ai.symbols.length) ? ai.symbols : syms));
+        <details class="pa-data"><summary>Data snapshot used</summary>${cardHtml}</details>` + paFollow((ai.follow_ups && ai.follow_ups.length) ? ai.follow_ups : paNext(PA.lastIntent, (ai.symbols && ai.symbols.length) ? ai.symbols : syms));
       PA_HIST.push({ role: "user", content: text }, { role: "assistant", content: ai.answer.slice(0, 1500) });
     } else {
       html = stamp + (err && err !== "ai_not_configured" ? `<div class="pa-ctx">AI analyst is busy (${esc(String(err))}); showing the rule-based analysis.</div>` : "") + newsHtml + cardHtml;

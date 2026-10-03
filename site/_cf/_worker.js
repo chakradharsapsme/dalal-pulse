@@ -229,7 +229,10 @@ HOW TO ANSWER
 - Respect the backtest: signals marked "No real edge" cannot be the main reason for a call.
 - Options: defined-risk spreads only; note ~9 in 10 individual F&O traders lose money (SEBI) when relevant.
 - Style: professional research-desk tone, plain English, Markdown with short headings (###), **bold** labels, bullets, a small table when comparing. 120–280 words unless asked for depth. No emojis. Indian number format.
-- End with: "Information only, not investment advice."`;
+- ANALYST PLAYBOOK (use what fits the question): top-down first (global cues → Indian market regime and breadth → sector strength → the stock). For a stock, check in order: trend and moving averages, relative strength vs Nifty, volume and delivery (smart money), F&O open interest build-up, option-chain levels, news catalysts and upcoming results, valuation/quality if the data has it, then risk. Give a short bull case and bear case, the key level that changes the view, and position sizing from DESK CALCULATIONS. For portfolio questions think about concentration, sector overlap and stop discipline.
+- General market or concept questions (e.g. "what is PCR", "how does the RBI rate affect banks"): answer from your own knowledge like a senior analyst, clearly and practically, with an Indian-market example; do not invent live numbers.
+- End with: "Information only, not investment advice."
+- After that, on the very last line, write exactly: FOLLOW_UPS: question 1 | question 2 | question 3 — three short, specific follow-up questions the user is likely to ask next (in the user's voice).`;
 const PLAN_SYSTEM = `You are the planning step of a stock-market research agent for Indian stocks (NSE). Read the conversation and the latest user message and decide what data to fetch.
 Reply with ONE JSON object only, no prose:
 {"symbols":[up to 3 NSE symbols from the LIST that the user means, resolving it/this/that from the conversation],
@@ -347,7 +350,10 @@ async function agent(request, env) {
   try {
     const out = await runAI(env, BIG, [{ role: "system", content: AGENT_SYSTEM }, { role: "system", content: "DATA:\n" + ctx }, ...hist, { role: "user", content: q }], 1100);
     step("Answer written");
-    return J({ answer: out.text, model: out.model.split("/").pop(), symbols: plan.symbols, live, news: lnews, steps, ms: Date.now() - t0 });
+    let text = out.text, follow = [];
+    const fm = text.match(/\n?\s*\**FOLLOW[_ -]?UPS\**\s*:?\**\s*(.+)\s*$/i);
+    if (fm) { follow = fm[1].split("|").map(x => x.replace(/^[\s\-*•\d.)]+|[\s*]+$/g, "").trim()).filter(x => x.length > 4 && x.length < 140).slice(0, 3); text = text.slice(0, fm.index).trim(); }
+    return J({ answer: text, follow_ups: follow, model: out.model.split("/").pop(), symbols: plan.symbols, live, news: lnews, steps, ms: Date.now() - t0 });
   } catch (e) { return J({ error: "ai_unavailable", detail: String(e && e.message || e).slice(0, 200), steps }, 503); }
 }
 
