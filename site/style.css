@@ -892,3 +892,10 @@ button.gtile{text-align:left;font:inherit;color:inherit;cursor:pointer}button.gt
 .ask-a .pa-live{white-space:normal;overflow-wrap:anywhere;font-size:12px}
 .ask-a .pa-news-live li{overflow-wrap:anywhere}
 .ask-voice .vengine{font-size:11.5px;color:var(--muted);padding:1px 8px;border:1px solid var(--line);border-radius:999px}
+.pa-rows{display:flex;flex-direction:column;gap:6px;margin:6px 0 10px}
+.pa-row{border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:var(--card);font-size:12.5px;display:flex;flex-wrap:wrap;gap:3px 12px}
+.pa-row>b{flex-basis:100%;font-size:13px}
+.pa-row em{font-style:normal;color:var(--muted);font-size:11.5px}
+.pa-row span{flex:0 1 auto;white-space:nowrap;overflow-wrap:normal;word-break:normal}
+.pa-row em{margin-right:3px}
+.pa-row span{color:var(--ink)}

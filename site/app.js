@@ -2208,7 +2208,8 @@ function paMd(md) {
   const inl = t => esc(t).replace(/&lt;br\s*\/?&gt;/gi, "<br>").replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g, "$1<i>$2</i>").replace(/`([^`]+)`/g, "<code>$1</code>");
   const L = String(md).replace(/\r/g, "").split("\n"), out = []; let list = null, tbl = null;
   const flush = () => { if (list) { out.push(`<${list.t}>${list.i.map(x => `<li>${inl(x)}</li>`).join("")}</${list.t}>`); list = null; } if (tbl) { const rows = tbl.filter(r => !/^\s*\|?\s*:?-{2,}/.test(r)).map(r => r.replace(/^\s*\||\|\s*$/g, "").split("|").map(c => c.trim()));
-      out.push(`<table class="pa-t">${rows.map((r, i) => `<tr>${r.map(c => i ? `<td>${inl(c)}</td>` : `<th>${inl(c)}</th>`).join("")}</tr>`).join("")}</table>`); tbl = null; } };
+      if (rows.length && rows[0].length > 4) { const h = rows[0]; out.push(`<div class="pa-rows">${rows.slice(1).map(r => `<div class="pa-row"><b>${inl(r[0] || "")}</b>${r.slice(1).map((c, k) => c ? `<span><em>${inl(h[k + 1] || "")}</em> ${inl(c)}</span>` : "").join("")}</div>`).join("")}</div>`); }
+      else out.push(`<table class="pa-t">${rows.map((r, i) => `<tr>${r.map(c => i ? `<td>${inl(c)}</td>` : `<th>${inl(c)}</th>`).join("")}</tr>`).join("")}</table>`); tbl = null; } };
   for (const raw of L) { const l = raw.trimEnd();
     if (/^\s*\|.*\|\s*$/.test(l)) { if (list) { const t = tbl; flush(); tbl = t; } (tbl = tbl || []).push(l); continue; } else if (tbl) flush();
     let m;

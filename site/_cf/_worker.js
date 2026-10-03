@@ -304,7 +304,7 @@ function cleanAnswer(t) {
     .replace(/\s*\((?:copy(?:ied)?|taken|numbers?) from (?:the )?desk calculations?\)/gi, "").replace(/\b(?:the |our )?desk calculations?\b/gi, "our calculations")
     .replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   // break any word longer than 40 characters (URLs, ids) so it cannot push the layout
-  t = t.replace(/\S{41,}/g, w => w.match(/.{1,40}/g).join(" "));
+  t = t.replace(/\S{41,}/g, w => /^[|:\-=+]+$/.test(w) ? w : w.match(/.{1,40}/g).join(" "));
   return t;
 }
 async function agent(request, env) {
