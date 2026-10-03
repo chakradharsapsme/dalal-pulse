@@ -1566,7 +1566,6 @@ async function askQ(q, opt = {}) {
     if (e.name === "AbortError") { ASK.chat.pop(); } else { m.a = `Sorry, that did not work (${e.message}). Please try again.`; }
   }
   clearInterval(iv); ASK.busy = false; ASK.ctl = null; askSave(); askDraw();
-  if (false) askSpeak(m.a, m.lang || (/[^\x00-\x7F]/.test(m.q) ? null : "en"));
 }
 document.addEventListener("click", e => {
   const t = e.target;
@@ -1578,152 +1577,18 @@ document.addEventListener("click", e => {
   const d = t.closest("#askDrawer"); if (!d) return;
   const q = t.closest("[data-aq]"); if (q) { askQ(q.dataset.aq); return; }
   const k = t.closest("[data-ak]"); if (!k) return;
-  if (k.dataset.ak === "close") { ASK.ctl?.abort(); if (VOICE.on) voiceStop(true); window.speechSynthesis?.cancel(); askToggle(false); }
+  if (k.dataset.ak === "close") { ASK.ctl?.abort(); askToggle(false); }
   if (k.dataset.ak === "stop") ASK.ctl?.abort();
   if (k.dataset.ak === "clear") { ASK.chat = []; askSave(); askDraw(); }
 });
-// ---------- Ask AI voice: you speak, words appear live in the box, you stop and send (nothing is sent automatically) ----------
-// Engine 1 (Chrome / Edge / Safari): the browser's built-in speech recogniser (Google / Apple), live words as you speak.
-// Engine 2 (any browser, and "re-check"): Whisper on Cloudflare, from the recorded audio.
-const VLANGS = [["en-IN", "English (India)"], ["hi-IN", "Hindi"], ["en-IN|hinglish", "Hinglish (Hindi in English letters)"], ["te-IN", "Telugu"], ["ta-IN", "Tamil"], ["kn-IN", "Kannada"], ["ml-IN", "Malayalam"], ["mr-IN", "Marathi"], ["gu-IN", "Gujarati"], ["bn-IN", "Bengali"], ["pa-IN", "Punjabi"], ["ur-IN", "Urdu"], ["auto", "Other / auto-detect (Whisper)"]];
-const TTS_LANG = { en: "en-IN", hi: "hi-IN", te: "te-IN", ta: "ta-IN", kn: "kn-IN", ml: "ml-IN", mr: "mr-IN", gu: "gu-IN", bn: "bn-IN", pa: "pa-IN", ur: "ur-IN", or: "or-IN" };
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-const VOICE = { lang: (v => VLANGS.some(x => x[0] === v) ? v : "en-IN")(store.get("dp-asklang2", "en-IN")), speak: false, rec: null, sr: null, stream: null, chunks: [], blob: null, t0: 0, ctx: null, an: null, raf: 0,
-  busy: false, on: false, base: "", final: "", interim: "", pending: false, lastLang: null };
-const canRecord = () => !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
-const vCode = () => VOICE.lang.split("|")[0];
-const useBrowser = () => !!SR && VOICE.lang !== "auto";
-function voiceUi(state, msg) {
-  const box = $("#askVoice"); if (!box) return;
-  box.hidden = !state; box.dataset.state = state || "";
-  box.innerHTML = state === "rec" ? `<span class="vdot"></span><b>Listening…</b><span class="vengine">${VOICE.lang === "auto" || !/^(en|hi)/.test(VOICE.lang) ? "AI speech engine" : "Deepgram Nova-3"} · ${esc((VLANGS.find(x => x[0] === VOICE.lang) || [, "English"])[1])}</span> <span class="num" id="vTime">0:00</span><span class="vbars" id="vBars">${"<i></i>".repeat(14)}</span><button type="button" class="btn sm primary" data-ak="vstop">Done</button><button type="button" class="linkish" data-ak="vcancel">Cancel</button><span class="muted vhint">Take your time: I keep listening until you tap <b>Done</b>. Tip: end with "<b>send it</b>" to send straight away.</span>`
-    : state === "busy" ? `<span class="pa-spin"></span><b>Understanding your voice…</b><span class="muted vhint">Using Deepgram Nova-3, a finance-tuned speech engine</span>`
-    : state === "done" ? `<span class="up">●</span> <span>${msg ? `<b class="warn">${esc(msg)}</b>. ` : ""}Check the text below, then tap <b>Ask</b>.</span><span class="vengine vengine2"></span><button type="button" class="linkish" data-ak="vretry">Speak again</button><button type="button" class="linkish" data-ak="vclose">×</button>`
-    : state === "err" ? `<span class="down">●</span> ${esc(msg || "Voice did not work.")} <button type="button" class="linkish" data-ak="vclose">OK</button>` : "";
-}
-const V_FIX = [[/\bnifty fifty\b/gi, "Nifty 50"], [/\bnifty\s*50\b/gi, "Nifty 50"], [/\bbank\s*nifty\b/gi, "Bank Nifty"], [/\bfin\s*nifty\b/gi, "Fin Nifty"], [/\bsensex\b/gi, "Sensex"], [/\bstop[\s-]*loss\b/gi, "stop-loss"],
-  [/\bf\s*(?:and|&|n)\s*o\b/gi, "F&O"], [/\bh\s*d\s*f\s*c\b/gi, "HDFC"], [/\bi\s*c\s*i\s*c\s*i\b/gi, "ICICI"], [/\bs\s*b\s*i\b/gi, "SBI"], [/\bt\s*c\s*s\b/gi, "TCS"], [/\bl\s*(?:and|&|n)\s*t\b/gi, "L&T"], [/\bm\s*(?:and|&|n)\s*m\b/gi, "M&M"],
-  [/\bi\s*t\s*c\b/gi, "ITC"], [/\bo\s*n\s*g\s*c\b/gi, "ONGC"], [/\bn\s*t\s*p\s*c\b/gi, "NTPC"], [/\bp\s*c\s*r\b/gi, "PCR"], [/\br\s*s\s*i\b/gi, "RSI"], [/\bf\s*i\s*i\b/gi, "FII"], [/\bd\s*i\s*i\b/gi, "DII"], [/\br\s*b\s*i\b/gi, "RBI"],
-  [/\btata motor\b/gi, "Tata Motors"], [/\bjio fin(?:ance)?\b/gi, "Jio Financial"], [/\bzomato\b/gi, "Zomato"], [/\brupees?\s+(\d)/gi, "₹$1"]];
-const vFix = t => { let x = String(t || "").replace(/\s+/g, " ").trim(); for (const [re, to] of V_FIX) x = x.replace(re, to); return x ? x[0].toUpperCase() + x.slice(1) : x; };
-function vShow() { const i = $("#askIn"); if (!i) return; i.value = (VOICE.base ? VOICE.base + " " : "") + vFix(VOICE.final + " " + VOICE.interim); i.scrollTop = i.scrollHeight; }
-async function voiceStart() {
-  if (VOICE.on || VOICE.busy || ASK.busy) return;
-  if (!canRecord() && !SR) { voiceUi("err", "This browser cannot use the microphone. Try Chrome, Edge or Safari."); return; }
-  VOICE.on = true; VOICE.final = ""; VOICE.interim = ""; VOICE.blob = null; VOICE.chunks = []; VOICE.base = ($("#askIn")?.value || "").trim(); VOICE.t0 = Date.now();
-  // audio recording (level meter + Whisper backup). Android cannot share the mic between the recogniser and a recorder, so it uses the recogniser alone.
-  if (canRecord()) {
-    try {
-      VOICE.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
-      const mt = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"].find(t => MediaRecorder.isTypeSupported?.(t)) || "";
-      VOICE.rec = new MediaRecorder(VOICE.stream, mt ? { mimeType: mt } : undefined);
-      VOICE.rec.ondataavailable = e => { if (e.data && e.data.size) VOICE.chunks.push(e.data); };
-      VOICE.rec.start(250);
-      try { VOICE.ctx = new (window.AudioContext || window.webkitAudioContext)(); const src = VOICE.ctx.createMediaStreamSource(VOICE.stream); VOICE.an = VOICE.ctx.createAnalyser(); VOICE.an.fftSize = 512; src.connect(VOICE.an); } catch {}
-    } catch (e) { VOICE.on = false; voiceUi("err", e.name === "NotAllowedError" ? "Microphone permission was blocked. Allow the mic for this site (padlock icon in the address bar), then tap the mic again." : "No microphone found."); return; }
-  }
-  // live words from the browser's recogniser; it can pause on silence, so restart it until you tap Done
-  if (useBrowser() && !(/Android/i.test(navigator.userAgent) && VOICE.rec)) {
-    const startSR = () => {
-      const r = new SR(); r.lang = vCode(); r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
-      r.onresult = ev => { let interim = ""; for (let i = ev.resultIndex; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) VOICE.final += " " + t; else interim += t; } VOICE.interim = interim; vShow(); };
-      r.onerror = ev => { if (ev.error === "not-allowed" || ev.error === "service-not-allowed") { VOICE.srFail = true; } };
-      r.onend = () => { if (VOICE.on && !VOICE.srFail) { try { startSR(); } catch {} } };
-      VOICE.sr = r; try { r.start(); } catch { VOICE.srFail = true; }
-    };
-    VOICE.srFail = false; startSR();
-  }
-  voiceUi("rec"); $("#askMic")?.classList.add("on");
-  const data = new Uint8Array(256);
-  const tick = () => {
-    if (!VOICE.on) return;
-    const el = (Date.now() - VOICE.t0) / 1000, tEl = $("#vTime"); if (tEl) tEl.textContent = `${Math.floor(el / 60)}:${String(Math.floor(el % 60)).padStart(2, "0")}`;
-    if (VOICE.an) { VOICE.an.getByteTimeDomainData(data); let sum = 0; for (const v of data) sum += (v - 128) ** 2; const rms = Math.sqrt(sum / data.length) / 128;
-      document.querySelectorAll("#vBars i").forEach((b, i) => { b.style.height = Math.max(3, Math.min(22, rms * 220 * (0.6 + Math.abs(Math.sin(Date.now() / 140 + i)) * 0.6))) + "px"; }); }
-    if (el > 120) { voiceStop(); return; } // safety limit: 2 minutes
-    VOICE.raf = requestAnimationFrame(tick);
-  };
-  VOICE.raf = requestAnimationFrame(tick);
-}
-function voiceStop(cancel) {
-  if (!VOICE.on) return; VOICE.on = false; cancelAnimationFrame(VOICE.raf); $("#askMic")?.classList.remove("on");
-  try { VOICE.sr?.stop(); } catch {}
-  const finish = () => {
-    try { VOICE.stream?.getTracks().forEach(t => t.stop()); } catch {} try { VOICE.ctx?.close(); } catch {}
-    VOICE.blob = VOICE.chunks.length ? new Blob(VOICE.chunks, { type: VOICE.rec?.mimeType || "audio/webm" }) : null; VOICE.rec = null; VOICE.stream = null; VOICE.ctx = null; VOICE.an = null;
-    if (cancel) { const i = $("#askIn"); if (i) i.value = VOICE.base; voiceUi(null); return; }
-    VOICE.interim = ""; VOICE.preview = (VOICE.final || "").trim(); vShow();
-    if (VOICE.blob) voiceWhisper();
-    else if (VOICE.preview) voiceDone(VOICE.preview, "browser");
-    else voiceUi("err", "I didn't catch that. Tap the mic and try again, a little closer to the microphone.");
-  };
-  if (VOICE.rec && VOICE.rec.state !== "inactive") { VOICE.rec.onstop = finish; try { VOICE.rec.stop(); } catch { finish(); } } else finish();
-}
-// convert the recording to 16 kHz mono WAV (works with every browser's recorder format)
-async function toWav16k(blob) {
-  const ab = await blob.arrayBuffer(); const AC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-  const tmp = new (window.AudioContext || window.webkitAudioContext)(); const dec = await tmp.decodeAudioData(ab.slice(0)); tmp.close?.();
-  const len = Math.ceil(dec.duration * 16000), off = new AC(1, len, 16000), src = off.createBufferSource(); src.buffer = dec; src.connect(off.destination); src.start();
-  const pcm = (await off.startRendering()).getChannelData(0), out = new DataView(new ArrayBuffer(44 + pcm.length * 2));
-  const w = (o, s) => [...s].forEach((c, i) => out.setUint8(o + i, c.charCodeAt(0)));
-  w(0, "RIFF"); out.setUint32(4, 36 + pcm.length * 2, true); w(8, "WAVE"); w(12, "fmt "); out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 1, true);
-  out.setUint32(24, 16000, true); out.setUint32(28, 32000, true); out.setUint16(32, 2, true); out.setUint16(34, 16, true); w(36, "data"); out.setUint32(40, pcm.length * 2, true);
-  for (let i = 0; i < pcm.length; i++) out.setInt16(44 + i * 2, Math.max(-1, Math.min(1, pcm[i])) * 0x7fff, true);
-  return new Blob([out], { type: "audio/wav" });
-}
-const V_SEND = /[\s,.!]*(?:(?:please\s+)?(?:send|submit|ask)(?:\s+(?:it|now|this|the question))?|bhejo|bhej do|send karo)[\s.!]*$/i;
-function voiceDone(text, engine, conf) {
-  let t = vFix(text), autoSend = false;
-  if (V_SEND.test(t) && t.replace(V_SEND, "").trim().length > 3) { t = t.replace(V_SEND, "").trim(); autoSend = true; }
-  VOICE.final = t; VOICE.interim = ""; VOICE.pending = true; vShow();
-  if (autoSend) { voiceUi(null); $("#askForm")?.requestSubmit(); return; }
-  voiceUi("done", conf != null && conf < 0.7 ? "I may have misheard some words, please check" : ""); const e = $("#askVoice .vengine2"); if (e) e.textContent = engine;
-  $("#askIn")?.focus();
-}
-async function voiceWhisper() {
-  if (!VOICE.blob || VOICE.busy) return;
-  VOICE.busy = true; voiceUi("busy");
-  try {
-    let body = VOICE.blob; try { body = await toWav16k(body); } catch {}
-    const lang = VOICE.lang === "auto" ? "" : VOICE.lang === "en-IN|hinglish" ? "hinglish" : VOICE.lang === "en-IN" ? "en-IN" : vCode().slice(0, 2);
-    const r = await fetch("/transcribe?lang=" + encodeURIComponent(lang), { method: "POST", headers: { "Content-Type": body.type || "application/octet-stream", "X-DP-Client": "web" }, body, signal: AbortSignal.timeout(45000) });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok || !j.text) throw new Error(j.error === "too short" ? "that was too short" : j.error || "no text came back");
-    VOICE.lastLang = j.language || lang.slice(0, 2) || null; VOICE.busy = false;
-    voiceDone(j.text, j.engine || "AI speech engine", j.confidence);
-  } catch (e) {
-    VOICE.busy = false;
-    if (VOICE.preview) voiceDone(VOICE.preview, "browser");
-    else voiceUi("err", "Couldn't turn that into text (" + e.message + "). Please try again, or type your question.");
-  }
-}
-// pick the most natural voice the device has: neural / natural / Google / premium voices first, Indian accent preferred
-function bestVoice(code) {
-  const vs = (window.speechSynthesis?.getVoices() || []).filter(v => v.lang && v.lang.replace("_", "-").toLowerCase().startsWith(code.slice(0, 2).toLowerCase()));
-  const score = v => (v.lang.replace("_", "-").toLowerCase() === code.toLowerCase() ? 40 : 0) + (/natural|neural/i.test(v.name) ? 30 : 0) + (/online/i.test(v.name) ? 10 : 0) + (/google/i.test(v.name) ? 20 : 0) + (/premium|enhanced/i.test(v.name) ? 15 : 0) + (/india|heera|neerja|prabhat|swara|madhur|ravi|veena|rishi|lekha/i.test(v.name) ? 8 : 0) - (v.localService === false ? 0 : 1);
-  return vs.sort((a, b) => score(b) - score(a))[0] || null;
-}
-try { window.speechSynthesis?.getVoices(); window.speechSynthesis && (speechSynthesis.onvoiceschanged = () => {}); } catch {}
-// read an answer aloud in the language it was asked in
-function askSpeak(md, lang) {
-  if (!VOICE.speak || !window.speechSynthesis) return;
-  speechSynthesis.cancel();
-  const text = String(md).replace(/\|[^\n]*\|/g, " ").replace(/[#*_`>|]/g, " ").replace(/Information only, not investment advice\.?/i, "").replace(/\s+/g, " ").trim().slice(0, 1400);
-  const code = TTS_LANG[(lang || "").slice(0, 2)] || (/[ऀ-ॿ]/.test(text) ? "hi-IN" : /[ఀ-౿]/.test(text) ? "te-IN" : /[஀-௿]/.test(text) ? "ta-IN" : "en-IN");
-  const parts = (text.match(/[^.!?।]+[.!?।]?/g) || [text]).map(p => p.trim()).filter(Boolean), v = bestVoice(code);
-  for (const p of parts) { const u = new SpeechSynthesisUtterance(p); u.lang = code; if (v) u.voice = v; u.rate = 0.98; u.pitch = 1; speechSynthesis.speak(u); }
-}
+// Voice input/read-aloud removed at the owner's request (Oct 2026).
 document.addEventListener("click", e => {
   const t = e.target; if (!t.closest("#askDrawer")) return;
-  if (t.closest("#askMic")) { VOICE.on ? voiceStop() : voiceStart(); return; }
   const k = t.closest("[data-ak]"); if (!k) return;
-  if (k.dataset.ak === "vstop") voiceStop(); if (k.dataset.ak === "vcancel") voiceStop(true); if (k.dataset.ak === "vclose") voiceUi(null); if (k.dataset.ak === "vretry") { const i = $("#askIn"); if (i) i.value = VOICE.base || ""; VOICE.pending = false; voiceUi(null); voiceStart(); }
-  if (k.dataset.ak === "speak") { VOICE.speak = !VOICE.speak; store.set("dp-askspeak", VOICE.speak); if (!VOICE.speak) window.speechSynthesis?.cancel(); k.classList.toggle("on", VOICE.speak); k.title = VOICE.speak ? "Reading answers aloud (tap to stop)" : "Read answers aloud"; }
 });
-document.addEventListener("change", e => { if (e.target.id === "askLang") { VOICE.lang = e.target.value; store.set("dp-asklang2", VOICE.lang); } });
-document.addEventListener("submit", e => { if (e.target.id !== "askForm") return; e.preventDefault(); if (VOICE.on) voiceStop(); const i = $("#askIn"); const v = i.value; i.value = ""; const vo = VOICE.pending; VOICE.pending = false; voiceUi(null); askQ(v, vo ? { voice: true, lang: VOICE.lastLang || vCode().slice(0, 2) } : {}); });
+document.addEventListener("submit", e => { if (e.target.id !== "askForm") return; e.preventDefault(); const i = $("#askIn"); const v = i.value; i.value = ""; askQ(v, {}); });
 document.addEventListener("keydown", e => {
-  if (e.key === "Escape" && ASK.open) { if (VOICE.on) { voiceStop(true); return; } ASK.ctl?.abort(); window.speechSynthesis?.cancel(); askToggle(false); }
+  if (e.key === "Escape" && ASK.open) { ASK.ctl?.abort(); askToggle(false); }
   if (e.key === "Enter" && !e.shiftKey && e.target.id === "askIn") { e.preventDefault(); $("#askForm").requestSubmit(); }
 });
 // ---------- GLOBAL 360: world markets, currencies, rates, gold, crude & commodities, risk, flows and news in one place ----------
@@ -2116,18 +1981,17 @@ function paInit() {
   w.innerHTML = PA_DEFS + `<div class="pa-bub" id="paBub" hidden></div>
     <section class="pa-panel" id="paPanel" hidden aria-label="Pulse Agent">
       <div class="pa-h">${PA_ICON}<div><b>Pulse Agent</b><span id="paSt">watching the market</span></div>
-        <button class="pa-ic" id="paSpk" title="Read answers aloud" aria-label="Read answers aloud">🔇</button><button class="pa-ic" id="paNew" title="New chat (forget context)" aria-label="New chat">🗑</button><button class="pa-ic" id="paSet" title="Pop-up settings" aria-label="Settings">⚙</button><button class="pa-ic" id="paX" aria-label="Close">✕</button></div>
+        <button class="pa-ic" id="paNew" title="New chat (forget context)" aria-label="New chat">🗑</button><button class="pa-ic" id="paSet" title="Pop-up settings" aria-label="Settings">⚙</button><button class="pa-ic" id="paX" aria-label="Close">✕</button></div>
       <div class="pa-setr" id="paSetR" hidden><span>Pop-ups:</span>${[["all", "All advice"], ["high", "Important only"], ["off", "Off"]].map(([k, l]) => `<button data-papop="${k}">${l}</button>`).join("")}</div>
       <div class="pa-body" id="paBody"></div>
       <div class="pa-chips" id="paChips">${[["market", "Market now"], ["ideas", "Today's best setups"], ["stock", "Analyse this stock"], ["portfolio", "Review my portfolio"], ["options", "Options view"], ["plan", "Plan my trading day"]].map(([k, l]) => `<button data-paq="${k}">${l}</button>`).join("")}</div>
-      <form class="pa-in" id="paForm"><button type="button" class="pa-mic" id="paMic" title="Speak your question" aria-label="Speak">🎤</button><input id="paQ" placeholder="Ask in plain language: e.g. Mukesh Ambani ki company kharidu?" autocomplete="off" aria-label="Ask Claude"><button class="pa-send" aria-label="Ask" title="Ask the agent">Ask</button></form>
+      <form class="pa-in" id="paForm"><input id="paQ" placeholder="Ask in plain language: e.g. Mukesh Ambani ki company kharidu?" autocomplete="off" aria-label="Ask Claude"><button class="pa-send" aria-label="Ask" title="Ask the agent">Ask</button></form>
       <div class="pa-foot">Built-in AI agent (open models on Cloudflare's free tier) using live prices and Dalal Pulse research; maths is computed exactly by the desk engine. "Deep dive in Claude" opens your Claude app. Information only, not investment advice.</div>
     </section>
     <button class="pa-fab" id="paFab" aria-label="Open Pulse Agent" title="Pulse Agent">${PA_ICON}<span class="pa-n" id="paN" hidden></span></button>`;
   document.body.append(w);
   $("#paFab").onclick = () => paToggle();
   $("#paX").onclick = () => paToggle(false);
-  paVoiceInit();
   $("#paNew").onclick = () => { PA.msgs = []; store.set("dp-pamsgs", []); PA_HIST.length = 0; store.set("dp-pahist", []); Object.assign(PAX, { sym: null, syms: [], intent: null, list: null, page: 0 }); paSaveCtx(); $("#paBody").innerHTML = ""; paWelcome(); };
   $("#paSet").onclick = () => { const r = $("#paSetR"); r.hidden = !r.hidden; paSetMark(); };
   w.addEventListener("click", e => {
@@ -2319,7 +2183,7 @@ async function paAsk(key, text) {
       const d = document.createElement("div"); d.innerHTML = cardHtml; PA_HIST.push({ role: "user", content: text }, { role: "assistant", content: d.textContent.replace(/\s+/g, " ").slice(0, 700) });
     }
     while (PA_HIST.length > 16) PA_HIST.shift(); store.set("dp-pahist", PA_HIST);
-    paSay(html + paClaude(text)); paSpeak(ai ? `<p>${esc(ai.answer.replace(/[#*|`]/g, " ").split(/\n\s*\n/).slice(0, 2).join(". "))}</p>` : cardHtml);
+    paSay(html + paClaude(text));
   } catch (e) { clearInterval(iv); think.remove(); paSay(`<p>Sorry, something went wrong (${esc(e.message)}). Please try again.</p>`); }
   PA.busy = false;
 }
@@ -2731,44 +2595,6 @@ function paKite(id) {
     `Plan: stop ${px(p.stop)}, target ${px(p.target)}. After buying, place your stop-loss in Kite (GTT) yourself. Quantity uses your ${RISK[c.risk]?.name || "Balanced"} risk on ₹${fmt(c.capital, 0)}.`);
 }
 
-// ---- voice: speak a question (speech-to-text) and hear answers (text-to-speech); browser built-ins, free ----
-function paVoiceInit() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition, mic = $("#paMic");
-  if (!SR) { mic.title = "Voice input works in Chrome / Edge / Android"; mic.onclick = () => toast("Voice input needs Chrome or Edge (or the Google app on phone)"); }
-  else mic.onclick = () => {
-    if (PA.rec) { (PA.recFinish || (() => PA.rec.stop()))(); return; }
-    const r = new SR(); PA.rec = r; r.lang = store.get("dp-palang", "en-IN"); r.interimResults = true; r.continuous = true; r.maxAlternatives = 1;
-    const inp = $("#paQ"), base = inp.value.trim(); mic.classList.add("on"); inp.placeholder = "Listening… speak your full question, then pause (or tap the mic when done)";
-    let text = "", silence = null, done = false;
-    const finish = () => { if (done) return; done = true; clearTimeout(silence); try { r.stop(); } catch {} };
-    r.onresult = e => { let fin = "", tmp = ""; for (const x of e.results) { if (x.isFinal) fin += x[0].transcript; else tmp += x[0].transcript; } text = (base + " " + fin + " " + tmp).replace(/\s+/g, " ").trim(); inp.value = text;
-      clearTimeout(silence); silence = setTimeout(finish, 2600); };
-    r.onerror = e => { if (e.error === "not-allowed") toast("Please allow the microphone for this site"); else if (e.error !== "aborted" && e.error !== "no-speech") toast("Voice error: " + e.error); };
-    r.onend = () => { mic.classList.remove("on"); PA.rec = null; PA.recFinish = null; clearTimeout(silence); inp.placeholder = "Ask a question: e.g. Is Tata Steel a buy? · Compare it with JSW Steel";
-      const v = (text || inp.value).trim(); if (!v) return;
-      inp.value = v; inp.focus(); $("#paForm").classList.add("ready"); toast("Check your question, then tap Ask"); };
-    PA.recFinish = finish;
-    try { r.start(); } catch { mic.classList.remove("on"); PA.rec = null; }
-  };
-  const spk = $("#paSpk"), on = () => store.get("dp-paspeak", false);
-  const mark = () => { spk.textContent = on() ? "🔊" : "🔇"; spk.title = on() ? "Reading answers aloud (tap to mute)" : "Read answers aloud"; };
-  if (!("speechSynthesis" in window)) spk.hidden = true;
-  spk.onclick = () => { store.set("dp-paspeak", !on()); if (!on()) speechSynthesis.cancel(); mark(); toast(on() ? "I'll read my answers aloud" : "Muted"); };
-  mark();
-}
-function paSpeak(html) {
-  return;
-  const d = document.createElement("div"); d.innerHTML = html;
-  d.querySelectorAll(".pa-fu,.pa-act,.pa-ctx,.pa-live,.pa-claude,table,.pa-plan,.muted").forEach(x => x.remove());
-  const rt = d.querySelector(".pa-rating b"), sym = d.querySelector(".pa-ct b");
-  let t = rt ? `${sym ? sym.textContent + ". " : ""}Rating: ${rt.textContent}. ${(d.querySelector(".pa-rating ~ p") || {}).textContent || ""}` : (d.querySelector("p b") || d.querySelector("p") || d).textContent.trim();
-  const plan = html.match(/Buy near <b>([^<]+)<\/b>.*?Stop <b[^>]*>([^<]+)<\/b>.*?Target <b[^>]*>([^<]+)<\/b>/s);
-  if (plan) t += `. Plan: buy near ${plan[1]}, stop loss ${plan[2]}, target ${plan[3]}.`;
-  t = t.replace(/[🟢🟡🔴✅⚠️📅🧭📈🎯🧮🏛💡●]/gu, "").replace(/₹/g, "rupees ").replace(/−/g, "minus ").replace(/\bR:R\b/g, "reward to risk").slice(0, 400);
-  speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(t); u.lang = "en-IN"; u.rate = 1;
-  const v = speechSynthesis.getVoices().find(x => /en[-_]IN/i.test(x.lang)); if (v) u.voice = v;
-  speechSynthesis.speak(u);
-}
 function paShowBub() {
   const b = $("#paBub"), a = PA.queue[0]; if (!b) return;
   if (!a || PA.open) { b.hidden = true; return; }
