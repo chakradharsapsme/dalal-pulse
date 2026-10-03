@@ -139,7 +139,7 @@ function nav(v, s) {
 function readHash() {
   const [v, s] = location.hash.replace(/^#\/?/, "").split("/");
   if (!v) { view = "news"; sel = null; return; }
-  if (["news", "markets", "indices", "fno", "options", "circuits", "screener", "portfolio", "calendar", "momentum", "groups", "world", "maps"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
+  if (["news", "markets", "indices", "fno", "options", "circuits", "screener", "portfolio", "calendar", "momentum", "groups", "world", "maps", "alerts"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
 }
 const go = sym => nav("news", sym);
 
@@ -147,14 +147,14 @@ function render() {
   if (!D) return;
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.nav === view));
   const keep = document.querySelector(".list")?.scrollTop;
-  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "fno" ? fnoView() : view === "circuits" ? circuitsView() : view === "options" ? optionsView() : view === "screener" ? screener() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : view === "momentum" ? momentumView() : view === "groups" ? groupsView() : view === "world" ? globalView() : view === "maps" ? mapView() : newsView();
+  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "fno" ? fnoView() : view === "circuits" ? circuitsView() : view === "options" ? optionsView() : view === "screener" ? screener() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : view === "momentum" ? momentumView() : view === "groups" ? groupsView() : view === "world" ? globalView() : view === "maps" ? mapView() : view === "alerts" ? alertsView() : newsView();
   if (view === "maps" && (ui.mtab || "map") === "map") drawMarketMap();
   if (view === "portfolio") setTimeout(runXray, 0);
   if (keep && document.querySelector(".list")) document.querySelector(".list").scrollTop = keep;
   if (view === "news") { if (sel && S[sel]) drawChart(sel); document.querySelector(".row.on")?.scrollIntoView({ block: "nearest" }); }
   if (view === "options") drawChain();
   if (view === "indices") { if (sel && sel !== "compare") drawIndexChart(sel); else drawCompare(); document.querySelector(".row.on")?.scrollIntoView({ block: "nearest" }); }
-  animateBars(); countUp($("#view"));
+  animateBars(); countUp($("#view")); if (typeof alBadge === "function") alBadge();
 }
 function animateBars() {
   requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -409,7 +409,7 @@ function stockDetail(sym) {
         <button class="btn primary sm" data-hsave="${esc(sym)}">${h ? "Update holding" : "Add to portfolio"}</button>${h ? `<button class="btn sm" data-hdel="${esc(sym)}">Remove</button>` : ""}</div>
       <div class="form"><select id="at" aria-label="Alert type"><option value="above">Alert when price rises to</option><option value="below">Alert when price falls to</option></select><input id="ap" type="number" min="0.05" step="0.05" placeholder="₹ price" aria-label="Alert price">
         <button class="btn sm" data-aset="${esc(sym)}">Set alert</button></div>
-      ${my.alerts.filter(a => a.symbol === sym).map(a => `<div style="font-size:13.5px;margin-top:8px">${a.type === "above" ? "▲ Rises to" : "▼ Falls to"} <span class="num">${px(a.price)}</span> ${a.hit ? '<span class="up">· triggered</span>' : ""} <button class="sy" data-adel="${a.id}">remove</button></div>`).join("")}
+      ${my.alerts.filter(a => a.symbol === sym).map(a => `<div style="font-size:13.5px;margin-top:8px">${a.type === "above" || a.type === "up_pct" ? "▲" : "▼"} ${esc(alDesc(a))} ${a.hit ? '<span class="up">· triggered</span>' : ""} <button class="sy" data-adel="${a.id}">remove</button></div>`).join("")}
       <div class="muted" style="font-size:12px;margin-top:8px">Kept privately in this browser.</div>
     </div>`;
 }
@@ -1383,7 +1383,7 @@ function portfolio() {
   : `<div class="card"><div class="empty"><b>No holdings yet</b>Search a stock at the top (for example "HDFC Bank"), open it, and use "Add to portfolio" with your quantity and average price.</div></div>`}
   <div class="grid g2" style="margin-top:16px">
     <div class="card"><div class="hd"><h2>Watchlist and alerts</h2></div><div class="bd" style="padding-top:4px">${my.watch.length ? my.watch.map(sym => { const s = S[sym] || {}; return `<button class="mv" data-go="${esc(sym)}"><span><b>${esc(sym)}</b> ${s.insight ? `<span class="badge ${s.insight.signal}">${esc(s.insight.label)}</span>` : ""}</span><span class="num">${px(s.price)} <b class="${cls(s.change_pct)}">${pct(s.change_pct)}</b></span></button>`; }).join("") : '<div class="muted" style="padding-top:12px">Use ☆ Watch on any stock.</div>'}
-      ${my.alerts.length ? `<div style="margin-top:14px">` + my.alerts.map(a => `<div style="font-size:13.5px;margin:5px 0"><b>${esc(a.symbol)}</b> ${a.type === "above" ? "rises to" : "falls to"} <span class="num">${px(a.price)}</span> · now <span class="num">${px(S[a.symbol]?.price)}</span> ${a.hit ? '<span class="up">✓ triggered</span>' : ""} <button class="sy" data-adel="${a.id}">remove</button></div>`).join("") + "</div>" : ""}
+      ${my.alerts.length ? `<div style="margin-top:14px">` + my.alerts.map(a => `<div style="font-size:13.5px;margin:5px 0"><b>${esc(a.symbol)}</b> ${esc(alDesc(a))} · now <span class="num">${px(S[a.symbol]?.price)}</span> ${a.hit ? '<span class="up">✓ triggered</span>' : ""} <button class="sy" data-adel="${a.id}">remove</button></div>`).join("") + "</div>" : ""}
       ${canNotify ? `<div style="margin-top:14px"><button class="btn sm" id="notif">${Notification.permission === "granted" ? "✓ Pop-up alerts are on" : "Turn on pop-up alerts"}</button></div>` : ""}
     </div></div>
     <div class="card"><div class="hd"><h2>News on my stocks</h2></div><div class="bd" style="padding-top:0">${mineNews.map(newsItem).join("") || '<div class="muted" style="padding-top:12px">No recent news on your stocks.</div>'}</div></div>
@@ -2020,16 +2020,183 @@ function calendar() {
   return h + "</div></div></div>";
 }
 
-// ---------- alerts ----------
-function checkAlerts(first) {
-  let changed = false; const fired = [];
+// ---------- PRICE ALERTS: set alerts on any NSE stock or index; checked live while the site is open; pop-up + sound + desktop notification ----------
+const AL_T = { above: ["Price rises to", "₹"], below: ["Price falls to", "₹"], up_pct: ["Up today by", "%"], down_pct: ["Down today by", "%"] };
+const AL_IDX = { NIFTY: "Nifty 50", BANKNIFTY: "Bank Nifty" };
+const AL = { live: {}, last: null, timer: 0, busy: false, err: null, sound: store.get("dp-alsound", true), pend: null };
+ui.aEdit = null;
+const alName = s => AL_IDX[s] || S[s]?.name || s;
+const alPx = s => AL.live[s]?.price ?? S[s]?.price ?? null;
+const alChg = s => AL.live[s]?.change_pct ?? S[s]?.change_pct ?? null;
+const alActive = () => my.alerts.filter(a => !a.hit || a.repeat);
+const alDesc = a => { const [l, u] = AL_T[a.type] || AL_T.above; return u === "₹" ? `${l} ${px(a.price)}` : `${l} ${(+a.price).toFixed(2)}% or more`; };
+function alMarketOpen(d = new Date()) {
+  const ist = new Date(d.getTime() + (330 + d.getTimezoneOffset()) * 60000), day = ist.getDay(), m = ist.getHours() * 60 + ist.getMinutes();
+  return day >= 1 && day <= 5 && m >= 9 * 60 + 14 && m <= 15 * 60 + 31;
+}
+const alMet = (a, p, c) => a.type === "above" ? p >= a.price : a.type === "below" ? p <= a.price : a.type === "up_pct" ? c != null && c >= a.price : c != null && c <= -a.price;
+// how far the price still has to go (in %, positive = not yet there)
+function alGap(a) {
+  const p = alPx(a.symbol), c = alChg(a.symbol); if (p == null) return null;
+  if (a.type === "above") return (a.price / p - 1) * 100; if (a.type === "below") return (1 - a.price / p) * 100;
+  if (c == null) return null; return a.type === "up_pct" ? a.price - c : a.price + c;
+}
+function alEvaluate(source) {
+  const fired = []; let changed = false;
   for (const a of my.alerts) {
-    const p = S[a.symbol]?.price; if (p == null || a.hit) continue;
-    if ((a.type === "above" && p >= a.price) || (a.type === "below" && p <= a.price)) { a.hit = new Date().toISOString(); changed = true; fired.push(`${a.symbol} ${a.type === "above" ? "rose to" : "fell to"} ${px(p)} (your alert: ${px(a.price)})`); }
+    const p = alPx(a.symbol), c = alChg(a.symbol); if (p == null) continue;
+    const met = alMet(a, p, c);
+    if (a.repeat && a.wait && !met) { a.wait = false; changed = true; continue; }      // moved back: re-armed
+    if (!met || (a.hit && !a.repeat) || a.wait) continue;
+    a.hit = new Date().toISOString(); a.hitPrice = p; a.hitChg = c; a.count = (a.count || 0) + 1; if (a.repeat) a.wait = true;
+    (a.log ||= []).unshift({ at: a.hit, p }); a.log = a.log.slice(0, 10); changed = true; fired.push(a);
   }
   if (changed) saveMy();
-  for (const m of fired) { toast(m); if ("Notification" in window && Notification.permission === "granted") try { new Notification("Dalal Pulse", { body: m }); } catch {} }
+  fired.forEach(alPop);
+  if ((fired.length || changed) && view === "alerts") render();
+  alBadge();
+  return fired.length;
 }
+async function alTick(force) {
+  if (SNAPSHOT || AL.busy) return; const syms = [...new Set(alActive().map(a => a.symbol))];
+  if (!syms.length) { AL.last = null; return; }
+  if (!force && !alMarketOpen() && AL.last && Date.now() - AL.last < 15 * 60e3) return;
+  AL.busy = true;
+  try {
+    for (let i = 0; i < syms.length; i += 8) {
+      const r = await fetch("/quote?s=" + encodeURIComponent(syms.slice(i, i + 8).join(",")), { cache: "no-store", signal: AbortSignal.timeout(8000) });
+      if (!r.ok) throw new Error(r.status === 429 ? "busy, retrying" : "HTTP " + r.status);
+      const j = await r.json();
+      for (const [k, v] of Object.entries(j.quotes || {})) if (v && v.price) { AL.live[k] = { ...v, at: Date.now() }; const st = S[k]; if (st) { st.price = v.price; if (v.change_pct != null) st.change_pct = v.change_pct; } }
+    }
+    AL.last = Date.now(); AL.err = null;
+  } catch (e) { AL.err = e.message; }
+  AL.busy = false;
+  alEvaluate("live");
+  if (view === "alerts") alRefreshLive();
+}
+function alSchedule() { clearTimeout(AL.timer); AL.timer = setTimeout(async () => { await alTick(); alSchedule(); }, alMarketOpen() ? 30e3 : 5 * 60e3); }
+function alBadge() { const b = document.querySelector('#tabs [data-nav="alerts"]'); if (!b) return; const n = alActive().length; b.innerHTML = `Alerts${n ? `<span class="tabn">${n}</span>` : ""}`; }
+// ---- the pop-up ----
+function alBeep() {
+  if (!AL.sound) return;
+  try { const C = new (window.AudioContext || window.webkitAudioContext)(); [0, 0.22, 0.44].forEach((t, i) => { const o = C.createOscillator(), g = C.createGain(); o.type = "sine"; o.frequency.value = i === 2 ? 1175 : 880; g.gain.setValueAtTime(0.0001, C.currentTime + t); g.gain.exponentialRampToValueAtTime(0.25, C.currentTime + t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, C.currentTime + t + 0.18); o.connect(g).connect(C.destination); o.start(C.currentTime + t); o.stop(C.currentTime + t + 0.2); }); setTimeout(() => C.close(), 1200); } catch {}
+}
+let alTitleT = 0;
+function alPop(a) {
+  let box = $("#alPops"); if (!box) { box = document.createElement("div"); box.id = "alPops"; box.setAttribute("aria-live", "assertive"); document.body.append(box); }
+  const p = a.hitPrice, c = a.hitChg, up = a.type === "above" || a.type === "up_pct";
+  const msg = `${a.symbol} ${a.type === "above" ? "rose to" : a.type === "below" ? "fell to" : up ? "is up" : "is down"} ${a.type.endsWith("pct") ? `${pct(c)} today (at ${px(p)})` : px(p)}`;
+  const el = document.createElement("div"); el.className = "alpop " + (up ? "u" : "d"); el.dataset.id = a.id;
+  el.innerHTML = `<div class="alph"><span class="alpi">🔔</span><b>Price alert</b><span class="muted">${new Date(a.hit).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</span><button class="alpx" data-alclose aria-label="Dismiss">✕</button></div>
+    <div class="alps">${esc(a.symbol)} <span class="num ${cls(c)}">${px(p)} ${c != null ? pct(c) : ""}</span></div>
+    <div class="alpm">${esc(alName(a.symbol))} · your alert: ${esc(alDesc(a))}${a.note ? `<br><i>“${esc(a.note)}”</i>` : ""}</div>
+    <div class="alpb">${S[a.symbol] ? `<button class="btn sm" data-go="${esc(a.symbol)}" data-alclose>Open stock</button>` : ""}<button class="btn sm ghost" data-nav="alerts" data-alclose>All alerts</button>${!a.repeat ? `<button class="sy" data-alrearm="${a.id}" data-alclose>Alert me again</button>` : ""}</div>`;
+  box.prepend(el); while (box.children.length > 4) box.lastChild.remove();
+  alBeep(); toast("🔔 " + msg);
+  if ("Notification" in window && Notification.permission === "granted") try { const n = new Notification("🔔 " + msg, { body: `Your alert: ${alDesc(a)}${a.note ? " · " + a.note : ""}`, tag: "al-" + a.id + "-" + a.count, requireInteraction: true }); n.onclick = () => { window.focus(); if (S[a.symbol]) go(a.symbol); n.close(); }; } catch {}
+  clearInterval(alTitleT); const t0 = document.title; let k = 0; alTitleT = setInterval(() => { document.title = k++ % 2 ? t0 : "🔔 " + msg; if (k > 20 || !document.hidden && k > 6) { clearInterval(alTitleT); document.title = t0; } }, 1000);
+}
+// ---- the Alerts section ----
+function alSuggest(q) {
+  q = q.trim().toUpperCase(); if (!q) return [];
+  const idx = Object.entries(AL_IDX).filter(([k, n]) => k.includes(q.replace(/\s/g, "")) || n.toUpperCase().includes(q)).map(([k, n]) => ({ symbol: k, name: n }));
+  const st = D.stocks.filter(s => s.symbol.startsWith(q) || (s.name || "").toUpperCase().includes(q)).sort((a, b) => (b.symbol.startsWith(q) - a.symbol.startsWith(q)) || a.symbol.localeCompare(b.symbol)).slice(0, 7);
+  return [...idx, ...st];
+}
+function alFormInfo(sym) {
+  const s = S[sym], p = alPx(sym), t = s?.tech || {};
+  if (p == null) return `<span class="muted">${sym ? "Checking the live price…" : "Pick a stock to see its price and quick targets."}</span>`;
+  const chips = [["−5%", "below", p * 0.95], ["−2%", "below", p * 0.98], ["+2%", "above", p * 1.02], ["+5%", "above", p * 1.05]];
+  if (t.support) chips.push(["Support " + px(t.support), "below", t.support]); if (t.resistance) chips.push(["Resistance " + px(t.resistance), "above", t.resistance]);
+  if (t.high52) chips.push(["52W high " + px(t.high52), "above", t.high52]); if (t.low52) chips.push(["52W low " + px(t.low52), "below", t.low52]);
+  const r2 = v => Math.round(v * 20) / 20;
+  return `<div class="alnow"><b>${esc(sym)}</b> <span class="muted">${esc(alName(sym))}</span> <span class="num">${px(p)}</span> <span class="num ${cls(alChg(sym))}">${pct(alChg(sym))}</span></div>
+    <div class="alchips">${chips.filter(([, , v]) => v > 0).map(([l, ty, v]) => `<button type="button" class="chip" data-alquick="${ty}|${r2(v)}">${l}</button>`).join("")}<button type="button" class="chip" data-alquick="up_pct|3">Up 3% today</button><button type="button" class="chip" data-alquick="down_pct|3">Down 3% today</button></div>`;
+}
+function alertsView() {
+  const ed = ui.aEdit ? my.alerts.find(a => a.id === ui.aEdit) : null, f = ed || AL.pend || {};
+  const perm = "Notification" in window ? Notification.permission : "unsupported";
+  const open = alMarketOpen(), act = alActive().map(a => ({ a, g: alGap(a) })).sort((x, y) => (x.g ?? 1e9) - (y.g ?? 1e9));
+  const hist = my.alerts.filter(a => a.hit).sort((a, b) => b.hit.localeCompare(a.hit));
+  const row = ({ a, g }) => { const p = alPx(a.symbol), near = g != null && g <= 1, prog = g == null ? 0 : Math.max(4, Math.min(100, 100 - g * 10));
+    return `<div class="alrow${near ? " near" : ""}${a.wait ? " wait" : ""}" data-alrow="${a.id}">
+      <div class="alr1"><button class="sy alsym" ${S[a.symbol] ? `data-go="${esc(a.symbol)}"` : ""}>${esc(a.symbol)}</button><span class="muted alnm">${esc(alName(a.symbol))}</span></div>
+      <div class="alr2"><span class="alcond ${a.type === "above" || a.type === "up_pct" ? "up" : "down"}">${a.type === "above" || a.type === "up_pct" ? "▲" : "▼"} ${esc(alDesc(a))}</span>${a.repeat ? '<span class="badge">repeats</span>' : ""}${a.note ? `<span class="muted alnote">“${esc(a.note)}”</span>` : ""}</div>
+      <div class="alr3"><span class="num" data-allive="${esc(a.symbol)}">${px(p)} <small class="${cls(alChg(a.symbol))}">${pct(alChg(a.symbol))}</small></span>
+        <span class="algap">${a.wait ? "waiting to re-arm" : g == null ? "–" : g <= 0 ? "at target" : `${g.toFixed(2)}${a.type.endsWith("pct") ? " pts" : "%"} away`}</span><span class="albar"><i style="width:${prog}%"></i></span></div>
+      <div class="alr4"><button class="sy" data-aledit="${a.id}">Edit</button><button class="sy" data-adel="${a.id}">Delete</button></div></div>`; };
+  const opts = Object.entries(AL_T).map(([k, [l]]) => `<option value="${k}"${(f.type || "above") === k ? " selected" : ""}>${l}</option>`).join("");
+  return `<div class="fade"><div class="alhead"><div><h1 class="page" style="margin-bottom:2px">Price alerts</h1><p class="sub" style="margin:0">Set a price or a daily move on any NSE stock or Nifty. When it hits, a pop-up with a sound appears on this site${perm === "granted" ? " and on your desktop" : ""}.</p></div></div>
+    <div class="alstat card"><span class="aldot ${AL.err ? "bad" : open ? "on" : ""}"></span><span>${AL.err ? `Live check paused (${esc(AL.err)})` : open ? "Market open · checking live prices every 30 seconds" : "Market closed · alerts check again when trading starts"}${AL.last ? ` · last check ${new Date(AL.last).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}</span>
+      <span class="alstat-b">${perm === "default" ? `<button class="btn sm" id="alperm">Turn on desktop pop-ups</button>` : perm === "granted" ? '<span class="up">✓ Desktop pop-ups on</span>' : perm === "denied" ? '<span class="muted">Desktop pop-ups are blocked in this browser’s site settings</span>' : ""}
+      <button class="sy" id="alsound">${AL.sound ? "🔊 Sound on" : "🔇 Sound off"}</button><button class="sy" id="altest">Test pop-up</button><button class="sy" id="alnow">Check now</button></span></div>
+    <div class="algrid"><div class="card"><div class="hd"><h2>${ed ? "Edit alert" : "New alert"}</h2>${ed ? `<button class="sy" id="alcancel">Cancel edit</button>` : ""}</div><div class="bd">
+      <form id="alForm" autocomplete="off">
+        <label class="allab">Stock or index</label><div class="alsearch"><input class="field" id="alSym" placeholder="Type a name or symbol, e.g. Reliance, TCS, Nifty" value="${esc(f.symbol || "")}" aria-label="Stock or index"><div class="sugg" id="alSugg" hidden></div></div>
+        <div id="alInfo" class="alinfo">${alFormInfo(f.symbol)}</div>
+        <label class="allab">Alert me when</label><div class="alline"><select class="field" id="alType">${opts}</select><input class="field num" id="alVal" type="number" step="0.05" min="0.05" placeholder="${(f.type || "above").endsWith("pct") ? "%" : "₹ price"}" value="${f.price ?? ""}" aria-label="Alert value"></div>
+        <label class="allab">Note (optional)</label><input class="field" id="alNote" maxlength="80" placeholder="e.g. buy zone, book profit, stop-loss" value="${esc(f.note || "")}">
+        <label class="alchk"><input type="checkbox" id="alRep"${f.repeat ? " checked" : ""}> Repeat: alert me every time it crosses again (otherwise only once)</label>
+        <button class="btn primary" type="submit">${ed ? "Save changes" : "Create alert"}</button>
+      </form></div></div>
+      <div class="card"><div class="hd"><h2>Active alerts <span class="muted">${act.length}</span></h2>${act.length ? '<span class="muted" style="font-size:12px">closest to trigger first</span>' : ""}</div><div class="bd alist">${act.map(row).join("") || `<div class="empty"><b>No alerts yet</b>Create one on the left, or use “Set alert” on any stock page.</div>`}</div></div></div>
+    ${hist.length ? `<div class="card" style="margin-top:14px"><div class="hd"><h2>Triggered</h2><button class="sy" id="alclear">Clear finished</button></div><div class="bd">${hist.slice(0, 30).map(a => `<div class="alhist"><span class="muted">${new Date(a.hit).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span><b>${esc(a.symbol)}</b><span>${esc(alDesc(a))}</span><span class="num">hit at ${px(a.hitPrice)}</span>${a.count > 1 ? `<span class="muted">${a.count}×</span>` : ""}<span class="alhb">${a.repeat ? '<span class="badge">still active</span>' : `<button class="sy" data-alrearm="${a.id}">Alert me again</button>`}<button class="sy" data-adel="${a.id}">Delete</button></span></div>`).join("")}</div></div>` : ""}
+    <p class="muted" style="font-size:12.5px;margin-top:12px">Alerts are saved privately in this browser and are checked while Dalal Pulse is open in any tab (it can be minimised). Prices come live from the exchange feed with a short delay. Information only, not investment advice.</p></div>`;
+}
+// update just the live numbers without redrawing the form the user may be typing in
+function alRefreshLive() {
+  if (document.activeElement?.closest?.("#alForm")) { document.querySelectorAll("[data-allive]").forEach(el => { const s = el.dataset.allive; el.innerHTML = `${px(alPx(s))} <small class="${cls(alChg(s))}">${pct(alChg(s))}</small>`; }); const st = $(".alstat"); if (st && AL.last) st.querySelector("span:nth-child(2)").textContent = (alMarketOpen() ? "Market open · checking live prices every 30 seconds" : "Market closed · alerts check again when trading starts") + ` · last check ${new Date(AL.last).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`; return; }
+  render();
+}
+async function alPick(sym) {
+  sym = sym.trim().toUpperCase(); if (!sym) return;
+  AL.pend = { ...(AL.pend || {}), symbol: sym }; $("#alSym").value = sym; $("#alSugg").hidden = true;
+  $("#alInfo").innerHTML = alFormInfo(sym);
+  if (!AL.live[sym] || Date.now() - AL.live[sym].at > 60e3) {
+    try { const j = await fetch("/quote?s=" + encodeURIComponent(sym), { cache: "no-store", signal: AbortSignal.timeout(8000) }).then(r => r.json()); const v = j.quotes?.[sym];
+      if (v && v.price) AL.live[sym] = { ...v, at: Date.now() }; } catch {}
+    if ($("#alSym")?.value.trim().toUpperCase() === sym) $("#alInfo").innerHTML = alPx(sym) != null ? alFormInfo(sym) : `<span class="down">Couldn't find a live price for “${esc(sym)}”. Use the NSE symbol (e.g. RELIANCE, HDFCBANK, TATAMOTORS).</span>`;
+  }
+  $("#alVal")?.focus();
+}
+document.addEventListener("input", e => {
+  if (e.target.id !== "alSym") return;
+  const L = alSuggest(e.target.value), box = $("#alSugg");
+  box.innerHTML = L.map(s => `<button type="button" data-alpick="${esc(s.symbol)}"><b>${esc(s.symbol)}</b><span class="muted">${esc(s.name || "")}</span>${S[s.symbol] ? `<span class="num">${px(S[s.symbol].price)}</span>` : ""}</button>`).join("") + (e.target.value.trim().length >= 2 && !L.some(s => s.symbol === e.target.value.trim().toUpperCase()) ? `<button type="button" data-alpick="${esc(e.target.value.trim().toUpperCase())}"><b>${esc(e.target.value.trim().toUpperCase())}</b><span class="muted">use this NSE symbol</span></button>` : "");
+  box.hidden = !box.innerHTML;
+});
+document.addEventListener("change", e => { if (e.target.id === "alType") { const v = $("#alVal"); if (v) v.placeholder = e.target.value.endsWith("pct") ? "%" : "₹ price"; } });
+document.addEventListener("keydown", e => { if (e.target.id === "alSym" && e.key === "Enter") { e.preventDefault(); const first = $("#alSugg [data-alpick]"); alPick(first ? first.dataset.alpick : e.target.value); } });
+document.addEventListener("submit", e => {
+  if (e.target.id !== "alForm") return; e.preventDefault();
+  const sym = $("#alSym").value.trim().toUpperCase(), type = $("#alType").value, v = +$("#alVal").value, note = $("#alNote").value.trim(), repeat = $("#alRep").checked;
+  if (!/^[A-Z0-9&_^.-]{1,24}$/.test(sym)) { toast("Pick a stock first"); $("#alSym").focus(); return; }
+  if (!(v > 0)) { toast(type.endsWith("pct") ? "Enter the % move" : "Enter the alert price"); $("#alVal").focus(); return; }
+  const p = alPx(sym);
+  if (p != null && !type.endsWith("pct") && ((type === "above" && v <= p) || (type === "below" && v >= p)) && !confirm(`${sym} is already ${type === "above" ? "above" : "below"} ${px(v)} (now ${px(p)}). Save anyway? It will pop up straight away.`)) return;
+  if (ui.aEdit) my.alerts = my.alerts.filter(a => a.id !== ui.aEdit);
+  my.alerts.push({ id: Math.random().toString(36).slice(2, 9), symbol: sym, type, price: v, note, repeat, created: new Date().toISOString(), base: p });
+  if (S[sym] && !isMine(sym)) my.watch.push(sym);
+  saveMy(); ui.aEdit = null; AL.pend = null; toast(`Alert set: ${sym} · ${alDesc({ type, price: v })}`); render(); alBadge(); alEvaluate(); alTick(true); alSchedule();
+});
+document.addEventListener("click", async e => {
+  const t = e.target;
+  const pk = t.closest("[data-alpick]"); if (pk) { alPick(pk.dataset.alpick); return; }
+  if (!t.closest(".alsearch") && $("#alSugg")) $("#alSugg").hidden = true;
+  const q = t.closest("[data-alquick]"); if (q) { const [ty, v] = q.dataset.alquick.split("|"); $("#alType").value = ty; $("#alVal").value = v; $("#alVal").placeholder = ty.endsWith("pct") ? "%" : "₹ price"; $("#alNote").focus(); return; }
+  const ae = t.closest("[data-aledit]"); if (ae) { ui.aEdit = ae.dataset.aledit; AL.pend = null; render(); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+  const rr = t.closest("[data-alrearm]"); if (rr) { const a = my.alerts.find(x => x.id === rr.dataset.alrearm); if (a) { a.hit = null; a.wait = false; saveMy(); toast(`${a.symbol} alert is active again`); if (view === "alerts") render(); alBadge(); alSchedule(); } }
+  if (t.closest("[data-alclose]")) { const el = t.closest(".alpop"); if (el) el.remove(); }
+  if (t.id === "alcancel") { ui.aEdit = null; render(); return; }
+  if (t.id === "alperm") { try { await Notification.requestPermission(); } catch {} render(); return; }
+  if (t.id === "alsound") { AL.sound = !AL.sound; store.set("dp-alsound", AL.sound); if (AL.sound) alBeep(); render(); return; }
+  if (t.id === "altest") { const sym = alActive()[0]?.symbol || "NIFTY"; alPop({ id: "test", symbol: sym, type: "above", price: alPx(sym) || 0, hit: new Date().toISOString(), hitPrice: alPx(sym), hitChg: alChg(sym), note: "This is a test pop-up", repeat: true, count: 1 }); return; }
+  if (t.id === "alnow") { await alTick(true); toast(AL.err ? "Couldn't reach live prices just now: " + AL.err : "Checked live prices just now"); if (view === "alerts") render(); return; }
+  if (t.id === "alclear") { my.alerts = my.alerts.filter(a => !a.hit || a.repeat); saveMy(); render(); return; }
+});
+document.addEventListener("visibilitychange", () => { if (!document.hidden && alActive().length && (!AL.last || Date.now() - AL.last > 25e3)) alTick(); });
+function checkAlerts(first) { alEvaluate("data"); if (first && !SNAPSHOT) { alBadge(); alSchedule(); if (alActive().length) alTick(true); } }
 
 // ---------- events ----------
 document.addEventListener("click", async e => {
@@ -2105,7 +2272,7 @@ document.addEventListener("click", async e => {
     const h = my.holdings.find(x => x.symbol === sy); if (h) Object.assign(h, { qty: q, avg: a }); else my.holdings.push({ symbol: sy, qty: q, avg: a }); saveMy(); render(); toast(`${sy} saved to your portfolio`); return; }
   const hd = t.closest("[data-hdel]"); if (hd) { my.holdings = my.holdings.filter(x => x.symbol !== hd.dataset.hdel); saveMy(); render(); return; }
   const as = t.closest("[data-aset]"); if (as) { const p = +$("#ap").value; if (!(p > 0)) { toast("Enter the alert price"); return; }
-    my.alerts.push({ id: Math.random().toString(36).slice(2, 9), symbol: as.dataset.aset, type: $("#at").value, price: p }); if (!isMine(as.dataset.aset)) my.watch.push(as.dataset.aset); saveMy(); render(); toast("Alert saved"); return; }
+    my.alerts.push({ id: Math.random().toString(36).slice(2, 9), symbol: as.dataset.aset, type: $("#at").value, price: p }); if (!isMine(as.dataset.aset)) my.watch.push(as.dataset.aset); saveMy(); render(); toast("Alert saved · see all in the Alerts tab"); alSchedule(); alTick(true); return; }
   const ad = t.closest("[data-adel]"); if (ad) { my.alerts = my.alerts.filter(a => a.id !== ad.dataset.adel); saveMy(); render(); return; }
   if (t.id === "notif") { try { await Notification.requestPermission(); } catch {} render(); return; }
   if (t.id === "copyBk") { const el = $("#bk"); try { await navigator.clipboard.writeText(el.value); toast("Code copied"); } catch { el.select(); toast("Press Ctrl+C to copy the selected code"); } return; }
