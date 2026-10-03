@@ -375,7 +375,7 @@ async function transcribe(request, env) {
   let b64 = ""; for (let i = 0; i < buf.length; i += 0x8000) b64 += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000)); b64 = btoa(b64);
   const hint = String(new URL(request.url).searchParams.get("lang") || "").slice(0, 5).replace(/[^a-z]/g, "");
   try {
-    const r = await env.AI.run("@cf/openai/whisper-large-v3-turbo", { audio: b64, ...(hint ? { language: hint } : {}), initial_prompt: "Indian stock market question: Nifty, Sensex, Bank Nifty, NSE, BSE, F&O, Reliance, HDFC Bank, Infosys, TCS, SBI, Tata Motors, Adani, share price, stop-loss, target." });
+    const r = await env.AI.run("@cf/openai/whisper-large-v3-turbo", { audio: b64, ...(hint ? { language: hint } : {}), ...(hint === "en" ? { initial_prompt: "Indian stock market question: Nifty, Sensex, Bank Nifty, NSE, BSE, F&O, Reliance, HDFC Bank, Infosys, TCS, SBI, Tata Motors, Adani, share price, stop-loss, target." } : {}) });
     const text = String(r?.text || "").trim();
     return J({ text, language: r?.transcription_info?.language || null, probability: r?.transcription_info?.language_probability ?? null });
   } catch (e) {
