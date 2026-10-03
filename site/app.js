@@ -139,7 +139,7 @@ function nav(v, s) {
 function readHash() {
   const [v, s] = location.hash.replace(/^#\/?/, "").split("/");
   if (!v) { view = "news"; sel = null; return; }
-  if (["news", "markets", "indices", "fno", "options", "circuits", "screener", "portfolio", "calendar", "momentum", "groups", "world"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
+  if (["news", "markets", "indices", "fno", "options", "circuits", "screener", "portfolio", "calendar", "momentum", "groups", "world", "maps"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
 }
 const go = sym => nav("news", sym);
 
@@ -147,7 +147,8 @@ function render() {
   if (!D) return;
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.nav === view));
   const keep = document.querySelector(".list")?.scrollTop;
-  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "fno" ? fnoView() : view === "circuits" ? circuitsView() : view === "options" ? optionsView() : view === "screener" ? screener() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : view === "momentum" ? momentumView() : view === "groups" ? groupsView() : view === "world" ? globalView() : newsView();
+  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "fno" ? fnoView() : view === "circuits" ? circuitsView() : view === "options" ? optionsView() : view === "screener" ? screener() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : view === "momentum" ? momentumView() : view === "groups" ? groupsView() : view === "world" ? globalView() : view === "maps" ? mapView() : newsView();
+  if (view === "maps" && (ui.mtab || "map") === "map") drawMarketMap();
   if (view === "portfolio") setTimeout(runXray, 0);
   if (keep && document.querySelector(".list")) document.querySelector(".list").scrollTop = keep;
   if (view === "news") { if (sel && S[sel]) drawChart(sel); document.querySelector(".row.on")?.scrollIntoView({ block: "nearest" }); }
@@ -1662,6 +1663,206 @@ function globalView() {
     ${body}
     <p class="muted" style="font-size:12px;margin-top:10px">Information only, not investment advice.</p></div>`;
 }
+// ---------- MARKET MAP: size-weighted heatmap, who moved Nifty, sector rotation, returns grid, market health ----------
+const MM_TABS = [["map", "Market map"], ["movers", "Who moved Nifty"], ["rotation", "Sector rotation"], ["returns", "Returns heat grid"], ["health", "Market health"]];
+const MM_P = { d1: ["Today", s => s.change_pct, 3], w1: ["1 week", s => s.tech?.ret_1w, 6], m1: ["1 month", s => s.tech?.ret_1m, 12], m3: ["3 months", s => s.tech?.ret_3m, 20], y1: ["1 year", s => s.tech?.ret_1y, 40] };
+const MM_U = [["all", "All tracked"], ["n50", "Nifty 50"], ["fo", "F&O"], ["mine", "My stocks"]];
+ui.mtab = store.get("dp-mtab", "map"); ui.mp = "d1"; ui.mu = "all"; ui.mvp = "d1"; ui.rot = "ind"; ui.rsort = { k: "d1", d: -1 }; ui.mind = null;
+const mmVal = (s, p) => MM_P[p][1](s);
+const mmUni = u => D.stocks.filter(s => u === "n50" ? s.nifty50 : u === "fo" ? s.fo : u === "mine" ? isMine(s.symbol) : true);
+const mmCap = () => { const w = D.stocks.filter(s => s.mcap_cr > 0).length; return w >= D.stocks.length * 0.6; };
+const mmSize = s => mmCap() ? (s.mcap_cr || 0) : (s.turnover_cr || 0);
+const crore = v => v == null ? "–" : v >= 1e5 ? "₹" + fmt(v / 1e5, 2) + " lakh cr" : "₹" + fmt(v, 0) + " cr";
+const niftyQ = () => (D.pulse || []).find(x => x.key === "NIFTY 50");
+const tipOf = s => [`${s.symbol} · ${s.name || ""}`, `${px(s.price)}  ${pct(s.change_pct)} today`, `1W ${pct(s.tech?.ret_1w)} · 1M ${pct(s.tech?.ret_1m)} · 1Y ${pct(s.tech?.ret_1y)}`, `${s.mcap_cr ? "Market cap " + crore(s.mcap_cr) : "Traded today " + crore(s.turnover_cr)}${s.tech?.rsi14 != null ? " · RSI " + Math.round(s.tech.rsi14) : ""}`, s.industry || ""].join("\n");
+
+// squarified treemap (Bruls et al.): items [{v,...}] laid into rect {x,y,w,h}
+function squarify(items, x, y, w, h) {
+  const out = [], total = items.reduce((a, i) => a + i.v, 0); if (!total || w <= 0 || h <= 0) return out;
+  const scale = w * h / total, list = items.map(i => ({ ...i, _a: i.v * scale })).filter(i => i._a > 0).sort((a, b) => b._a - a._a);
+  let row = [], rx = x, ry = y, rw = w, rh = h;
+  const worst = (r, side) => { const s = r.reduce((a, i) => a + i._a, 0), mx = Math.max(...r.map(i => i._a)), mn = Math.min(...r.map(i => i._a)); return Math.max(side * side * mx / (s * s), s * s / (side * side * mn)); };
+  const lay = r => { const s = r.reduce((a, i) => a + i._a, 0);
+    if (rw >= rh) { const cw = s / rh; let cy = ry; for (const i of r) { const ch = i._a / cw; out.push({ ...i, x: rx, y: cy, w: cw, h: ch }); cy += ch; } rx += cw; rw -= cw; }
+    else { const chh = s / rw; let cx = rx; for (const i of r) { const cw = i._a / chh; out.push({ ...i, x: cx, y: ry, w: cw, h: chh }); cx += cw; } ry += chh; rh -= chh; } };
+  for (const it of list) { const side = Math.min(rw, rh); if (!row.length || worst(row, side) >= worst([...row, it], side)) row.push(it); else { lay(row); row = [it]; } }
+  if (row.length) lay(row);
+  return out;
+}
+function drawMarketMap() {
+  const box = $("#tmap"); if (!box) return;
+  const W = box.clientWidth, H = W < 600 ? Math.max(520, Math.round(W * 1.7)) : Math.min(640, Math.max(460, Math.round(W * 0.52)));
+  box.style.height = H + "px";
+  const p = ui.mp, sc = MM_P[p][2], uni = mmUni(ui.mu).filter(s => mmSize(s) > 0 && (!ui.mind || s.industry === ui.mind));
+  if (!uni.length) { box.innerHTML = `<div class="empty"><b>Nothing to show</b>${ui.mu === "mine" ? "Add stocks with ☆ Watch or the Portfolio tab first." : "Try another filter."}</div>`; return; }
+  const byInd = {}; for (const s of uni) (byInd[s.industry || "Other"] ||= []).push(s);
+  const groups = Object.entries(byInd).map(([n, a]) => ({ n, a, v: a.reduce((t, s) => t + mmSize(s), 0) }));
+  const G = squarify(groups, 0, 0, W, H);
+  let html = "";
+  for (const g of G) {
+    const hdr = g.w > 70 && g.h > 46 ? 17 : 0, pad = 1;
+    const wsum = g.a.reduce((t, s) => t + mmSize(s), 0), avg = g.a.reduce((t, s) => t + (mmVal(s, p) ?? 0) * mmSize(s), 0) / (wsum || 1);
+    html += `<div class="tm-g" style="left:${g.x}px;top:${g.y}px;width:${g.w}px;height:${g.h}px">${hdr ? `<button class="tm-gh" data-mind="${esc(g.n)}" data-tip="${esc(g.n)}\n${g.a.length} stocks · weighted move ${pct(avg)}\nTap to zoom into this industry">${esc(g.n)} <span>${pct(avg)}</span></button>` : ""}</div>`;
+    const C = squarify(g.a.map(s => ({ s, v: mmSize(s) })), g.x + pad, g.y + hdr + pad, g.w - 2 * pad, g.h - hdr - 2 * pad);
+    for (const c of C) {
+      const v = mmVal(c.s, p), big = c.w > 30 && c.h > 16, two = c.h > 30 && c.w > 40, fs = Math.max(8.5, Math.min(22, Math.sqrt(c.w * c.h) / 5.2, (c.w - 6) / (c.s.symbol.length * 0.66)));
+      html += `<button class="tm-c" data-go="${esc(c.s.symbol)}" data-tip="${esc(tipOf(c.s))}" style="left:${c.x}px;top:${c.y}px;width:${Math.max(0, c.w - 1)}px;height:${Math.max(0, c.h - 1)}px;${heat(v, sc)}">${big ? `<b style="font-size:${fs.toFixed(1)}px">${esc(c.s.symbol)}</b>${two ? `<span style="font-size:${Math.max(9, fs * 0.62).toFixed(1)}px">${pct(v)}</span>` : ""}` : ""}</button>`;
+    }
+  }
+  box.innerHTML = html;
+}
+function mmMapTab() {
+  const p = ui.mp, sc = MM_P[p][2], uni = mmUni(ui.mu).filter(s => !ui.mind || s.industry === ui.mind);
+  const vals = uni.map(s => ({ s, v: mmVal(s, p) })).filter(x => x.v != null);
+  const tot = uni.reduce((a, s) => a + mmSize(s), 0) || 1;
+  const wavg = uni.reduce((a, s) => a + (mmVal(s, p) ?? 0) * mmSize(s), 0) / tot, up = vals.filter(x => x.v > 0).length;
+  const heavy = [...uni].sort((a, b) => mmSize(b) - mmSize(a)).slice(0, 40).map(s => ({ s, imp: (mmVal(s, p) ?? 0) * mmSize(s) }));
+  const pull = [...heavy].sort((a, b) => b.imp - a.imp).filter(x => x.imp > 0).slice(0, 3), drag = [...heavy].sort((a, b) => a.imp - b.imp).filter(x => x.imp < 0).slice(0, 3);
+  const nm = a => a.map(x => `<button class="sy" data-go="${esc(x.s.symbol)}">${esc(x.s.symbol)}</button> <span class="num ${cls(mmVal(x.s, p))}">${pct(mmVal(x.s, p))}</span>`).join(", ");
+  const ctrl = `<div class="mmctl"><div class="seg">${Object.entries(MM_P).map(([k, [l]]) => `<button data-mp="${k}" class="${p === k ? "on" : ""}">${l}</button>`).join("")}</div>
+    <div class="seg">${MM_U.map(([k, l]) => `<button data-mu="${k}" class="${ui.mu === k ? "on" : ""}">${l}</button>`).join("")}</div>${ui.mind ? `<button class="chip on" data-mind="">${esc(ui.mind)} ✕</button>` : ""}</div>`;
+  return `${ctrl}
+    <div class="mmsum"><div><span class="muted">Size-weighted move</span><b class="num ${cls(wavg)}">${pct(wavg)}</b></div><div><span class="muted">Stocks up</span><b class="num">${up} / ${vals.length}</b></div>
+      <div class="mmw"><span class="muted">Biggest lift</span><span>${nm(pull) || "–"}</span></div><div class="mmw"><span class="muted">Biggest drag</span><span>${nm(drag) || "–"}</span></div></div>
+    <div class="card"><div class="bd" style="padding:8px"><div class="tmap" id="tmap"></div>
+      <div class="mmleg"><span>${pct(-sc)}</span><i class="lg"></i><span>${pct(sc)}</span><span class="muted">Box size = ${mmCap() ? "company market cap" : "value traded today (market caps arrive with the next data refresh)"}. Colour = ${MM_P[p][0].toLowerCase()} move. Tap an industry name to zoom in, a box for the stock.</span></div></div></div>`;
+}
+// approximate index points each Nifty 50 stock added (weight from market cap; NSE uses free-float, so this is an estimate)
+function mmMoversTab() {
+  const p = ui.mvp, n = niftyQ(), L = D.stocks.filter(s => s.nifty50 && s.mcap_cr > 0 && mmVal(s, p) != null);
+  const ctrl = `<div class="mmctl"><div class="seg">${["d1", "w1", "m1"].map(k => `<button data-mvp="${k}" class="${p === k ? "on" : ""}">${MM_P[k][0]}</button>`).join("")}</div></div>`;
+  if (!n || L.length < 30) return ctrl + `<div class="card"><div class="bd empty"><b>Needs market caps</b>This chart switches on after the next data refresh (market caps for every Nifty stock are being added).</div></div>`;
+  const tot = L.reduce((a, s) => a + s.mcap_cr, 0), ret = p === "d1" ? n.change_pct : p === "w1" ? null : D.nifty_returns?.m1;
+  const base = p === "d1" ? n.last / (1 + n.change_pct / 100) : null, lvl = base || n.last;
+  const rows = L.map(s => { const r = mmVal(s, p); const startW = s.mcap_cr / (1 + r / 100); return { s, r, w: s.mcap_cr / tot, pts: 0, startW }; });
+  const startTot = rows.reduce((a, x) => a + x.startW, 0), startLvl = p === "d1" ? base : lvl / (1 + (rows.reduce((a, x) => a + x.startW * x.r / 100, 0) / startTot));
+  for (const x of rows) x.pts = startLvl * (x.startW / startTot) * x.r / 100;
+  const sum = rows.reduce((a, x) => a + x.pts, 0);
+  const up = rows.filter(x => x.pts > 0).sort((a, b) => b.pts - a.pts).slice(0, 10), dn = rows.filter(x => x.pts < 0).sort((a, b) => a.pts - b.pts).slice(0, 10);
+  const mx = Math.max(...[...up, ...dn].map(x => Math.abs(x.pts)), 1);
+  const bar = x => `<button class="mvr" data-go="${esc(x.s.symbol)}" data-tip="${esc(x.s.symbol + " · " + x.s.name + "\n" + pct(x.r) + " · weight ≈ " + (x.w * 100).toFixed(1) + "%\n≈ " + (x.pts > 0 ? "+" : "") + x.pts.toFixed(1) + " Nifty points")}"><b>${esc(x.s.symbol)}</b><span class="mvt"><i class="${x.pts > 0 ? "u" : "d"}" data-w="${(Math.abs(x.pts) / mx * 100).toFixed(1)}%" style="width:0"></i></span><span class="num ${cls(x.pts)}">${x.pts > 0 ? "+" : "−"}${Math.abs(x.pts).toFixed(1)}</span></button>`;
+  const actual = p === "d1" ? n.change : ret != null ? lvl - lvl / (1 + ret / 100) : null;
+  return `${ctrl}<div class="mmsum"><div><span class="muted">Nifty 50 ${MM_P[p][0].toLowerCase()}</span><b class="num ${cls(actual ?? sum)}">${actual != null ? (actual > 0 ? "+" : "−") + Math.abs(actual).toFixed(0) + " pts" : "–"}</b></div><div><span class="muted">Sum of the estimates</span><b class="num ${cls(sum)}">${sum > 0 ? "+" : "−"}${Math.abs(sum).toFixed(0)} pts</b></div>
+    <div class="mmw"><span class="muted">Top 3 together</span><span>${dn.length && Math.abs(dn.slice(0, 3).reduce((a, x) => a + x.pts, 0)) > Math.abs(up.slice(0, 3).reduce((a, x) => a + x.pts, 0)) ? `${dn.slice(0, 3).map(x => esc(x.s.symbol)).join(", ")} took off <b class="down">${Math.abs(dn.slice(0, 3).reduce((a, x) => a + x.pts, 0)).toFixed(0)} pts</b>` : `${up.slice(0, 3).map(x => esc(x.s.symbol)).join(", ")} added <b class="up">${up.slice(0, 3).reduce((a, x) => a + x.pts, 0).toFixed(0)} pts</b>`}</span></div></div>
+    <div class="ggrid2 mvgrid"><div class="card"><div class="hd"><h2>Pulled Nifty up</h2></div><div class="bd">${up.map(bar).join("") || '<p class="muted">No stock added points.</p>'}</div></div>
+    <div class="card"><div class="hd"><h2>Dragged Nifty down</h2></div><div class="bd">${dn.map(bar).join("") || '<p class="muted">No stock took points off.</p>'}</div></div></div>
+    <p class="muted mmnote">Points ≈ index level × the stock's weight × its move. Weights here use full market cap; NSE uses free-float market cap, so treat the numbers as close estimates. Heavyweights like HDFC Bank, Reliance and ICICI Bank can move Nifty even when most stocks go the other way: check breadth in Market health.</p>`;
+}
+// industry aggregates (from the build; any missing period is filled from the stocks themselves)
+function mmInds() {
+  const by = {}; for (const s of D.stocks) (by[s.industry || "Other"] ||= []).push(s);
+  const avg = (a, f) => { const L = a.map(f).filter(v => v != null); return L.length ? L.reduce((x, y) => x + y, 0) / L.length : null; };
+  const base = Object.fromEntries((D.industries || []).map(g => [g.name, g]));
+  return Object.entries(by).map(([name, a]) => { const g = base[name] || {}, srt = [...a].sort((x, y) => (y.tech?.ret_1m ?? -1e9) - (x.tech?.ret_1m ?? -1e9));
+    return { name, count: a.length, change_pct: g.change_pct ?? avg(a, s => s.change_pct), ret_1w: g.ret_1w ?? avg(a, s => s.tech?.ret_1w), ret_1m: g.ret_1m ?? avg(a, s => s.tech?.ret_1m), ret_3m: g.ret_3m ?? avg(a, s => s.tech?.ret_3m), ret_1y: g.ret_1y ?? avg(a, s => s.tech?.ret_1y),
+      rs_avg: g.rs_avg ?? avg(a, s => s.tech?.rs_rating), top: g.top || srt.slice(0, 3).map(s => s.symbol), bottom: g.bottom || srt.slice(-2).map(s => s.symbol) }; });
+}
+// relative-rotation style map: x = 3-month return vs Nifty (trend), y = 1-month return vs Nifty (momentum)
+function mmRotationTab() {
+  const nr = D.nifty_returns || {}, isInd = ui.rot === "ind";
+  const pts = isInd ? mmInds().filter(g => g.count >= 2 && g.ret_3m != null && g.ret_1m != null).map(g => ({ id: g.name, lab: g.name, x: g.ret_3m - (nr.m3 ?? 0), y: g.ret_1m - (nr.m1 ?? 0), r: 5 + Math.sqrt(g.count) * 2.2, tip: `${g.name} · ${g.count} stocks\n3M ${pct(g.ret_3m)} (Nifty ${pct(nr.m3)}) · 1M ${pct(g.ret_1m)} (Nifty ${pct(nr.m1)})\nLeaders: ${(g.top || []).join(", ")}` }))
+    : D.stocks.filter(s => s.nifty50 && s.tech?.ret_3m != null && s.tech?.ret_1m != null).map(s => ({ id: s.symbol, lab: s.symbol, go: s.symbol, x: s.tech.ret_3m - (nr.m3 ?? 0), y: s.tech.ret_1m - (nr.m1 ?? 0), r: 6, tip: tipOf(s) }));
+  const ctrl = `<div class="mmctl"><div class="seg"><button data-rot="ind" class="${isInd ? "on" : ""}">Industries</button><button data-rot="n50" class="${!isInd ? "on" : ""}">Nifty 50 stocks</button></div></div>`;
+  if (!pts.length) return ctrl + `<div class="card"><div class="bd empty"><b>No data yet</b></div></div>`;
+  const q = p => p.x >= 0 ? (p.y >= 0 ? "lead" : "weak") : (p.y >= 0 ? "impr" : "lag");
+  const QN = { lead: ["Leading", "Beating Nifty over 3 months and still gaining", "var(--up)"], weak: ["Weakening", "Strong over 3 months but slowing this month: watch for profit-taking", "var(--warn)"], lag: ["Lagging", "Behind Nifty on both: avoid until it turns", "var(--down)"], impr: ["Improving", "Was weak, now gaining: early rotation candidates", "var(--s1)"] };
+  const xs = [...pts.map(p => p.x)].sort((a, b) => a - b), ys = [...pts.map(p => p.y)].sort((a, b) => a - b), qt = (a, f) => a[Math.min(a.length - 1, Math.floor(a.length * f))];
+  // domain covers the data (5th-95th pct, outliers pinned to the edge) and always keeps the zero lines inside
+  const dom = (a) => { let lo = Math.min(qt(a, 0.04), -2), hi = Math.max(qt(a, 0.96), 2); const pad = (hi - lo) * 0.1; lo -= pad; hi += pad; const m = (hi - lo) * 0.12; if (lo > -m) lo = -m; if (hi < m) hi = m; return [Math.max(lo, -80), Math.min(hi, 80)]; };
+  const [x0, x1] = dom(xs), [y0, y1] = dom(ys);
+  const W = 760, H = 500, P = 30, PB = 40, sx = v => P + (Math.max(x0, Math.min(x1, v)) - x0) / (x1 - x0) * (W - 2 * P), sy = v => H - PB - (Math.max(y0, Math.min(y1, v)) - y0) / (y1 - y0) * (H - P - PB);
+  const cx = sx(0), cy = sy(0), B = H - PB;
+  const qbg = (x, y, w, h, c) => w > 0 && h > 0 ? `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${c}" opacity=".07"/>` : "";
+  const qlab = (x, y, k, anchor) => `<text x="${x}" y="${y}" text-anchor="${anchor}" class="rq" fill="${QN[k][2]}">${QN[k][0].toUpperCase()}</text>`;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" class="rrg" role="img" aria-label="Sector rotation map">
+    ${qbg(cx, P, W - P - cx, cy - P, "var(--up)")}${qbg(cx, cy, W - P - cx, B - cy, "var(--warn)")}${qbg(P, cy, cx - P, B - cy, "var(--down)")}${qbg(P, P, cx - P, cy - P, "var(--s1)")}
+    <line x1="${P}" x2="${W - P}" y1="${cy}" y2="${cy}" class="ax"/><line x1="${cx}" x2="${cx}" y1="${P}" y2="${B}" class="ax"/>
+    ${cx < W - P - 90 && cy > P + 20 ? qlab(W - P - 6, P + 16, "lead", "end") : ""}${cx < W - P - 90 && cy < B - 20 ? qlab(W - P - 6, B - 8, "weak", "end") : ""}${cx > P + 90 && cy < B - 20 ? qlab(P + 6, B - 8, "lag", "start") : ""}${cx > P + 90 && cy > P + 20 ? qlab(P + 6, P + 16, "impr", "start") : ""}
+    <text x="${W - P}" y="${H - 10}" text-anchor="end" class="at">3-month return vs Nifty →</text><text x="${P}" y="${P - 12}" class="at">↑ 1-month return vs Nifty</text>
+    <text x="${P}" y="${B + 16}" class="at">${pct(x0)}</text><text x="${cx}" y="${B + 16}" text-anchor="middle" class="at">Nifty</text><text x="${W - P}" y="${B + 16}" text-anchor="end" class="at">${pct(x1)}</text>
+    <text x="${W - P - 4}" y="${cy - 5}" text-anchor="end" class="at">Nifty</text>`;
+  const sorted = [...pts].sort((a, b) => b.r - a.r), placed = [], hit = (b) => placed.some(o => b.x < o.x + o.w && b.x + b.w > o.x && b.y < o.y + o.h && b.y + b.h > o.y);
+  const dots = sorted.map(p => ({ p, X: sx(p.x), Y: sy(p.y) }));
+  for (const d of dots) placed.push({ x: d.X - d.p.r, y: d.Y - d.p.r, w: 2 * d.p.r, h: 2 * d.p.r });
+  for (const { p, X, Y } of dots) { const k = q(p), lab = p.lab.length > 22 ? p.lab.slice(0, 21) + "…" : p.lab, tw = lab.length * 6.6 + 4, th = 14;
+    const opts = [[X + p.r + 4, Y - th / 2, "start"], [X - p.r - 4 - tw, Y - th / 2, "end"], [X - tw / 2, Y - p.r - th - 2, "middle"], [X - tw / 2, Y + p.r + 2, "middle"]];
+    let lbl = "";
+    for (const [bx, by, an] of opts) { const b = { x: bx, y: by, w: tw, h: th }; if (bx < 2 || bx + tw > W - 2 || by < 2 || by + th > H - 2 || hit(b)) continue; placed.push(b);
+      const tx = an === "start" ? bx : an === "end" ? bx + tw : bx + tw / 2; lbl = `<text x="${tx.toFixed(1)}" y="${(by + 11).toFixed(1)}" text-anchor="${an}" class="rl">${esc(lab)}</text>`; break; }
+    svg += `<g class="rp"${p.go ? ` data-go="${esc(p.go)}"` : ""} data-tip="${esc(p.tip + "\nQuadrant: " + QN[k][0])}"><circle cx="${X.toFixed(1)}" cy="${Y.toFixed(1)}" r="${(p.r + 8).toFixed(1)}" fill="transparent"/><circle cx="${X.toFixed(1)}" cy="${Y.toFixed(1)}" r="${p.r.toFixed(1)}" fill="${QN[k][2]}" fill-opacity=".85" stroke="var(--card)" stroke-width="2"/>${lbl}</g>`; }
+  svg += "</svg>";
+  const byQ = k => pts.filter(p => q(p) === k).sort((a, b) => (b.x + b.y) - (a.x + a.y));
+  const list = ["lead", "impr", "weak", "lag"].map(k => { const a = byQ(k); return `<div class="rqb"><div><i style="background:${QN[k][2]}"></i><b>${QN[k][0]}</b> <span class="muted">${a.length}</span></div><p class="muted">${QN[k][1]}</p><div class="rqn">${a.slice(0, 8).map(p => p.go ? `<button class="sy" data-go="${esc(p.go)}">${esc(p.lab)}</button>` : `<span>${esc(p.lab)}</span>`).join(" · ") || "–"}</div></div>`; }).join("");
+  return `${ctrl}<div class="ggrid2 rotgrid"><div class="card"><div class="bd" style="padding:8px">${svg}</div></div><div class="card"><div class="hd"><h2>What it says now</h2></div><div class="bd">${list}</div></div></div>
+    <p class="muted mmnote">Money tends to rotate clockwise: Improving → Leading → Weakening → Lagging. Sectors in Improving are early turns; Leading is where strength is now. Nifty: 1M ${pct(nr.m1)}, 3M ${pct(nr.m3)}.</p>`;
+}
+function mmReturnsTab() {
+  const C = [["d1", "Today", "change_pct"], ["w1", "1W", "ret_1w"], ["m1", "1M", "ret_1m"], ["m3", "3M", "ret_3m"], ["y1", "1Y", "ret_1y"]];
+  const rows = mmInds().filter(g => g.count >= 1);
+  const scale = {}; for (const [k, , f] of C) { const a = rows.map(g => Math.abs(g[f] ?? 0)).sort((x, y) => x - y); scale[k] = Math.max(1, a[Math.floor(a.length * 0.85)] || 1); }
+  const sk = ui.rsort, sf = sk.k === "rs" ? "rs_avg" : sk.k === "name" ? "name" : C.find(c => c[0] === sk.k)?.[2] || "change_pct";
+  rows.sort((a, b) => sf === "name" ? a.name.localeCompare(b.name) * -sk.d : ((a[sf] ?? -1e9) - (b[sf] ?? -1e9)) * sk.d);
+  const nr = D.nifty_returns || {}, nq = niftyQ(), nv = { d1: nq?.change_pct, w1: null, m1: nr.m1, m3: nr.m3, y1: nr.y1 };
+  const th = (k, l) => `<th><button data-rsort="${k}" class="${sk.k === k ? "on" : ""}">${l}${sk.k === k ? (sk.d < 0 ? " ↓" : " ↑") : ""}</button></th>`;
+  return `<div class="card"><div class="bd" style="padding:0;overflow-x:auto"><table class="rgrid"><thead><tr>${th("name", "Industry")}${C.map(([k, l]) => th(k, l)).join("")}${th("rs", "RS")}</tr></thead><tbody>
+    <tr class="rn"><td><b>Nifty 50</b></td>${C.map(([k]) => `<td class="num">${pct(nv[k])}</td>`).join("")}<td></td></tr>
+    ${rows.map(g => `<tr><td><button class="rgi" data-mind="${esc(g.name)}" data-mtabgo="map" data-tip="${esc(g.name + " · " + g.count + " stocks\nBest: " + (g.top || []).join(", ") + "\nWeakest: " + (g.bottom || []).join(", ") + "\nTap to see it on the Market map")}">${esc(g.name)}</button><small class="muted">${g.count}</small></td>${C.map(([k, , f]) => `<td class="num hc" style="${heat(g[f], scale[k])}">${pct(g[f])}</td>`).join("")}<td class="num hc" style="${heat(g.rs_avg != null ? g.rs_avg - 50 : null, 30)}">${g.rs_avg != null ? Math.round(g.rs_avg) : "–"}</td></tr>`).join("")}
+    </tbody></table></div></div>
+    <p class="muted mmnote">Each column has its own colour scale, so a strong week and a strong year both stand out. Read across a row to see if a sector is turning: red on the left and green on the right is a fading leader, the reverse is a fresh move. RS = average relative-strength rating (1–99) of its stocks vs the market. Tap a sector name to open it on the Market map.</p>`;
+}
+function mmHealthTab() {
+  const pctOf = (a, f) => { const L = a.filter(s => f(s) != null); return L.length ? L.filter(f).length / L.length * 100 : null; };
+  const M = [
+    ["Up today", a => pctOf(a, s => s.change_pct == null ? null : s.change_pct > 0), "% of stocks up today"],
+    ["Above 50-DMA", a => pctOf(a, s => s.tech?.above_50 == null ? null : s.tech.above_50), "% trading above their 50-day average (short-term trend)"],
+    ["Above 200-DMA", a => pctOf(a, s => s.tech?.above_200 == null ? null : s.tech.above_200), "% above their 200-day average (long-term trend)"],
+    ["Avg RSI", a => { const L = a.map(s => s.tech?.rsi14).filter(v => v != null); return L.length ? L.reduce((x, y) => x + y, 0) / L.length : null; }, "average 14-day RSI: above 60 is strong, below 40 is weak"],
+    ["Near 52W high", a => pctOf(a, s => s.tech?.from_high_pct == null ? null : s.tech.from_high_pct >= -5), "% within 5% of their 52-week high"],
+    ["Oversold", a => pctOf(a, s => s.tech?.rsi14 == null ? null : s.tech.rsi14 < 30), "% with RSI below 30 (stretched to the downside)"],
+    ["F&O bullish", a => pctOf(a, s => !s.fo?.buildup ? null : /long build|short cover/i.test(s.fo.buildup)), "% of F&O stocks with long build-up or short covering"],
+    ["Delivery up", a => pctOf(a, s => s.deliv?.dp == null || s.deliv?.avg_dp == null ? null : s.deliv.dp > s.deliv.avg_dp), "% where today's delivery share beats its usual level (real buying, not just trading)"],
+  ];
+  const col = (i, v) => v == null ? "background:var(--paper2)" : i === 3 ? heat(v - 50, 15) : i === 4 ? heat(v - 15, 20) : i === 5 ? heat(-(v - 10), 20) : heat(v - 50, 35);
+  const by = {}; for (const s of D.stocks) (by[s.industry || "Other"] ||= []).push(s);
+  const rows = [["All tracked stocks", D.stocks, true], ...Object.entries(by).filter(([, a]) => a.length >= 2).sort((a, b) => b[1].length - a[1].length).map(([n, a]) => [n, a, false])];
+  const cell = (i, v, n) => `<td class="num hc" style="${col(i, v)}" data-tip="${esc(n + "\n" + M[i][0] + ": " + (v == null ? "–" : i === 3 ? v.toFixed(0) : v.toFixed(0) + "%") + "\n" + M[i][2])}">${v == null ? "–" : i === 3 ? v.toFixed(0) : v.toFixed(0) + "%"}</td>`;
+  const all = M.map(([, f]) => f(D.stocks)), [upT, a50, a200, rsi, nh, os] = all;
+  const verdict = a200 == null ? null : a200 >= 60 && a50 >= 55 ? ["Healthy", "up", "Most stocks are in up-trends: dips have tended to get bought."] : a200 < 35 && a50 < 40 ? ["Weak", "down", "Most stocks are below their long-term average: rallies are fragile, be selective and size small."] : a50 > a200 + 10 ? ["Repairing", "warn", "Short-term trends are improving faster than long-term ones: an early recovery, needs follow-through."] : ["Mixed", "warn", "Breadth is split: pick stocks, not the whole market."];
+  return `<div class="mmsum">${verdict ? `<div class="mmw"><span class="muted">Overall</span><span><b class="${verdict[1]}">${verdict[0]}</b> · ${verdict[2]}</span></div>` : ""}
+    <div><span class="muted">Above 200-DMA</span><b class="num">${a200 != null ? a200.toFixed(0) + "%" : "–"}</b></div><div><span class="muted">Near 52W high</span><b class="num">${nh != null ? nh.toFixed(0) + "%" : "–"}</b></div><div><span class="muted">Oversold</span><b class="num">${os != null ? os.toFixed(0) + "%" : "–"}</b></div></div>
+    <div class="card"><div class="bd" style="padding:0;overflow-x:auto"><table class="rgrid hgrid"><thead><tr><th>Group</th>${M.map(([l, , d]) => `<th title="${esc(d)}">${l}</th>`).join("")}</tr></thead><tbody>
+    ${rows.map(([n, a, tot]) => `<tr class="${tot ? "rn" : ""}"><td>${tot ? `<b>${esc(n)}</b>` : `<button class="rgi" data-mind="${esc(n)}" data-mtabgo="map">${esc(n)}</button>`}<small class="muted">${a.length}</small></td>${M.map(([, f], i) => cell(i, f(a), n)).join("")}</tr>`).join("")}
+    </tbody></table></div></div>
+    <p class="muted mmnote">Green = healthier than average, red = weaker (for Oversold, more red means more stocks stretched to the downside, which can also mean a bounce is near). Breadth often turns before the index: if Nifty rises while fewer stocks stay above their 50-day average, the rally is narrowing.</p>`;
+}
+function mapView() {
+  const tab = MM_TABS.some(t => t[0] === ui.mtab) ? ui.mtab : "map";
+  const body = tab === "map" ? mmMapTab() : tab === "movers" ? mmMoversTab() : tab === "rotation" ? mmRotationTab() : tab === "returns" ? mmReturnsTab() : mmHealthTab();
+  return `<div class="fade"><h1 class="page" style="margin-bottom:2px">Market Map</h1><p class="sub" style="margin:0">See the whole market at a glance: where money is going, which heavyweights move Nifty, which sectors are rotating in or out, and how healthy the trend is · data ${ago(D.generated_at)}</p>
+    <div class="gtabs" role="tablist">${MM_TABS.map(([k, l]) => `<button role="tab" data-mtab="${k}" class="${tab === k ? "on" : ""}" aria-selected="${tab === k}">${l}</button>`).join("")}</div>
+    ${body}<p class="muted" style="font-size:12px;margin-top:10px">Information only, not investment advice.</p></div>`;
+}
+// shared hover tooltip for any [data-tip] (charts, cells, boxes)
+(() => {
+  let tip = null;
+  const show = (el, x, y) => { if (!tip) { tip = document.createElement("div"); tip.className = "vztip"; document.body.append(tip); }
+    tip.textContent = el.dataset.tip; tip.hidden = false;
+    const r = tip.getBoundingClientRect(), X = Math.min(window.innerWidth - r.width - 8, x + 14), Y = y + 16 + r.height > window.innerHeight ? y - r.height - 12 : y + 16;
+    tip.style.left = Math.max(8, X) + "px"; tip.style.top = Math.max(8, Y) + "px"; };
+  document.addEventListener("mousemove", e => { const el = e.target.closest?.("[data-tip]"); if (el && !matchMedia("(hover:none)").matches) show(el, e.clientX, e.clientY); else if (tip) tip.hidden = true; });
+  document.addEventListener("scroll", () => { if (tip) tip.hidden = true; }, { passive: true });
+})();
+document.addEventListener("click", e => {
+  const t = e.target;
+  const mt = t.closest("[data-mtab]"); if (mt) { ui.mtab = mt.dataset.mtab; store.set("dp-mtab", ui.mtab); render(); return; }
+  const mi = t.closest("[data-mind]"); if (mi) { ui.mind = mi.dataset.mind || null; if (mi.dataset.mtabgo) { ui.mtab = mi.dataset.mtabgo; store.set("dp-mtab", ui.mtab); } render(); document.querySelector(".gtabs")?.scrollIntoView({ block: "nearest" }); return; }
+  const mp = t.closest("[data-mp]"); if (mp) { ui.mp = mp.dataset.mp; render(); return; }
+  const mu = t.closest("[data-mu]"); if (mu) { ui.mu = mu.dataset.mu; render(); return; }
+  const mv = t.closest("[data-mvp]"); if (mv) { ui.mvp = mv.dataset.mvp; render(); return; }
+  const ro = t.closest("[data-rot]"); if (ro) { ui.rot = ro.dataset.rot; render(); return; }
+  const rs = t.closest("[data-rsort]"); if (rs) { const k = rs.dataset.rsort; ui.rsort = { k, d: ui.rsort.k === k ? -ui.rsort.d : -1 }; render(); return; }
+}, true);
+let mmRz = 0; window.addEventListener("resize", () => { clearTimeout(mmRz); mmRz = setTimeout(() => { if (view === "maps") drawMarketMap(); }, 150); });
 // ---------- MOMENTUM QUADRANT: what is moving up today, for indices and stocks ----------
 const MQ_SETS = [["indices", "Indices"], ["n50", "Nifty 50"], ["n200", "Nifty 200"], ["fo", "F&O stocks"], ["mine", "My stocks"]];
 const MQ_Q = {

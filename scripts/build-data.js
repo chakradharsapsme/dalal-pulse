@@ -297,6 +297,8 @@ async function main() {
   out.world = await attempt("world", () => require("./lib/world").build(log), null);
   // Business groups (Tata, Reliance, Adani, ...): listed companies with market cap and moves
   out.groups = await attempt("groups", () => require("./lib/groups").build({ stocks, cacheDir: CACHE, log }), null);
+  // size for the Market Map: market cap on each stock (kept off the groups block to keep the file small)
+  if (out.groups?.mcap) { for (const s of stocks) s.mcap_cr = out.groups.mcap[s.symbol] ?? null; delete out.groups.mcap; }
   // Expert Agent: rule-based advice cards (pop up on the site; history in .cache/advice.json)
   try { out.advice = require("./lib/advisor").run(out, CACHE); log(`[advice] ${out.advice.new_ids.length} new, ${out.advice.items.length} kept, stance ${out.advice.stance}`); } catch (e) { log("[advice] " + e.message); }
   fs.writeFileSync(path.join(OUT, "latest.json"), JSON.stringify(out));

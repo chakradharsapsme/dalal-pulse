@@ -90,6 +90,8 @@ const readJson = (f, d) => { try { return JSON.parse(fs.readFileSync(f, "utf8"))
 async function build({ stocks, cacheDir, log }) {
   const S = Object.fromEntries((stocks || []).map(s => [s.symbol, s]));
   const all = [...new Set(GROUPS.flatMap(g => g.members))];
+  // every stock the site tracks also gets a market cap (for the size-weighted Market Map)
+  const allM = [...new Set([...all, ...Object.keys(S)])];
   // 1) prices for the whole market in one call
   let tm = {};
   try {
@@ -107,7 +109,7 @@ async function build({ stocks, cacheDir, log }) {
   const fresh = {};
   // 2a) Yahoo Finance quote (one call for all members; needs a session cookie + crumb)
   try {
-    const yq = await yahooQuotes(all.map(s => s.replace(/&/g, "%26") + ".NS"));
+    const yq = await yahooQuotes(allM.map(s => s.replace(/&/g, "%26") + ".NS"));
     let n = 0;
     for (const q of yq) { const sym = q.symbol.replace(/\.NS$/, "").replace(/%26/g, "&");
       if (q.sharesOutstanding) { cache[sym] = { sh: q.sharesOutstanding, name: q.longName || q.shortName || null, t: Date.now(), src: "yahoo" }; n++; }
@@ -122,8 +124,8 @@ async function build({ stocks, cacheDir, log }) {
         if (c.length > 10) { fresh[s] = { ...(fresh[s] || {}), m1: r2((c[c.length - 1] / c[0] - 1) * 100) }; n++; } } catch {} } };
     await Promise.all([w(), w(), w(), w(), w(), w()]); diag.yahoo_1m = `${n} ok`; } catch (e) { diag.yahoo_1m = e.message; }
   // 2b) NSE end-of-day market-cap file (PRddmmyy.zip → MCAP*.csv: issue size for every listed company)
-  if (all.some(stale)) {
-    try { const m = await nseMcapFile(); let n = 0; for (const s of all) if (m.map[s] && stale(s)) { cache[s] = { sh: m.map[s].sh, name: m.map[s].name, t: Date.now(), src: "nse-pr" }; if (!fresh[s] && !tm[s] && !S[s]) fresh[s] = { price: m.map[s].close, chg: null }; n++; } diag.nse_pr = `${m.file}: ${Object.keys(m.map).length} rows, ${n} used`; }
+  if (allM.some(stale)) {
+    try { const m = await nseMcapFile(); let n = 0; for (const s of allM) if (m.map[s] && stale(s)) { cache[s] = { sh: m.map[s].sh, name: m.map[s].name, t: Date.now(), src: "nse-pr" }; if (!fresh[s] && !tm[s] && !S[s]) fresh[s] = { price: m.map[s].close, chg: null }; n++; } diag.nse_pr = `${m.file}: ${Object.keys(m.map).length} rows, ${n} used`; }
     catch (e) { diag.nse_pr = "failed: " + e.message; }
   }
   // 2c) NSE quote page, a few at a time
@@ -156,9 +158,19 @@ async function build({ stocks, cacheDir, log }) {
     const w = k => { const L = rows.filter(r => r[k] != null && r.mcap_cr); const tot = L.reduce((a, r) => a + r.mcap_cr, 0); return tot ? r2(L.reduce((a, r) => a + r[k] * r.mcap_cr, 0) / tot) : null; };
     return { id: g.id, name: g.name, who: g.who, mcap_cr: Math.round(cap), chg: w("chg"), m1: w("m1"), y1: w("y1"), up: rows.filter(r => r.chg > 0).length, n: rows.length, members: rows };
   }).filter(g => g.n).sort((a, b) => b.mcap_cr - a.mcap_cr);
+  // market cap (₹ crore) for every tracked stock: issued shares x live price, else Yahoo, else NSE free-float
+  const mcap = {};
+  for (const sym of Object.keys(S)) {
+    const t = tm[sym], st = S[sym], f = fresh[sym], c = cache[sym], price = st.price ?? t?.lastPrice ?? f?.price; if (!price) continue;
+    const ffSh = t?.ffmc && t?.lastPrice ? t.ffmc / t.lastPrice : null;
+    const sh = c?.sh && (!ffSh || c.sh >= ffSh * 0.98) ? c.sh : null;
+    const m = sh ? sh * price / 1e7 : f?.mcap ? f.mcap / 1e7 : ffSh ? ffSh * price / 1e7 : null;
+    if (m) mcap[sym] = Math.round(m);
+  }
+  diag.tracked_mcap = `${Object.keys(mcap).length}/${Object.keys(S).length}`;
   diag.with_mcap = `${groups.reduce((a, g) => a + g.members.filter(m => m.mcap_cr).length, 0)}/${groups.reduce((a, g) => a + g.n, 0)}`;
   log(`[groups] ${groups.length} groups · ${JSON.stringify(diag)}`);
-  return { updated: new Date().toISOString(), diag, groups };
+  return { updated: new Date().toISOString(), diag, groups, mcap };
 }
 
 module.exports = { build, GROUPS };
