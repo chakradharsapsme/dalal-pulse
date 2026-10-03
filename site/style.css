@@ -880,9 +880,12 @@ button.gtile{text-align:left;font:inherit;color:inherit;cursor:pointer}button.gt
 .ask-voice[data-state="rec"]{border-color:var(--down)}
 .ask-voice[data-state="done"]{border-color:var(--up)}
 /* Ask AI: nothing may overflow the panel */
-.ask-log>*{min-width:0}
+.ask-log{display:flex!important;flex-direction:column;gap:10px}
+.ask-log>*{min-width:0;flex-shrink:0}
+.ask-q{align-self:flex-end}
+.ask-a{align-self:stretch}
 .ask-a,.ask-q{overflow-wrap:anywhere;word-break:normal}
-.ask-a{overflow:hidden}
+.ask-a{overflow:visible;height:auto}
 .ask-a .pa-ai{font-family:var(--body,inherit)}
 .ask-a .pa-ai *{max-width:100%}
 .ask-a .pa-t{display:table;width:100%;table-layout:fixed;font-size:12.5px;overflow:visible}

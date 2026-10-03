@@ -391,16 +391,32 @@ async function transcribe(request, env) {
   const buf = new Uint8Array(await request.arrayBuffer());
   if (buf.length < 800) return J({ error: "too short" }, 400);
   if (buf.length > 3_000_000) return J({ error: "recording too long (max about 60 seconds)" }, 413);
-  let b64 = ""; for (let i = 0; i < buf.length; i += 0x8000) b64 += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000)); b64 = btoa(b64);
-  const hint = String(new URL(request.url).searchParams.get("lang") || "").slice(0, 5).replace(/[^a-z]/g, "");
-  try {
-    const r = await env.AI.run("@cf/openai/whisper-large-v3-turbo", { audio: b64, ...(hint ? { language: hint } : {}), ...(hint === "en" ? { initial_prompt: "Indian stock market question: Nifty, Sensex, Bank Nifty, NSE, BSE, F&O, Reliance, HDFC Bank, Infosys, TCS, SBI, Tata Motors, Adani, share price, stop-loss, target." } : {}) });
-    const text = String(r?.text || "").trim();
-    return J({ text, language: r?.transcription_info?.language || null, probability: r?.transcription_info?.language_probability ?? null });
-  } catch (e) {
-    try { const r = await env.AI.run("@cf/openai/whisper", { audio: [...buf] }); return J({ text: String(r?.text || "").trim(), language: null }); }
-    catch (e2) { return J({ error: "transcription_failed", detail: String(e2 && e2.message || e2).slice(0, 160) }, 503); }
+  const qp = new URL(request.url).searchParams, lang = String(qp.get("lang") || "").slice(0, 8).replace(/[^a-zA-Z-]/g, ""), hint = lang.slice(0, 2).toLowerCase();
+  const NOVA = { "en-IN": "en-IN", "en": "en-IN", "hi": "multi", "hinglish": "multi", "multi": "multi", "": "multi" };
+  const novaLang = lang === "hinglish" ? "multi" : NOVA[lang] ?? (/^(en|hi)$/.test(hint) ? (hint === "en" ? "en-IN" : "multi") : null);
+  const tried = [];
+  // 1) Deepgram Nova-3 (best accuracy, Indian English and Hindi-English mixing, finance vocabulary)
+  if (novaLang) {
+    for (const opts of [{ mode: "finance" }, {}]) {
+      try {
+        const body = new Blob([buf], { type: request.headers.get("Content-Type") || "audio/wav" }).stream();
+        const r = await env.AI.run("@cf/deepgram/nova-3", { audio: { body, contentType: request.headers.get("Content-Type") || "audio/wav" }, language: novaLang, smart_format: true, punctuate: true, numerals: true, ...opts });
+        const alt = r?.results?.channels?.[0]?.alternatives?.[0];
+        const text = String(alt?.transcript || "").trim();
+        if (text) return J({ text, engine: "Deepgram Nova-3", language: r?.results?.channels?.[0]?.detected_language || (novaLang === "multi" ? null : "en"), confidence: alt?.confidence ?? null });
+        tried.push("nova:empty"); break;
+      } catch (e) { tried.push("nova:" + String(e && e.message || e).slice(0, 80)); }
+    }
   }
+  // 2) Whisper large-v3 turbo (any language; forced language when chosen)
+  let b64 = ""; for (let i = 0; i < buf.length; i += 0x8000) b64 += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000)); b64 = btoa(b64);
+  try {
+    const r = await env.AI.run("@cf/openai/whisper-large-v3-turbo", { audio: b64, vad_filter: true, ...(hint && hint !== "mu" ? { language: hint } : {}), ...(hint === "en" ? { initial_prompt: "Indian stock market question: Nifty, Sensex, Bank Nifty, NSE, BSE, F&O, Reliance, HDFC Bank, Infosys, TCS, SBI, Tata Motors, Adani, share price, stop-loss, target." } : {}) });
+    const text = String(r?.text || "").trim();
+    if (text) return J({ text, engine: "Whisper", language: r?.transcription_info?.language || hint || null, probability: r?.transcription_info?.language_probability ?? null, tried });
+    tried.push("whisper:empty");
+  } catch (e) { tried.push("whisper:" + String(e && e.message || e).slice(0, 80)); }
+  return J({ error: "transcription_failed", tried }, 503);
 }
 
 // ---------- security headers (applied to every page and file) ----------

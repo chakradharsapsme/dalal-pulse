@@ -1596,9 +1596,9 @@ const useBrowser = () => !!SR && VOICE.lang !== "auto";
 function voiceUi(state, msg) {
   const box = $("#askVoice"); if (!box) return;
   box.hidden = !state; box.dataset.state = state || "";
-  box.innerHTML = state === "rec" ? `<span class="vdot"></span><b>Listening…</b><span class="vengine">${useBrowser() ? (/Edg\//.test(navigator.userAgent) ? "Microsoft speech engine" : /Chrome\//.test(navigator.userAgent) ? "Google speech engine" : "built-in speech engine") : "Whisper AI"} · ${esc((VLANGS.find(x => x[0] === VOICE.lang) || [, "English"])[1])}</span> <span class="num" id="vTime">0:00</span><span class="vbars" id="vBars">${"<i></i>".repeat(14)}</span><button type="button" class="btn sm primary" data-ak="vstop">Done</button><button type="button" class="linkish" data-ak="vcancel">Cancel</button><span class="muted vhint">Take your time: I keep listening until you tap <b>Done</b>. Your words appear in the box below; check them, then tap <b>Ask</b>.</span>`
-    : state === "busy" ? `<span class="pa-spin"></span><b>Turning your voice into text…</b>`
-    : state === "done" ? `<span class="up">●</span> <span>Check the text below, edit if needed, then tap <b>Ask</b>.</span>${VOICE.blob ? `<button type="button" class="linkish" data-ak="vwhisper">Not right? Re-check with Whisper</button>` : ""}<button type="button" class="linkish" data-ak="vclose">×</button>`
+  box.innerHTML = state === "rec" ? `<span class="vdot"></span><b>Listening…</b><span class="vengine">${VOICE.lang === "auto" || !/^(en|hi)/.test(VOICE.lang) ? "AI speech engine" : "Deepgram Nova-3"} · ${esc((VLANGS.find(x => x[0] === VOICE.lang) || [, "English"])[1])}</span> <span class="num" id="vTime">0:00</span><span class="vbars" id="vBars">${"<i></i>".repeat(14)}</span><button type="button" class="btn sm primary" data-ak="vstop">Done</button><button type="button" class="linkish" data-ak="vcancel">Cancel</button><span class="muted vhint">Take your time: I keep listening until you tap <b>Done</b>. Tip: end with "<b>send it</b>" to send straight away.</span>`
+    : state === "busy" ? `<span class="pa-spin"></span><b>Understanding your voice…</b><span class="muted vhint">Using Deepgram Nova-3, a finance-tuned speech engine</span>`
+    : state === "done" ? `<span class="up">●</span> <span>${msg ? `<b class="warn">${esc(msg)}</b>. ` : ""}Check the text below, then tap <b>Ask</b>.</span><span class="vengine vengine2"></span><button type="button" class="linkish" data-ak="vretry">Speak again</button><button type="button" class="linkish" data-ak="vclose">×</button>`
     : state === "err" ? `<span class="down">●</span> ${esc(msg || "Voice did not work.")} <button type="button" class="linkish" data-ak="vclose">OK</button>` : "";
 }
 const V_FIX = [[/\bnifty fifty\b/gi, "Nifty 50"], [/\bnifty\s*50\b/gi, "Nifty 50"], [/\bbank\s*nifty\b/gi, "Bank Nifty"], [/\bfin\s*nifty\b/gi, "Fin Nifty"], [/\bsensex\b/gi, "Sensex"], [/\bstop[\s-]*loss\b/gi, "stop-loss"],
@@ -1609,11 +1609,10 @@ const vFix = t => { let x = String(t || "").replace(/\s+/g, " ").trim(); for (co
 function vShow() { const i = $("#askIn"); if (!i) return; i.value = (VOICE.base ? VOICE.base + " " : "") + vFix(VOICE.final + " " + VOICE.interim); i.scrollTop = i.scrollHeight; }
 async function voiceStart() {
   if (VOICE.on || VOICE.busy || ASK.busy) return;
-  if (!SR && !canRecord()) { voiceUi("err", "This browser cannot use the microphone. Try Chrome, Edge or Safari."); return; }
-  if (!SR && !store.get("dp-vtip", false)) { toast("Tip: Chrome or Edge have a built-in speech engine that understands Indian voices best. Using Whisper AI here."); store.set("dp-vtip", true); }
+  if (!canRecord() && !SR) { voiceUi("err", "This browser cannot use the microphone. Try Chrome, Edge or Safari."); return; }
   VOICE.on = true; VOICE.final = ""; VOICE.interim = ""; VOICE.blob = null; VOICE.chunks = []; VOICE.base = ($("#askIn")?.value || "").trim(); VOICE.t0 = Date.now();
   // audio recording (level meter + Whisper backup). Android cannot share the mic between the recogniser and a recorder, so it uses the recogniser alone.
-  if (canRecord() && !(useBrowser() && /Android/i.test(navigator.userAgent))) {
+  if (canRecord()) {
     try {
       VOICE.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
       const mt = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"].find(t => MediaRecorder.isTypeSupported?.(t)) || "";
@@ -1624,7 +1623,7 @@ async function voiceStart() {
     } catch (e) { VOICE.on = false; voiceUi("err", e.name === "NotAllowedError" ? "Microphone permission was blocked. Allow the mic for this site (padlock icon in the address bar), then tap the mic again." : "No microphone found."); return; }
   }
   // live words from the browser's recogniser; it can pause on silence, so restart it until you tap Done
-  if (useBrowser()) {
+  if (useBrowser() && !(/Android/i.test(navigator.userAgent) && VOICE.rec)) {
     const startSR = () => {
       const r = new SR(); r.lang = vCode(); r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
       r.onresult = ev => { let interim = ""; for (let i = ev.resultIndex; i < ev.results.length; i++) { const t = ev.results[i][0].transcript; if (ev.results[i].isFinal) VOICE.final += " " + t; else interim += t; } VOICE.interim = interim; vShow(); };
@@ -1653,14 +1652,10 @@ function voiceStop(cancel) {
     try { VOICE.stream?.getTracks().forEach(t => t.stop()); } catch {} try { VOICE.ctx?.close(); } catch {}
     VOICE.blob = VOICE.chunks.length ? new Blob(VOICE.chunks, { type: VOICE.rec?.mimeType || "audio/webm" }) : null; VOICE.rec = null; VOICE.stream = null; VOICE.ctx = null; VOICE.an = null;
     if (cancel) { const i = $("#askIn"); if (i) i.value = VOICE.base; voiceUi(null); return; }
-    VOICE.interim = ""; const heard = (VOICE.final || "").trim();
-    // give the browser recogniser a moment to deliver its last words, then fall back to Whisper if it heard nothing
-    setTimeout(() => {
-      const got = (VOICE.final || "").trim(); vShow();
-      if (got) { VOICE.pending = true; voiceUi("done"); $("#askIn")?.focus(); }
-      else if (VOICE.blob) voiceWhisper();
-      else voiceUi("err", "I didn't catch that. Tap the mic and try again, a little closer to the microphone.");
-    }, heard ? 50 : 700);
+    VOICE.interim = ""; VOICE.preview = (VOICE.final || "").trim(); vShow();
+    if (VOICE.blob) voiceWhisper();
+    else if (VOICE.preview) voiceDone(VOICE.preview, "browser");
+    else voiceUi("err", "I didn't catch that. Tap the mic and try again, a little closer to the microphone.");
   };
   if (VOICE.rec && VOICE.rec.state !== "inactive") { VOICE.rec.onstop = finish; try { VOICE.rec.stop(); } catch { finish(); } } else finish();
 }
@@ -1676,18 +1671,31 @@ async function toWav16k(blob) {
   for (let i = 0; i < pcm.length; i++) out.setInt16(44 + i * 2, Math.max(-1, Math.min(1, pcm[i])) * 0x7fff, true);
   return new Blob([out], { type: "audio/wav" });
 }
+const V_SEND = /[\s,.!]*(?:(?:please\s+)?(?:send|submit|ask)(?:\s+(?:it|now|this|the question))?|bhejo|bhej do|send karo)[\s.!]*$/i;
+function voiceDone(text, engine, conf) {
+  let t = vFix(text), autoSend = false;
+  if (V_SEND.test(t) && t.replace(V_SEND, "").trim().length > 3) { t = t.replace(V_SEND, "").trim(); autoSend = true; }
+  VOICE.final = t; VOICE.interim = ""; VOICE.pending = true; vShow();
+  if (autoSend) { voiceUi(null); $("#askForm")?.requestSubmit(); return; }
+  voiceUi("done", conf != null && conf < 0.7 ? "I may have misheard some words, please check" : ""); const e = $("#askVoice .vengine2"); if (e) e.textContent = engine;
+  $("#askIn")?.focus();
+}
 async function voiceWhisper() {
   if (!VOICE.blob || VOICE.busy) return;
   VOICE.busy = true; voiceUi("busy");
   try {
     let body = VOICE.blob; try { body = await toWav16k(body); } catch {}
-    const lang = VOICE.lang === "auto" ? "" : vCode().slice(0, 2);
-    const r = await fetch("/transcribe" + (lang ? "?lang=" + lang : ""), { method: "POST", headers: { "Content-Type": body.type || "application/octet-stream", "X-DP-Client": "web" }, body, signal: AbortSignal.timeout(45000) });
+    const lang = VOICE.lang === "auto" ? "" : VOICE.lang === "en-IN|hinglish" ? "hinglish" : VOICE.lang === "en-IN" ? "en-IN" : vCode().slice(0, 2);
+    const r = await fetch("/transcribe?lang=" + encodeURIComponent(lang), { method: "POST", headers: { "Content-Type": body.type || "application/octet-stream", "X-DP-Client": "web" }, body, signal: AbortSignal.timeout(45000) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j.text) throw new Error(j.error === "too short" ? "that was too short" : j.error || "no text came back");
-    VOICE.lastLang = j.language || lang || null; VOICE.final = vFix(j.text); VOICE.interim = ""; vShow(); VOICE.pending = true;
-    VOICE.busy = false; voiceUi("done"); const b = $("#askVoice [data-ak='vwhisper']"); if (b) b.remove(); $("#askIn")?.focus();
-  } catch (e) { VOICE.busy = false; voiceUi("err", "Couldn't turn that into text (" + e.message + "). Try again, or type your question."); }
+    VOICE.lastLang = j.language || lang.slice(0, 2) || null; VOICE.busy = false;
+    voiceDone(j.text, j.engine || "AI speech engine", j.confidence);
+  } catch (e) {
+    VOICE.busy = false;
+    if (VOICE.preview) voiceDone(VOICE.preview, "browser");
+    else voiceUi("err", "Couldn't turn that into text (" + e.message + "). Please try again, or type your question.");
+  }
 }
 // pick the most natural voice the device has: neural / natural / Google / premium voices first, Indian accent preferred
 function bestVoice(code) {
@@ -1709,7 +1717,7 @@ document.addEventListener("click", e => {
   const t = e.target; if (!t.closest("#askDrawer")) return;
   if (t.closest("#askMic")) { VOICE.on ? voiceStop() : voiceStart(); return; }
   const k = t.closest("[data-ak]"); if (!k) return;
-  if (k.dataset.ak === "vstop") voiceStop(); if (k.dataset.ak === "vcancel") voiceStop(true); if (k.dataset.ak === "vclose") voiceUi(null); if (k.dataset.ak === "vwhisper") voiceWhisper();
+  if (k.dataset.ak === "vstop") voiceStop(); if (k.dataset.ak === "vcancel") voiceStop(true); if (k.dataset.ak === "vclose") voiceUi(null); if (k.dataset.ak === "vretry") { const i = $("#askIn"); if (i) i.value = VOICE.base || ""; VOICE.pending = false; voiceUi(null); voiceStart(); }
   if (k.dataset.ak === "speak") { VOICE.speak = !VOICE.speak; store.set("dp-askspeak", VOICE.speak); if (!VOICE.speak) window.speechSynthesis?.cancel(); k.classList.toggle("on", VOICE.speak); k.title = VOICE.speak ? "Reading answers aloud (tap to stop)" : "Read answers aloud"; }
 });
 document.addEventListener("change", e => { if (e.target.id === "askLang") { VOICE.lang = e.target.value; store.set("dp-asklang2", VOICE.lang); } });
