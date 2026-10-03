@@ -902,3 +902,6 @@ button.gtile{text-align:left;font:inherit;color:inherit;cursor:pointer}button.gt
 .pa-row span{flex:0 1 auto;white-space:nowrap;overflow-wrap:normal;word-break:normal}
 .pa-row em{margin-right:3px}
 .pa-row span{color:var(--ink)}
+
+/* voice removed on request */
+#paMic,#paSpk,.askmic,.askspk,.ask-langrow,#askVoice{display:none!important}

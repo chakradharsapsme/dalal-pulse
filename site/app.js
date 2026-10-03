@@ -1509,18 +1509,18 @@ function askDraw(focus) {
   const d = $("#askDrawer"); if (!d) return;
   const s = askCtxSym();
   d.innerHTML = `<div class="ask-head"><div><strong>Ask AI</strong><span class="muted"> · senior market analyst${s ? ` · ${esc(s)}` : ""}</span></div>
-      <div class="ask-hbtns"><button class="iconbtn askspk${VOICE.speak ? " on" : ""}" type="button" data-ak="speak" title="${VOICE.speak ? "Reading answers aloud (tap to stop)" : "Read answers aloud"}" aria-label="Read answers aloud"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>${ASK.chat.length ? `<button class="linkish" type="button" data-ak="clear">Clear chat</button>` : ""}<button class="iconbtn" type="button" data-ak="close" aria-label="Close">×</button></div></div>
+      <div class="ask-hbtns">${ASK.chat.length ? `<button class="linkish" type="button" data-ak="clear">Clear chat</button>` : ""}<button class="iconbtn" type="button" data-ak="close" aria-label="Close">×</button></div></div>
     <div class="ask-log" id="askLog">
       ${ASK.chat.length ? "" : `<div class="ask-intro"><p>Ask anything about the Indian market: a stock, a sector, options, your portfolio, the news, or a market concept. Each answer checks live prices, Dalal Pulse research and the newest web news first, then reasons like a senior analyst.</p>
         <div class="ask-chips">${askStarters().map(q => `<button type="button" class="ask-chip" data-aq="${esc(q)}">${esc(q)}</button>`).join("")}</div></div>`}
-      ${ASK.chat.map((m, i) => `<div class="ask-q">${m.voice ? '<span class="askvq" title="Asked by voice">🎙</span> ' : ""}${esc(m.q)}</div><div class="ask-a">${m.a ? (m.live ? `<div class="pa-live">● ${m.live}</div>` : "") + `<div class="pa-ai">${paMd(m.a)}</div>` + (m.news ? paNewsHtml(m.news, false) : "") + (m.meta ? `<div class="ask-meta muted">${m.meta}</div>` : "")
+      ${ASK.chat.map((m, i) => `<div class="ask-q">${esc(m.q)}</div><div class="ask-a">${m.a ? (m.live ? `<div class="pa-live">● ${m.live}</div>` : "") + `<div class="pa-ai">${paMd(m.a)}</div>` + (m.news ? paNewsHtml(m.news, false) : "") + (m.meta ? `<div class="ask-meta muted">${m.meta}</div>` : "")
         + ((m.follow || []).length ? `<div class="ask-chips">${m.follow.map(q => `<button type="button" class="ask-chip" data-aq="${esc(q)}">${esc(q)}</button>`).join("")}</div>` : "")
         : (ASK.busy && i === ASK.chat.length - 1 ? `<div class="ask-wait"><span class="pa-spin"></span><span id="askStep">Understanding your question…</span></div><div id="askNews"></div>` : '<span class="muted">Stopped.</span>')}</div>`).join("")}
     </div>
-    <div class="ask-voice" id="askVoice" hidden></div>
-    <form class="ask-form" id="askForm"><button type="button" class="askmic${VOICE.on ? " on" : ""}" id="askMic" title="Speak your question (any language)" aria-label="Speak your question"${ASK.busy ? " disabled" : ""}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button><textarea id="askIn" rows="2" placeholder="Type, or tap the mic and speak (tap Done when finished)" aria-label="Your question"${ASK.busy ? " disabled" : ""}></textarea>
+    
+    <form class="ask-form" id="askForm"><textarea id="askIn" rows="2" placeholder="Type your question about any stock, sector or the market" aria-label="Your question"${ASK.busy ? " disabled" : ""}></textarea>
       ${ASK.busy ? `<button class="btn" type="button" data-ak="stop">Stop</button>` : `<button class="btn primary" type="submit">Ask</button>`}</form>
-    <div class="ask-langrow"><label class="muted" for="askLang">Voice language</label><select id="askLang">${VLANGS.map(([v, l]) => `<option value="${v}"${VOICE.lang === v ? " selected" : ""}>${l}</option>`).join("")}</select></div>
+
     <div class="ask-foot muted">Free AI on Cloudflare · live prices + Dalal Pulse data + web news · information only, not investment advice.</div>`;
   const log = $("#askLog"); log.scrollTop = log.scrollHeight;
   if (focus !== false && !ASK.busy) $("#askIn")?.focus({ preventScroll: true });
@@ -1566,7 +1566,7 @@ async function askQ(q, opt = {}) {
     if (e.name === "AbortError") { ASK.chat.pop(); } else { m.a = `Sorry, that did not work (${e.message}). Please try again.`; }
   }
   clearInterval(iv); ASK.busy = false; ASK.ctl = null; askSave(); askDraw();
-  if (m.a && (m.voice || VOICE.speak)) askSpeak(m.a, m.lang || (/[^\x00-\x7F]/.test(m.q) ? null : "en"));
+  if (false) askSpeak(m.a, m.lang || (/[^\x00-\x7F]/.test(m.q) ? null : "en"));
 }
 document.addEventListener("click", e => {
   const t = e.target;
@@ -1588,7 +1588,7 @@ document.addEventListener("click", e => {
 const VLANGS = [["en-IN", "English (India)"], ["hi-IN", "Hindi"], ["en-IN|hinglish", "Hinglish (Hindi in English letters)"], ["te-IN", "Telugu"], ["ta-IN", "Tamil"], ["kn-IN", "Kannada"], ["ml-IN", "Malayalam"], ["mr-IN", "Marathi"], ["gu-IN", "Gujarati"], ["bn-IN", "Bengali"], ["pa-IN", "Punjabi"], ["ur-IN", "Urdu"], ["auto", "Other / auto-detect (Whisper)"]];
 const TTS_LANG = { en: "en-IN", hi: "hi-IN", te: "te-IN", ta: "ta-IN", kn: "kn-IN", ml: "ml-IN", mr: "mr-IN", gu: "gu-IN", bn: "bn-IN", pa: "pa-IN", ur: "ur-IN", or: "or-IN" };
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-const VOICE = { lang: (v => VLANGS.some(x => x[0] === v) ? v : "en-IN")(store.get("dp-asklang2", "en-IN")), speak: store.get("dp-askspeak", false), rec: null, sr: null, stream: null, chunks: [], blob: null, t0: 0, ctx: null, an: null, raf: 0,
+const VOICE = { lang: (v => VLANGS.some(x => x[0] === v) ? v : "en-IN")(store.get("dp-asklang2", "en-IN")), speak: false, rec: null, sr: null, stream: null, chunks: [], blob: null, t0: 0, ctx: null, an: null, raf: 0,
   busy: false, on: false, base: "", final: "", interim: "", pending: false, lastLang: null };
 const canRecord = () => !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
 const vCode = () => VOICE.lang.split("|")[0];
@@ -2757,7 +2757,7 @@ function paVoiceInit() {
   mark();
 }
 function paSpeak(html) {
-  if (!store.get("dp-paspeak", false) || !("speechSynthesis" in window)) return;
+  return;
   const d = document.createElement("div"); d.innerHTML = html;
   d.querySelectorAll(".pa-fu,.pa-act,.pa-ctx,.pa-live,.pa-claude,table,.pa-plan,.muted").forEach(x => x.remove());
   const rt = d.querySelector(".pa-rating b"), sym = d.querySelector(".pa-ct b");
