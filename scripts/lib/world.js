@@ -12,8 +12,12 @@ const WORLD = [
   ["^NSEI", "India Nifty 50", "India"], ["^BSESN", "India Sensex", "India"],
 ];
 const MACRO = [
-  ["DX-Y.NYB", "US Dollar index", "dollar", ""], ["^TNX", "US 10-year yield", "yield", "%"], ["^IRX", "US 3-month T-bill (tracks Fed rate)", "fed", "%"],
-  ["BZ=F", "Brent crude", "crude", "$"], ["GC=F", "Gold", "gold", "$"], ["INR=X", "USD / INR", "inr", "₹"], ["^VIX", "US VIX (fear gauge)", "vix", ""], ["^INDIAVIX", "India VIX", "ivix", ""],
+  // [yahoo symbol, name, key, unit, group]
+  ["INR=X", "USD / INR", "inr", "₹", "Currency & rates"], ["DX-Y.NYB", "US Dollar index", "dollar", "", "Currency & rates"], ["^TNX", "US 10-year yield", "yield", "%", "Currency & rates"], ["^IRX", "US 3-month T-bill (tracks Fed rate)", "fed", "%", "Currency & rates"], ["EURINR=X", "EUR / INR", "eurinr", "₹", "Currency & rates"],
+  ["GC=F", "Gold", "gold", "$", "Precious metals"], ["SI=F", "Silver", "silver", "$", "Precious metals"],
+  ["BZ=F", "Brent crude", "crude", "$", "Energy"], ["CL=F", "WTI crude", "wti", "$", "Energy"], ["NG=F", "Natural gas", "natgas", "$", "Energy"],
+  ["HG=F", "Copper", "copper", "$", "Industrial metals"], ["ALI=F", "Aluminium", "alu", "$", "Industrial metals"],
+  ["^VIX", "US VIX (fear gauge)", "vix", "", "Risk gauges"], ["^INDIAVIX", "India VIX", "ivix", "", "Risk gauges"], ["BTC-USD", "Bitcoin (risk appetite)", "btc", "$", "Risk gauges"],
 ];
 
 async function chart(sym) {
@@ -45,6 +49,7 @@ const NEWSQ = [
   ["fed", "US Federal Reserve", "(\"Federal Reserve\" OR Fed OR Powell OR FOMC) (rate OR rates OR inflation) when:3d"],
   ["rbi", "RBI & rates", "(RBI OR \"Reserve Bank of India\" OR \"repo rate\" OR \"monetary policy\") when:5d"],
   ["govt", "Government of India decisions", "(\"Union Cabinet\" OR \"Finance Ministry\" OR \"Centre approves\" OR \"government approves\" OR GST OR SEBI OR \"PLI scheme\" OR tariff OR budget) India when:3d"],
+  ["commod", "Gold, crude & commodities", "(gold OR \"crude oil\" OR Brent OR silver OR copper OR commodity OR OPEC) price when:2d"],
   ["global", "Global cues", "(\"global markets\" OR \"Wall Street\" OR \"crude oil\" OR \"dollar index\" OR \"bond yields\" OR tariffs) when:2d"],
 ];
 const dec = s => String(s || "").replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -83,6 +88,8 @@ function readCues(idx, mac) {
   const y10 = m("yield"); if (y10?.m1 != null) { score += y10.m1 > 5 ? -1 : y10.m1 < -5 ? 1 : 0; lines.push(`US 10-year yield at ${y10.price}% (${y10.m1 >= 0 ? "+" : ""}${y10.m1.toFixed(1)}% in a month): ${y10.m1 > 5 ? "rising US yields make Indian stocks less attractive to foreign investors (pressure on IT, banks)" : y10.m1 < -5 ? "falling US yields favour emerging markets and IT stocks" : "steady"}.`); }
   const fed = m("fed"); if (fed?.price != null) lines.push(`US 3-month T-bill at ${fed.price}%: a proxy for where markets expect the Fed policy rate${fed.m3 != null ? ` (${fed.m3 < -3 ? "falling: markets price Fed cuts" : fed.m3 > 3 ? "rising: markets price tighter Fed policy" : "little change in 3 months"})` : ""}.`);
   const inr = m("inr"); if (inr?.m1 != null) lines.push(`Rupee at ₹${inr.price} per dollar (${inr.m1 >= 0 ? "weaker" : "stronger"} by ${Math.abs(inr.m1).toFixed(1)}% in a month): ${inr.m1 > 1 ? "helps IT and pharma exporters, hurts importers" : inr.m1 < -1 ? "helps importers and oil companies" : "stable"}.`);
+  const gold = m("gold"); if (gold?.m1 != null) lines.push(`Gold ${gold.m1 >= 0 ? "up" : "down"} ${Math.abs(gold.m1).toFixed(1)}% in a month: ${gold.m1 > 4 ? "investors are seeking safety (risk-off); supports gold-loan lenders and jewellers' inventory value" : gold.m1 < -4 ? "safe-haven demand is fading: usually a risk-on sign for equities" : "steady"}.`);
+  const cu = m("copper"); if (cu?.m1 != null) lines.push(`Copper ${cu.m1 >= 0 ? "up" : "down"} ${Math.abs(cu.m1).toFixed(1)}% in a month: ${cu.m1 > 5 ? "strong global industrial demand: positive for metal stocks (Hindalco, Vedanta, Hindustan Copper)" : cu.m1 < -5 ? "weaker industrial demand: a drag on metal stocks" : "neutral for metals"}.`);
   const vix = m("vix"); if (vix?.price != null) { score += vix.price > 25 ? -1 : vix.price < 15 ? 1 : 0; lines.push(`US VIX ${vix.price}: ${vix.price > 25 ? "high fear worldwide" : vix.price < 15 ? "calm global markets" : "normal nerves"}.`); }
   const label = score >= 2 ? "Supportive" : score <= -2 ? "Negative" : "Mixed";
   return { score, label, lines };
@@ -92,7 +99,7 @@ async function build(log) {
   const idx = [], mac = [];
   const todo = WORLD.map(w => ["i", w]).concat(MACRO.map(m => ["m", m]));
   await Promise.all(Array.from({ length: 6 }, async () => { while (todo.length) { const [k, w] = todo.shift(); const c = await chart(w[0]);
-    if (!c) continue; if (k === "i") idx.push({ sym: w[0], name: w[1], region: w[2], ...c }); else mac.push({ sym: w[0], name: w[1], key: w[2], unit: w[3], ...c }); } }));
+    if (!c) continue; if (k === "i") idx.push({ sym: w[0], name: w[1], region: w[2], ...c }); else mac.push({ sym: w[0], name: w[1], key: w[2], unit: w[3], group: w[4], ...c }); } }));
   const ord = (L, src) => L.sort((a, b) => src.findIndex(x => x[0] === a.sym) - src.findIndex(x => x[0] === b.sym));
   ord(idx, WORLD); ord(mac, MACRO);
   const news = await policyNews(log);

@@ -138,7 +138,7 @@ function nav(v, s) {
 function readHash() {
   const [v, s] = location.hash.replace(/^#\/?/, "").split("/");
   if (!v) { view = "news"; sel = null; return; }
-  if (["news", "markets", "indices", "fno", "options", "circuits", "screener", "portfolio", "calendar", "momentum", "groups"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
+  if (["news", "markets", "indices", "fno", "options", "circuits", "screener", "portfolio", "calendar", "momentum", "groups", "world"].includes(v)) { view = v; sel = s ? (v === "indices" ? decodeURIComponent(s).toLowerCase() : decodeURIComponent(s).toUpperCase()) : null; }
 }
 const go = sym => nav("news", sym);
 
@@ -146,7 +146,7 @@ function render() {
   if (!D) return;
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.nav === view));
   const keep = document.querySelector(".list")?.scrollTop;
-  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "fno" ? fnoView() : view === "circuits" ? circuitsView() : view === "options" ? optionsView() : view === "screener" ? screener() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : view === "momentum" ? momentumView() : view === "groups" ? groupsView() : newsView();
+  $("#view").innerHTML = view === "markets" ? markets() : view === "indices" ? indicesView() : view === "fno" ? fnoView() : view === "circuits" ? circuitsView() : view === "options" ? optionsView() : view === "screener" ? screener() : view === "w52" ? w52() : view === "portfolio" ? portfolio() : view === "calendar" ? calendar() : view === "momentum" ? momentumView() : view === "groups" ? groupsView() : view === "world" ? globalView() : newsView();
   if (view === "portfolio") setTimeout(runXray, 0);
   if (keep && document.querySelector(".list")) document.querySelector(".list").scrollTop = keep;
   if (view === "news") { if (sel && S[sel]) drawChart(sel); document.querySelector(".row.on")?.scrollIntoView({ block: "nearest" }); }
@@ -1497,7 +1497,7 @@ function groupCard(g) {
 // Same free analyst brain as the Pulse Agent (/agent on Cloudflare Workers AI): it plans, pulls live prices,
 // Dalal Pulse research and the newest web news, computes trade plans exactly, then answers with follow-up ideas.
 const ASK = { open: false, busy: false, ctl: null, chat: store.get("dp-askai", []) };
-const askSave = () => { ASK.chat = ASK.chat.slice(-40); store.set("dp-askai", ASK.chat.map(m => ({ q: m.q, a: m.a, follow: m.follow, syms: m.syms, at: m.at, news: m.news, live: m.live }))); };
+const askSave = () => { ASK.chat = ASK.chat.slice(-40); store.set("dp-askai", ASK.chat.map(m => ({ q: m.q, a: m.a, follow: m.follow, syms: m.syms, at: m.at, news: m.news, live: m.live, voice: m.voice, lang: m.lang }))); };
 function askCtxSym() { const cur = (view === "news" || view === "options") && sel && S[sel] ? sel : null; return cur || [...ASK.chat].reverse().find(m => m.syms && m.syms[0])?.syms[0] || null; }
 function askStarters() {
   const s = askCtxSym();
@@ -1508,16 +1508,18 @@ function askDraw(focus) {
   const d = $("#askDrawer"); if (!d) return;
   const s = askCtxSym();
   d.innerHTML = `<div class="ask-head"><div><strong>Ask AI</strong><span class="muted"> · senior market analyst${s ? ` · ${esc(s)}` : ""}</span></div>
-      <div class="ask-hbtns">${ASK.chat.length ? `<button class="linkish" type="button" data-ak="clear">Clear chat</button>` : ""}<button class="iconbtn" type="button" data-ak="close" aria-label="Close">×</button></div></div>
+      <div class="ask-hbtns"><button class="iconbtn askspk${VOICE.speak ? " on" : ""}" type="button" data-ak="speak" title="${VOICE.speak ? "Reading answers aloud (tap to stop)" : "Read answers aloud"}" aria-label="Read answers aloud"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>${ASK.chat.length ? `<button class="linkish" type="button" data-ak="clear">Clear chat</button>` : ""}<button class="iconbtn" type="button" data-ak="close" aria-label="Close">×</button></div></div>
     <div class="ask-log" id="askLog">
       ${ASK.chat.length ? "" : `<div class="ask-intro"><p>Ask anything about the Indian market: a stock, a sector, options, your portfolio, the news, or a market concept. Each answer checks live prices, Dalal Pulse research and the newest web news first, then reasons like a senior analyst.</p>
         <div class="ask-chips">${askStarters().map(q => `<button type="button" class="ask-chip" data-aq="${esc(q)}">${esc(q)}</button>`).join("")}</div></div>`}
-      ${ASK.chat.map((m, i) => `<div class="ask-q">${esc(m.q)}</div><div class="ask-a">${m.a ? (m.live ? `<div class="pa-live">● ${m.live}</div>` : "") + `<div class="pa-ai">${paMd(m.a)}</div>` + (m.news ? paNewsHtml(m.news, false) : "") + (m.meta ? `<div class="ask-meta muted">${m.meta}</div>` : "")
+      ${ASK.chat.map((m, i) => `<div class="ask-q">${m.voice ? '<span class="askvq" title="Asked by voice">🎙</span> ' : ""}${esc(m.q)}</div><div class="ask-a">${m.a ? (m.live ? `<div class="pa-live">● ${m.live}</div>` : "") + `<div class="pa-ai">${paMd(m.a)}</div>` + (m.news ? paNewsHtml(m.news, false) : "") + (m.meta ? `<div class="ask-meta muted">${m.meta}</div>` : "")
         + ((m.follow || []).length ? `<div class="ask-chips">${m.follow.map(q => `<button type="button" class="ask-chip" data-aq="${esc(q)}">${esc(q)}</button>`).join("")}</div>` : "")
         : (ASK.busy && i === ASK.chat.length - 1 ? `<div class="ask-wait"><span class="pa-spin"></span><span id="askStep">Understanding your question…</span></div><div id="askNews"></div>` : '<span class="muted">Stopped.</span>')}</div>`).join("")}
     </div>
-    <form class="ask-form" id="askForm"><textarea id="askIn" rows="2" placeholder="Ask about a stock, sector, options, your portfolio… or anything" aria-label="Your question"${ASK.busy ? " disabled" : ""}></textarea>
+    <div class="ask-voice" id="askVoice" hidden></div>
+    <form class="ask-form" id="askForm"><button type="button" class="askmic${VOICE.rec ? " on" : ""}" id="askMic" title="Speak your question (any language)" aria-label="Speak your question"${ASK.busy ? " disabled" : ""}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button><textarea id="askIn" rows="2" placeholder="Type or tap the mic and speak, in any language" aria-label="Your question"${ASK.busy ? " disabled" : ""}></textarea>
       ${ASK.busy ? `<button class="btn" type="button" data-ak="stop">Stop</button>` : `<button class="btn primary" type="submit">Ask</button>`}</form>
+    <div class="ask-langrow"><label class="muted" for="askLang">Voice language</label><select id="askLang">${VLANGS.map(([v, l]) => `<option value="${v}"${VOICE.lang === v ? " selected" : ""}>${l}</option>`).join("")}</select></div>
     <div class="ask-foot muted">Free AI on Cloudflare · live prices + Dalal Pulse data + web news · information only, not investment advice.</div>`;
   const log = $("#askLog"); log.scrollTop = log.scrollHeight;
   if (focus !== false && !ASK.busy) $("#askIn")?.focus({ preventScroll: true });
@@ -1531,9 +1533,9 @@ function askToggle(force) {
   } else if (d) { d.hidden = true; document.body.classList.remove("ask-on"); }
   $("#askBtn")?.classList.toggle("on", ASK.open);
 }
-async function askQ(q) {
+async function askQ(q, opt = {}) {
   q = String(q || "").trim(); if (!q || ASK.busy) return;
-  ASK.busy = true; const m = { q, a: "", at: new Date().toISOString() }; ASK.chat.push(m); askDraw(false);
+  ASK.busy = true; const m = { q, a: "", at: new Date().toISOString(), voice: !!opt.voice, lang: opt.lang || null }; ASK.chat.push(m); askDraw(false);
   const steps = ["Understanding your question…", "Planning which data to check…", "Fetching live prices…", "Searching the web for the newest news…", "Reading Dalal Pulse research…", "Analysing trend, strength, levels, news and risk…", "Writing the answer…"];
   let si = 0; const iv = setInterval(() => { si = Math.min(si + 1, steps.length - 1); const e = $("#askStep"); if (e) e.textContent = steps[si]; }, 1600);
   const t0 = Date.now();
@@ -1563,22 +1565,170 @@ async function askQ(q) {
     if (e.name === "AbortError") { ASK.chat.pop(); } else { m.a = `Sorry, that did not work (${e.message}). Please try again.`; }
   }
   clearInterval(iv); ASK.busy = false; ASK.ctl = null; askSave(); askDraw();
+  if (m.a && (m.voice || VOICE.speak)) askSpeak(m.a, m.lang || (/[^\x00-\x7F]/.test(m.q) ? null : "en"));
 }
 document.addEventListener("click", e => {
   const t = e.target;
   if (t.closest("#askBtn")) { askToggle(); return; }
+  if (t.closest("[data-gask]")) { askToggle(true); askQ("Explain today's global cues (world markets, rupee, US yields, gold, crude, commodities, Fed/RBI/Government news) and what they mean for Indian stocks and sectors, and for my holdings if I have any. What should I do today?"); return; }
   const d = t.closest("#askDrawer"); if (!d) return;
   const q = t.closest("[data-aq]"); if (q) { askQ(q.dataset.aq); return; }
   const k = t.closest("[data-ak]"); if (!k) return;
-  if (k.dataset.ak === "close") { ASK.ctl?.abort(); askToggle(false); }
+  if (k.dataset.ak === "close") { ASK.ctl?.abort(); if (VOICE.rec) voiceStop(true); window.speechSynthesis?.cancel(); askToggle(false); }
   if (k.dataset.ak === "stop") ASK.ctl?.abort();
   if (k.dataset.ak === "clear") { ASK.chat = []; askSave(); askDraw(); }
 });
+// ---------- Ask AI voice: record → Whisper (any language, auto-detected) → ask; answers can be read aloud ----------
+const VLANGS = [["", "Auto-detect (any language)"], ["en", "English"], ["hi", "Hindi / Hinglish"], ["te", "Telugu"], ["ta", "Tamil"], ["kn", "Kannada"], ["ml", "Malayalam"], ["mr", "Marathi"], ["gu", "Gujarati"], ["bn", "Bengali"], ["pa", "Punjabi"], ["ur", "Urdu"], ["or", "Odia"]];
+const TTS_LANG = { en: "en-IN", hi: "hi-IN", te: "te-IN", ta: "ta-IN", kn: "kn-IN", ml: "ml-IN", mr: "mr-IN", gu: "gu-IN", bn: "bn-IN", pa: "pa-IN", ur: "ur-IN", or: "or-IN" };
+const VOICE = { lang: store.get("dp-asklang", ""), speak: store.get("dp-askspeak", false), rec: null, stream: null, chunks: [], t0: 0, timer: null, ctx: null, an: null, raf: 0, heard: false, quietSince: 0, busy: false, lastLang: null };
+const canRecord = () => !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+function voiceUi(state, msg) {
+  const box = $("#askVoice"); if (!box) return;
+  box.hidden = !state; box.dataset.state = state || "";
+  box.innerHTML = state === "rec" ? `<span class="vdot"></span><b>Listening…</b> <span class="num" id="vTime">0:00</span><span class="vbars" id="vBars">${"<i></i>".repeat(14)}</span><span class="muted vhint">Speak in any language · stops when you pause</span><button type="button" class="btn sm" data-ak="vstop">Done</button><button type="button" class="linkish" data-ak="vcancel">Cancel</button>`
+    : state === "busy" ? `<span class="pa-spin"></span><b>Understanding your voice…</b>`
+    : state === "err" ? `<span class="down">●</span> ${esc(msg || "Voice did not work.")} <button type="button" class="linkish" data-ak="vclose">OK</button>` : "";
+}
+async function voiceStart() {
+  if (VOICE.rec || VOICE.busy || ASK.busy) return;
+  if (!canRecord()) { voiceUi("err", "This browser cannot record audio. Try Chrome, Edge or Safari."); return; }
+  try { VOICE.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } }); }
+  catch (e) { voiceUi("err", e.name === "NotAllowedError" ? "Microphone permission was blocked. Allow the mic for this site in your browser settings, then tap the mic again." : "No microphone found."); return; }
+  const mt = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"].find(t => MediaRecorder.isTypeSupported?.(t)) || "";
+  VOICE.chunks = []; VOICE.rec = new MediaRecorder(VOICE.stream, mt ? { mimeType: mt } : undefined);
+  VOICE.rec.ondataavailable = e => { if (e.data && e.data.size) VOICE.chunks.push(e.data); };
+  VOICE.rec.onstop = () => voiceFinish(VOICE.cancel);
+  VOICE.cancel = false; VOICE.heard = false; VOICE.quietSince = 0; VOICE.t0 = Date.now(); VOICE.rec.start(250);
+  voiceUi("rec"); $("#askMic")?.classList.add("on");
+  // level meter + auto-stop after ~1.6 s of silence once speech was heard (max 45 s)
+  try { VOICE.ctx = new (window.AudioContext || window.webkitAudioContext)(); const src = VOICE.ctx.createMediaStreamSource(VOICE.stream); VOICE.an = VOICE.ctx.createAnalyser(); VOICE.an.fftSize = 512; src.connect(VOICE.an); } catch {}
+  const data = new Uint8Array(256);
+  const tick = () => {
+    if (!VOICE.rec) return;
+    const el = (Date.now() - VOICE.t0) / 1000, tEl = $("#vTime"); if (tEl) tEl.textContent = `${Math.floor(el / 60)}:${String(Math.floor(el % 60)).padStart(2, "0")}`;
+    if (VOICE.an) { VOICE.an.getByteTimeDomainData(data); let sum = 0; for (const v of data) sum += (v - 128) ** 2; const rms = Math.sqrt(sum / data.length) / 128;
+      const bars = document.querySelectorAll("#vBars i"); bars.forEach((b, i) => { b.style.height = Math.max(3, Math.min(22, rms * 220 * (0.6 + Math.abs(Math.sin(Date.now() / 140 + i)) * 0.6))) + "px"; });
+      if (rms > 0.045) { VOICE.heard = true; VOICE.quietSince = 0; } else if (VOICE.heard) { VOICE.quietSince = VOICE.quietSince || Date.now(); if (Date.now() - VOICE.quietSince > 1600) { voiceStop(); return; } } }
+    if (el > 45) { voiceStop(); return; }
+    VOICE.raf = requestAnimationFrame(tick);
+  };
+  VOICE.raf = requestAnimationFrame(tick);
+}
+function voiceStop(cancel) { if (!VOICE.rec) return; VOICE.cancel = !!cancel; cancelAnimationFrame(VOICE.raf); try { VOICE.rec.stop(); } catch { voiceFinish(true); } }
+function voiceCleanup() { try { VOICE.stream?.getTracks().forEach(t => t.stop()); } catch {} try { VOICE.ctx?.close(); } catch {} VOICE.rec = null; VOICE.stream = null; VOICE.ctx = null; VOICE.an = null; $("#askMic")?.classList.remove("on"); }
+// convert the recording to 16 kHz mono WAV (works with every browser's recorder format)
+async function toWav16k(blob) {
+  const ab = await blob.arrayBuffer(); const AC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const tmp = new (window.AudioContext || window.webkitAudioContext)(); const dec = await tmp.decodeAudioData(ab.slice(0)); tmp.close?.();
+  const len = Math.ceil(dec.duration * 16000), off = new AC(1, len, 16000), src = off.createBufferSource(); src.buffer = dec; src.connect(off.destination); src.start();
+  const pcm = (await off.startRendering()).getChannelData(0), out = new DataView(new ArrayBuffer(44 + pcm.length * 2));
+  const w = (o, s) => [...s].forEach((c, i) => out.setUint8(o + i, c.charCodeAt(0)));
+  w(0, "RIFF"); out.setUint32(4, 36 + pcm.length * 2, true); w(8, "WAVE"); w(12, "fmt "); out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 1, true);
+  out.setUint32(24, 16000, true); out.setUint32(28, 32000, true); out.setUint16(32, 2, true); out.setUint16(34, 16, true); w(36, "data"); out.setUint32(40, pcm.length * 2, true);
+  for (let i = 0; i < pcm.length; i++) out.setInt16(44 + i * 2, Math.max(-1, Math.min(1, pcm[i])) * 0x7fff, true);
+  return new Blob([out], { type: "audio/wav" });
+}
+async function voiceFinish(cancel) {
+  const chunks = VOICE.chunks, type = VOICE.rec?.mimeType || "audio/webm"; voiceCleanup();
+  if (cancel) { voiceUi(null); return; }
+  if (!chunks.length || !VOICE.heard && (Date.now() - VOICE.t0) < 1200) { voiceUi("err", "I didn't hear anything. Tap the mic and speak a little closer."); return; }
+  VOICE.busy = true; voiceUi("busy");
+  try {
+    let body = new Blob(chunks, { type }); try { body = await toWav16k(body); } catch {}
+    const r = await fetch("/transcribe" + (VOICE.lang ? "?lang=" + VOICE.lang : ""), { method: "POST", headers: { "Content-Type": body.type || "application/octet-stream", "X-DP-Client": "web" }, body, signal: AbortSignal.timeout(45000) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j.text) throw new Error(j.error === "too short" ? "That was too short. Hold on a moment longer." : j.error || "no text came back");
+    VOICE.lastLang = j.language || VOICE.lang || null; VOICE.busy = false; voiceUi(null);
+    askQ(j.text, { voice: true, lang: VOICE.lastLang });
+  } catch (e) { VOICE.busy = false; voiceUi("err", "Couldn't understand the recording (" + e.message + "). Please try again or type your question."); }
+}
+// read an answer aloud in the language it was asked in
+function askSpeak(md, lang) {
+  if (!VOICE.speak || !window.speechSynthesis) return;
+  speechSynthesis.cancel();
+  const text = String(md).replace(/\|[^\n]*\|/g, " ").replace(/[#*_`>|]/g, " ").replace(/Information only, not investment advice\.?/i, "").replace(/\s+/g, " ").trim().slice(0, 1400);
+  const code = TTS_LANG[(lang || "").slice(0, 2)] || (/[ऀ-ॿ]/.test(text) ? "hi-IN" : /[ఀ-౿]/.test(text) ? "te-IN" : /[஀-௿]/.test(text) ? "ta-IN" : "en-IN");
+  const parts = text.match(/[^.!?।]+[.!?।]?/g) || [text], vs = speechSynthesis.getVoices();
+  const v = vs.find(x => x.lang === code) || vs.find(x => x.lang?.startsWith(code.slice(0, 2))) || null;
+  for (const p of parts) { const u = new SpeechSynthesisUtterance(p.trim()); u.lang = code; if (v) u.voice = v; u.rate = 1.02; speechSynthesis.speak(u); }
+}
+document.addEventListener("click", e => {
+  const t = e.target; if (!t.closest("#askDrawer")) return;
+  if (t.closest("#askMic")) { VOICE.rec ? voiceStop() : voiceStart(); return; }
+  const k = t.closest("[data-ak]"); if (!k) return;
+  if (k.dataset.ak === "vstop") voiceStop(); if (k.dataset.ak === "vcancel") voiceStop(true); if (k.dataset.ak === "vclose") voiceUi(null);
+  if (k.dataset.ak === "speak") { VOICE.speak = !VOICE.speak; store.set("dp-askspeak", VOICE.speak); if (!VOICE.speak) window.speechSynthesis?.cancel(); k.classList.toggle("on", VOICE.speak); k.title = VOICE.speak ? "Reading answers aloud (tap to stop)" : "Read answers aloud"; }
+});
+document.addEventListener("change", e => { if (e.target.id === "askLang") { VOICE.lang = e.target.value; store.set("dp-asklang", VOICE.lang); } });
 document.addEventListener("submit", e => { if (e.target.id !== "askForm") return; e.preventDefault(); const i = $("#askIn"); const v = i.value; i.value = ""; askQ(v); });
 document.addEventListener("keydown", e => {
-  if (e.key === "Escape" && ASK.open) { ASK.ctl?.abort(); askToggle(false); }
+  if (e.key === "Escape" && ASK.open) { if (VOICE.rec) { voiceStop(true); return; } ASK.ctl?.abort(); window.speechSynthesis?.cancel(); askToggle(false); }
   if (e.key === "Enter" && !e.shiftKey && e.target.id === "askIn") { e.preventDefault(); $("#askForm").requestSubmit(); }
 });
+// ---------- GLOBAL 360: world markets, currencies, rates, gold, crude & commodities, risk, flows and news in one place ----------
+function sparkSvg(a, w = 110, h = 30) {
+  const L = (a || []).filter(v => v != null); if (L.length < 2) return "";
+  const lo = Math.min(...L), hi = Math.max(...L), X = i => i / (L.length - 1) * w, Y = v => h - 2 - (v - lo) / ((hi - lo) || 1) * (h - 4);
+  return `<svg class="spk" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><path d="${L.map((v, i) => (i ? "L" : "M") + X(i).toFixed(1) + " " + Y(v).toFixed(1)).join("")}" fill="none" stroke="${L[L.length - 1] >= L[0] ? "var(--up)" : "var(--down)"}" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>`;
+}
+// for India, a rise in these is usually bad news (shown red)
+const G_INV = new Set(["inr", "dollar", "yield", "fed", "crude", "wti", "natgas", "vix", "ivix"]);
+const G_IMPACT = [
+  ["crude", "Brent crude", x => x.m1 > 4 ? ["Costlier oil hurts India (imports ~85% of its oil)", "down"] : x.m1 < -4 ? ["Cheaper oil eases inflation and import bills", "up"] : ["Oil steady: little effect", ""],
+    [["Oil marketing & refiners", ["BPCL", "HINDPETRO", "IOC"], -1], ["Paints", ["ASIANPAINT", "BERGEPAINT"], -1], ["Airlines", ["INDIGO"], -1], ["Tyres", ["APOLLOTYRE", "MRF"], -1], ["Oil producers", ["ONGC", "OIL"], 1]]],
+  ["inr", "USD / INR", x => x.m1 > 0.8 ? ["Rupee weakening: exporters earn more in rupees", "warn"] : x.m1 < -0.8 ? ["Rupee strengthening: importers gain, exporters lose a little", "warn"] : ["Rupee stable", ""],
+    [["IT services", ["TCS", "INFY", "HCLTECH", "WIPRO", "TECHM"], 1], ["Pharma exporters", ["SUNPHARMA", "DRREDDY", "CIPLA"], 1], ["Importers (oil, electronics)", ["BPCL", "DIXON"], -1]]],
+  ["yield", "US 10-year yield", x => x.m1 > 4 ? ["Rising US yields pull foreign money out of India", "down"] : x.m1 < -4 ? ["Falling US yields bring foreign money to emerging markets", "up"] : ["US yields steady", ""],
+    [["IT (US-linked)", ["INFY", "TCS"], -1], ["Private banks (foreign-owned)", ["HDFCBANK", "ICICIBANK", "KOTAKBANK"], -1], ["Rate-sensitive realty", ["DLF", "GODREJPROP"], -1]]],
+  ["gold", "Gold", x => x.m1 > 4 ? ["Gold rising: investors seek safety", "warn"] : x.m1 < -4 ? ["Gold falling: risk appetite returning", "up"] : ["Gold steady", ""],
+    [["Gold-loan lenders", ["MUTHOOTFIN", "MANAPPURAM"], 1], ["Jewellers", ["TITAN", "KALYANKJIL"], 1]]],
+  ["copper", "Copper", x => x.m1 > 5 ? ["Strong global industrial demand", "up"] : x.m1 < -5 ? ["Weaker industrial demand", "down"] : ["Industrial metals steady", ""],
+    [["Metals", ["HINDALCO", "VEDL", "NATIONALUM", "HINDCOPPER", "TATASTEEL"], 1]]],
+  ["natgas", "Natural gas", x => x.m1 > 8 ? ["Costlier gas squeezes city-gas and fertiliser margins", "down"] : x.m1 < -8 ? ["Cheaper gas helps city-gas distributors", "up"] : ["Gas steady", ""],
+    [["City gas distributors", ["IGL", "MGL", "GUJGASLTD"], -1], ["Gas producers / transmission", ["GAIL", "PETRONET"], 0]]],
+  ["vix", "US VIX", x => x.price > 25 ? ["High global fear: expect volatile, risk-off trading", "down"] : x.price < 15 ? ["Calm global markets: supportive for equities", "up"] : ["Normal global nerves", ""],
+    [["High-beta stocks", ["ADANIENT", "TATAMOTORS", "TMPV", "BAJFINANCE"], -1]]],
+];
+function globalView() {
+  const W = D.world;
+  if (!W || !(W.indices || []).length) return `<div class="fade"><h1 class="page">Global 360</h1><div class="empty"><b>Global data is on its way</b>It appears after the next data refresh (a few minutes).</div></div>`;
+  const mac = W.macro || [], M = k => mac.find(x => x.key === k), I = n => (W.indices || []).find(x => x.name === n);
+  const cues = W.cues || {}, cc = cues.label === "Supportive" ? "up" : cues.label === "Negative" ? "down" : "warn";
+  const val = x => `${x.unit === "$" ? "$" : x.unit === "₹" ? "₹" : ""}${fmt(x.price, x.price > 1000 ? 0 : 2)}${x.unit === "%" ? "%" : ""}`;
+  const chg = (x, v) => `<b class="num ${G_INV.has(x.key) ? cls(-(v || 0)) : cls(v)}">${pct(v)}</b>`;
+  const tile = (x, label) => x ? `<div class="gtile"><div class="muted">${esc(label || x.name)}</div><div class="num gtv">${x.key ? val(x) : fmt(x.price, x.price > 1000 ? 0 : 2)}</div><div>${x.key ? chg(x, x.change_pct) : `<b class="num ${cls(x.change_pct)}">${pct(x.change_pct)}</b>`} <span class="muted" style="font-size:11px">1M ${pct(x.m1)}</span></div>${sparkSvg(x.spark, 100, 24)}</div>` : "";
+  const snap = [[I("India Nifty 50"), "Nifty 50"], [I("S&P 500")], [I("Nasdaq")], [I("Japan Nikkei 225"), "Nikkei"], [M("gold")], [M("crude")], [M("inr")], [M("yield")], [M("ivix")], [M("btc"), "Bitcoin"]].map(([x, l]) => tile(x, l)).join("");
+  // sector impact
+  const chip = sym => { const s = S[sym]; return s ? `<button class="gimp" data-go="${esc(sym)}">${esc(sym)} <b class="${cls(s.change_pct)}">${pct(s.change_pct)}</b></button>` : ""; };
+  const impact = G_IMPACT.map(([k, lab, read, secs]) => { const x = M(k); if (!x) return ""; const [msg, tone] = read(x);
+    return `<tr><td class="l"><b>${esc(lab)}</b><div class="muted" style="font-size:11.5px">${val(x)} · today ${pct(x.change_pct)} · 1M ${pct(x.m1)}</div></td><td class="l"><span class="${tone}">${esc(msg)}</span></td>
+      <td class="l">${secs.map(([n, syms, dir]) => { const c = syms.map(chip).filter(Boolean).join(""); return c ? `<div class="gsec"><span class="muted">${dir > 0 ? "▲ helped" : dir < 0 ? "▼ hurt" : "◆ watch"} · ${esc(n)}</span> ${c}</div>` : ""; }).join("")}</td></tr>`; }).join("");
+  // money flows
+  const fl = D.fii_dii || [], mx = Math.max(1, ...fl.map(f => Math.abs(f.net)));
+  const flows = fl.length ? fl.map(f => `<div class="gflow"><span>${esc(f.category)}</span><div class="gfbar"><i class="${f.net >= 0 ? "pos" : "neg"}" style="width:${(Math.abs(f.net) / mx * 100).toFixed(0)}%"></i></div><b class="num ${cls(f.net)}">${f.net >= 0 ? "+" : "−"}₹${fmt(Math.abs(f.net), 0)} cr</b></div>`).join("") + `<div class="muted" style="font-size:11.5px;margin-top:6px">${esc(fl[0].date || "")} · cash market net buying (+) or selling (−). FII = foreign investors, DII = Indian funds.</div>` : '<div class="muted">FII/DII data unavailable.</div>';
+  // groups of commodities & currencies
+  const groups = [...new Set(mac.map(x => x.group).filter(Boolean))];
+  const mcard = x => `<div class="mcard"><div class="muted">${esc(x.name)}</div><div><b class="num">${val(x)}</b> ${chg(x, x.change_pct)}</div>${sparkSvg(x.spark, 100, 24)}<div class="muted" style="font-size:11.5px">1W ${pct(x.w1)} · 1M ${pct(x.m1)} · 1Y ${pct(x.y1)}</div></div>`;
+  const card = x => `<div class="wcard"><div class="wtop"><b>${esc(x.name)}</b><span class="muted">${x.trend ? esc(x.trend) : ""}</span></div><div class="wmid"><span class="num wpx">${fmt(x.price, x.price > 1000 ? 0 : 2)}</span><b class="num ${cls(x.change_pct)}">${pct(x.change_pct)}</b></div>${sparkSvg(x.spark)}
+    <div class="wret">${[["1W", x.w1], ["1M", x.m1], ["1Y", x.y1]].map(([l, v]) => `<span><em>${l}</em><b class="${cls(v)}">${pct(v)}</b></span>`).join("")}</div></div>`;
+  // news
+  const india = [...(D.news || [])].filter(n => !n.official).sort((a, b) => (b.published || "").localeCompare(a.published || "")).slice(0, 9);
+  const nlist = L => L.map(i => `<a href="${esc(safeUrl(i.link))}" target="_blank" rel="noopener" class="wn"><span class="tdot ${i.tone || "neutral"}"></span><span>${esc(i.title)}<em class="muted"> · ${esc(i.source || "")} · ${ago(i.published)}</em></span></a>`).join("") || '<div class="muted">No fresh stories.</div>';
+  const ncard = (title, L, extra) => `<div class="card"><div class="hd"><h2>${title}</h2>${extra || ""}</div><div class="bd wnews">${nlist(L)}</div></div>`;
+  const N = k => (W.news?.[k]?.items || []).slice(0, 7);
+  return `<div class="fade"><h1 class="page">Global 360</h1><p class="sub">Everything outside the stock itself that moves Indian shares: world markets, the rupee and dollar, US interest rates, gold, crude and other commodities, global fear gauges, foreign money flows, and the latest Indian, Fed, RBI, Government and commodity news. World prices may be delayed up to 15 minutes. Data ${ago(W.updated)}.</p>
+    <div class="card wcues"><div class="hd"><h2>Global cues for India: <span class="${cc}">${esc(cues.label || "–")}</span></h2><button class="btn sm" data-gask="1">Ask AI what this means for my stocks</button></div><div class="bd"><ul>${(cues.lines || []).map(l => `<li>${esc(l)}</li>`).join("")}</ul></div></div>
+    <h3 class="wsec">Snapshot</h3><div class="gtiles">${snap}</div>
+    <div class="card" style="margin-top:16px"><div class="hd"><h2>How the world is moving Indian sectors</h2><span class="muted" style="font-size:12px">global driver → effect → tracked stocks today (tap to open)</span></div><div class="tblwrap"><table class="tbl gimpt"><thead><tr><th class="l">Driver</th><th class="l">What it means</th><th class="l">Sectors & stocks</th></tr></thead><tbody>${impact}</tbody></table></div></div>
+    <div class="grid g2" style="margin-top:16px"><div class="card"><div class="hd"><h2>Money flows</h2><span class="muted" style="font-size:12px">who bought Indian shares</span></div><div class="bd">${flows}</div></div>
+      ${ncard("Latest Indian share news", india, `<button class="btn sm" data-nav="news">All stock news</button>`)}</div>
+    ${groups.map(g => `<h3 class="wsec">${esc(g)}</h3><div class="mgrid">${mac.filter(x => x.group === g).map(mcard).join("")}</div>`).join("")}
+    ${["India", "Americas", "Europe", "Asia"].map(r => { const L = (W.indices || []).filter(x => x.region === r); return L.length ? `<h3 class="wsec">World indices · ${r}</h3><div class="wgrid">${L.map(card).join("")}</div>` : ""; }).join("")}
+    <h3 class="wsec">Policy, global & commodity news</h3><div class="grid g2">${ncard("Gold, crude & commodities", N("commod"))}${ncard("US Federal Reserve & rates", N("fed"))}${ncard("RBI & interest rates", N("rbi"))}${ncard("Government of India decisions", N("govt"))}</div>
+    <div style="margin-top:14px">${ncard("Global cues", N("global"))}</div>
+    <p class="muted" style="font-size:12px;margin-top:12px">Red/green on the rupee, dollar, US yields, crude, gas and fear gauges is from India's point of view (a rise is usually bad, so it shows red). The US 3-month T-bill yield tracks where markets expect the Fed's policy rate. Sector effects are typical relationships, not certainties. Information only, not investment advice.</p></div>`;
+}
 // ---------- MOMENTUM QUADRANT: what is moving up today, for indices and stocks ----------
 const MQ_SETS = [["indices", "Indices"], ["n50", "Nifty 50"], ["n200", "Nifty 200"], ["fo", "F&O stocks"], ["mine", "My stocks"]];
 const MQ_Q = {
@@ -1882,7 +2032,7 @@ $("#theme").addEventListener("click", () => {
 });
 if (!SNAPSHOT) { let lastH = location.hash; const onBack = () => { if (location.hash === lastH) return; lastH = location.hash; readHash(); render(); }; window.addEventListener("hashchange", onBack); window.addEventListener("popstate", onBack); const _ps = history.pushState.bind(history); history.pushState = (a, b, h) => { _ps(a, b, h); lastH = location.hash; }; }
 
-if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "fno", "options", "circuits", "screener", "momentum", "groups", "portfolio", "calendar"].includes(h)) view = h; }
+if (!SNAPSHOT) readHash(); else { const h = location.hash.slice(1); if (["markets", "indices", "fno", "options", "circuits", "screener", "momentum", "groups", "world", "portfolio", "calendar"].includes(h)) view = h; }
 tickClock(); setInterval(tickClock, 1000);
 document.addEventListener("mouseover", e => { mmPaused = Boolean(e.target.closest("#mm")); btHover = Boolean(e.target.closest("#bticker")); });
 // ---------- PULSE AGENT: floating assistant (rule-based; advice comes from data/latest.json → advice) ----------

@@ -185,6 +185,12 @@ function build(d, opt = {}) {
     }
     files["groups.txt"] = L.join("\n");
   }
+  // ---------- world.txt (global indices, macro cues, Fed/RBI/Govt news) ----------
+  if (d.world) { const w = d.world, L = ["DALAL PULSE — WORLD MARKETS, MACRO CUES AND POLICY NEWS", stamp, "", `GLOBAL CUES FOR INDIA: ${w.cues?.label || "-"} (score ${w.cues?.score ?? "-"})`, ...(w.cues?.lines || []).map(l => "- " + l), "", "WORLD INDICES (last price, day, 1M, 1Y, trend)"];
+    for (const x of w.indices || []) L.push(`- ${x.name} (${x.region}): ${x.price} | ${pc(x.change_pct)} | 1M ${pc(x.m1)} | 1Y ${pc(x.y1)} | ${x.trend || "-"}`);
+    L.push("", "MACRO"); for (const x of w.macro || []) L.push(`- ${x.name}: ${x.price}${x.unit === "%" ? "%" : ""} | day ${pc(x.change_pct)} | 1M ${pc(x.m1)} | 3M ${pc(x.m3)}`);
+    for (const [k, v] of Object.entries(w.news || {})) { L.push("", `NEWS — ${v.label.toUpperCase()}`); for (const n of (v.items || []).slice(0, 8)) L.push(`- [${ist(n.published)}] ${n.tone} | ${n.title} (${n.source})`); }
+    L.push("", DISCLAIMER); files["world.txt"] = L.join("\n"); }
   // ---------- index.txt (guide for AI assistants) ----------
   files["index.txt"] = [
     "DALAL PULSE — DATA FOR AI ASSISTANTS", stamp, "",
@@ -194,6 +200,7 @@ function build(d, opt = {}) {
     `- ${site}data/ai/ideas.txt   — screens: leaders, breakouts, pullbacks, F&O build-ups, options spreads`,
     `- ${site}data/ai/news.txt    — stock news, NSE filings, upcoming results/dividends`,
     `- ${site}data/ai/stocks.txt  — one line per tracked stock`,
+    `- ${site}data/ai/world.txt   — world indices, dollar, US yields, Fed-rate proxy, crude, gold, rupee + Fed / RBI / Government of India news`,
     `- ${site}data/ai/groups.txt  — business groups (Tata, Reliance, Adani, Birla...) with every listed company, market cap and moves`,
     `- ${site}data/ai/stock/<SYMBOL>.txt — full detail for one stock (e.g. RELIANCE, M&M)`,
     `MCP connector: ${site}mcp`, "", DISCLAIMER,
