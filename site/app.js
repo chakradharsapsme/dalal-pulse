@@ -2202,7 +2202,7 @@ function paNewsHtml(list, open) {
 }
 const PA_HIST = store.get("dp-pahist", []);
 const mdClean = t => String(t || "").replace(/[\u2010\u2011\u2012\u2013\u2212\uFE63\uFF0D]/g, "-").replace(/\u2014/g, " - ").replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, " ").replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
-  .replace(/[\u2018\u2019\u2032]/g, "'").replace(/[\u201C\u201D\u2033]/g, '"').replace(/\$\$?([^$\n]{1,80})\$\$?/g, "$1").replace(/\\(?:text|mathrm|mathbf)\{([^}]*)\}/g, "$1").replace(/\\times/g, "×").replace(/\\approx/g, "≈").replace(/\\[a-zA-Z]+/g, "").replace(/```[a-z]*\n?/gi, "").replace(/\s*\((?:copy(?:ied)?|taken|numbers?) from (?:the )?desk calculations?\)/gi, "").replace(/\bdesk calculations?\b/gi, "our calculations").replace(/\bDESK\b/g, "our");
+  .replace(/[\u2018\u2019\u2032]/g, "'").replace(/[\u201C\u201D\u2033]/g, '"').replace(/\$\$?([^$\n]{1,80})\$\$?/g, "$1").replace(/\\(?:text|mathrm|mathbf)\{([^}]*)\}/g, "$1").replace(/\\times/g, "×").replace(/\\approx/g, "≈").replace(/\\[a-zA-Z]+/g, "").replace(/```[a-z]*\n?/gi, "").replace(/\s*\((?:copy(?:ied)?|taken|numbers?) from (?:the )?desk calculations?\)/gi, "").replace(/\b(?:the |our )?desk calculations?\b/gi, "our calculations");
 function paMd(md) {
   md = mdClean(md);
   const inl = t => esc(t).replace(/&lt;br\s*\/?&gt;/gi, "<br>").replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g, "$1<i>$2</i>").replace(/`([^`]+)`/g, "<code>$1</code>");
