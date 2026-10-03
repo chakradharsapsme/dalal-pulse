@@ -1559,7 +1559,7 @@ async function askQ(q, opt = {}) {
     m.a = j.answer.replace(/(the |our )?DESK QUANT MODEL/gi, "our quant model");
     m.syms = (j.symbols && j.symbols.length) ? j.symbols : syms;
     m.news = (j.news || []).some(n => n.items?.length) ? j.news : await Promise.race([newsP, new Promise(res => setTimeout(() => res(null), 1200))]);
-    m.follow = (j.follow_ups || []).length ? j.follow_ups : paNext("", m.syms).filter(Boolean).slice(0, 3);
+    m.follow = ((j.follow_ups || []).length ? j.follow_ups : paNext("", m.syms).filter(Boolean).slice(0, 3)).map(x => mdClean(x).trim()).filter(Boolean);
     m.meta = `Worked ${((Date.now() - t0) / 1000).toFixed(0)}s · ${(j.steps || []).length} steps · ${esc(j.model || "AI")}`;
     if (m.syms[0]) { PAX.sym = m.syms[0]; paSaveCtx(); }
   } catch (e) {
@@ -1596,15 +1596,21 @@ const useBrowser = () => !!SR && VOICE.lang !== "auto";
 function voiceUi(state, msg) {
   const box = $("#askVoice"); if (!box) return;
   box.hidden = !state; box.dataset.state = state || "";
-  box.innerHTML = state === "rec" ? `<span class="vdot"></span><b>Listening…</b> <span class="num" id="vTime">0:00</span><span class="vbars" id="vBars">${"<i></i>".repeat(14)}</span><button type="button" class="btn sm primary" data-ak="vstop">Done</button><button type="button" class="linkish" data-ak="vcancel">Cancel</button><span class="muted vhint">Take your time: I keep listening until you tap <b>Done</b>. Your words appear in the box below; check them, then tap <b>Ask</b>.</span>`
+  box.innerHTML = state === "rec" ? `<span class="vdot"></span><b>Listening…</b><span class="vengine">${useBrowser() ? (/Edg\//.test(navigator.userAgent) ? "Microsoft speech engine" : /Chrome\//.test(navigator.userAgent) ? "Google speech engine" : "built-in speech engine") : "Whisper AI"} · ${esc((VLANGS.find(x => x[0] === VOICE.lang) || [, "English"])[1])}</span> <span class="num" id="vTime">0:00</span><span class="vbars" id="vBars">${"<i></i>".repeat(14)}</span><button type="button" class="btn sm primary" data-ak="vstop">Done</button><button type="button" class="linkish" data-ak="vcancel">Cancel</button><span class="muted vhint">Take your time: I keep listening until you tap <b>Done</b>. Your words appear in the box below; check them, then tap <b>Ask</b>.</span>`
     : state === "busy" ? `<span class="pa-spin"></span><b>Turning your voice into text…</b>`
     : state === "done" ? `<span class="up">●</span> <span>Check the text below, edit if needed, then tap <b>Ask</b>.</span>${VOICE.blob ? `<button type="button" class="linkish" data-ak="vwhisper">Not right? Re-check with Whisper</button>` : ""}<button type="button" class="linkish" data-ak="vclose">×</button>`
     : state === "err" ? `<span class="down">●</span> ${esc(msg || "Voice did not work.")} <button type="button" class="linkish" data-ak="vclose">OK</button>` : "";
 }
-function vShow() { const i = $("#askIn"); if (!i) return; i.value = (VOICE.base ? VOICE.base + " " : "") + (VOICE.final + " " + VOICE.interim).replace(/\s+/g, " ").trim(); i.scrollTop = i.scrollHeight; }
+const V_FIX = [[/\bnifty fifty\b/gi, "Nifty 50"], [/\bnifty\s*50\b/gi, "Nifty 50"], [/\bbank\s*nifty\b/gi, "Bank Nifty"], [/\bfin\s*nifty\b/gi, "Fin Nifty"], [/\bsensex\b/gi, "Sensex"], [/\bstop[\s-]*loss\b/gi, "stop-loss"],
+  [/\bf\s*(?:and|&|n)\s*o\b/gi, "F&O"], [/\bh\s*d\s*f\s*c\b/gi, "HDFC"], [/\bi\s*c\s*i\s*c\s*i\b/gi, "ICICI"], [/\bs\s*b\s*i\b/gi, "SBI"], [/\bt\s*c\s*s\b/gi, "TCS"], [/\bl\s*(?:and|&|n)\s*t\b/gi, "L&T"], [/\bm\s*(?:and|&|n)\s*m\b/gi, "M&M"],
+  [/\bi\s*t\s*c\b/gi, "ITC"], [/\bo\s*n\s*g\s*c\b/gi, "ONGC"], [/\bn\s*t\s*p\s*c\b/gi, "NTPC"], [/\bp\s*c\s*r\b/gi, "PCR"], [/\br\s*s\s*i\b/gi, "RSI"], [/\bf\s*i\s*i\b/gi, "FII"], [/\bd\s*i\s*i\b/gi, "DII"], [/\br\s*b\s*i\b/gi, "RBI"],
+  [/\btata motor\b/gi, "Tata Motors"], [/\bjio fin(?:ance)?\b/gi, "Jio Financial"], [/\bzomato\b/gi, "Zomato"], [/\brupees?\s+(\d)/gi, "₹$1"]];
+const vFix = t => { let x = String(t || "").replace(/\s+/g, " ").trim(); for (const [re, to] of V_FIX) x = x.replace(re, to); return x ? x[0].toUpperCase() + x.slice(1) : x; };
+function vShow() { const i = $("#askIn"); if (!i) return; i.value = (VOICE.base ? VOICE.base + " " : "") + vFix(VOICE.final + " " + VOICE.interim); i.scrollTop = i.scrollHeight; }
 async function voiceStart() {
   if (VOICE.on || VOICE.busy || ASK.busy) return;
   if (!SR && !canRecord()) { voiceUi("err", "This browser cannot use the microphone. Try Chrome, Edge or Safari."); return; }
+  if (!SR && !store.get("dp-vtip", false)) { toast("Tip: Chrome or Edge have a built-in speech engine that understands Indian voices best. Using Whisper AI here."); store.set("dp-vtip", true); }
   VOICE.on = true; VOICE.final = ""; VOICE.interim = ""; VOICE.blob = null; VOICE.chunks = []; VOICE.base = ($("#askIn")?.value || "").trim(); VOICE.t0 = Date.now();
   // audio recording (level meter + Whisper backup). Android cannot share the mic between the recogniser and a recorder, so it uses the recogniser alone.
   if (canRecord() && !(useBrowser() && /Android/i.test(navigator.userAgent))) {
@@ -1679,19 +1685,25 @@ async function voiceWhisper() {
     const r = await fetch("/transcribe" + (lang ? "?lang=" + lang : ""), { method: "POST", headers: { "Content-Type": body.type || "application/octet-stream", "X-DP-Client": "web" }, body, signal: AbortSignal.timeout(45000) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j.text) throw new Error(j.error === "too short" ? "that was too short" : j.error || "no text came back");
-    VOICE.lastLang = j.language || lang || null; VOICE.final = j.text; VOICE.interim = ""; vShow(); VOICE.pending = true;
+    VOICE.lastLang = j.language || lang || null; VOICE.final = vFix(j.text); VOICE.interim = ""; vShow(); VOICE.pending = true;
     VOICE.busy = false; voiceUi("done"); const b = $("#askVoice [data-ak='vwhisper']"); if (b) b.remove(); $("#askIn")?.focus();
   } catch (e) { VOICE.busy = false; voiceUi("err", "Couldn't turn that into text (" + e.message + "). Try again, or type your question."); }
 }
+// pick the most natural voice the device has: neural / natural / Google / premium voices first, Indian accent preferred
+function bestVoice(code) {
+  const vs = (window.speechSynthesis?.getVoices() || []).filter(v => v.lang && v.lang.replace("_", "-").toLowerCase().startsWith(code.slice(0, 2).toLowerCase()));
+  const score = v => (v.lang.replace("_", "-").toLowerCase() === code.toLowerCase() ? 40 : 0) + (/natural|neural/i.test(v.name) ? 30 : 0) + (/online/i.test(v.name) ? 10 : 0) + (/google/i.test(v.name) ? 20 : 0) + (/premium|enhanced/i.test(v.name) ? 15 : 0) + (/india|heera|neerja|prabhat|swara|madhur|ravi|veena|rishi|lekha/i.test(v.name) ? 8 : 0) - (v.localService === false ? 0 : 1);
+  return vs.sort((a, b) => score(b) - score(a))[0] || null;
+}
+try { window.speechSynthesis?.getVoices(); window.speechSynthesis && (speechSynthesis.onvoiceschanged = () => {}); } catch {}
 // read an answer aloud in the language it was asked in
 function askSpeak(md, lang) {
   if (!VOICE.speak || !window.speechSynthesis) return;
   speechSynthesis.cancel();
   const text = String(md).replace(/\|[^\n]*\|/g, " ").replace(/[#*_`>|]/g, " ").replace(/Information only, not investment advice\.?/i, "").replace(/\s+/g, " ").trim().slice(0, 1400);
   const code = TTS_LANG[(lang || "").slice(0, 2)] || (/[ऀ-ॿ]/.test(text) ? "hi-IN" : /[ఀ-౿]/.test(text) ? "te-IN" : /[஀-௿]/.test(text) ? "ta-IN" : "en-IN");
-  const parts = text.match(/[^.!?।]+[.!?।]?/g) || [text], vs = speechSynthesis.getVoices();
-  const v = vs.find(x => x.lang === code) || vs.find(x => x.lang?.startsWith(code.slice(0, 2))) || null;
-  for (const p of parts) { const u = new SpeechSynthesisUtterance(p.trim()); u.lang = code; if (v) u.voice = v; u.rate = 1.02; speechSynthesis.speak(u); }
+  const parts = (text.match(/[^.!?।]+[.!?।]?/g) || [text]).map(p => p.trim()).filter(Boolean), v = bestVoice(code);
+  for (const p of parts) { const u = new SpeechSynthesisUtterance(p); u.lang = code; if (v) u.voice = v; u.rate = 0.98; u.pitch = 1; speechSynthesis.speak(u); }
 }
 document.addEventListener("click", e => {
   const t = e.target; if (!t.closest("#askDrawer")) return;
@@ -2189,7 +2201,10 @@ function paNewsHtml(list, open) {
   return `<details class="pa-news-live"${open ? " open" : ""}><summary><span class="pa-dot"></span>Latest news right now · ${L.map(n => `${esc(n.sym)} ${n.items.length}`).join(" · ")}</summary>${L.map(n => `<div class="pa-nl">${L.length > 1 ? `<b>${esc(n.sym)}</b>` : ""}<ul>${n.items.slice(0, 6).map(i => `<li class="${i.ago_min < 180 ? "fresh" : ""}"><a href="${esc(safeUrl(i.link))}" target="_blank" rel="noopener">${esc(i.title)}</a><span class="muted"> · ${esc(i.source)} · ${paAgo(i.ago_min)}</span></li>`).join("")}</ul></div>`).join("")}<div class="muted" style="font-size:11px">Searched on the web when you asked (Indian and global business news sites). Headlines only; tap to read the source.</div></details>`;
 }
 const PA_HIST = store.get("dp-pahist", []);
+const mdClean = t => String(t || "").replace(/[\u2010\u2011\u2012\u2013\u2212\uFE63\uFF0D]/g, "-").replace(/\u2014/g, " - ").replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, " ").replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
+  .replace(/[\u2018\u2019\u2032]/g, "'").replace(/[\u201C\u201D\u2033]/g, '"').replace(/\$\$?([^$\n]{1,80})\$\$?/g, "$1").replace(/\\(?:text|mathrm|mathbf)\{([^}]*)\}/g, "$1").replace(/\\times/g, "×").replace(/\\approx/g, "≈").replace(/\\[a-zA-Z]+/g, "").replace(/```[a-z]*\n?/gi, "").replace(/\s*\((?:copy(?:ied)?|taken|numbers?) from (?:the )?desk calculations?\)/gi, "").replace(/\bdesk calculations?\b/gi, "our calculations").replace(/\bDESK\b/g, "our");
 function paMd(md) {
+  md = mdClean(md);
   const inl = t => esc(t).replace(/&lt;br\s*\/?&gt;/gi, "<br>").replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/(^|[^*])\*(?!\s)(.+?)\*(?!\*)/g, "$1<i>$2</i>").replace(/`([^`]+)`/g, "<code>$1</code>");
   const L = String(md).replace(/\r/g, "").split("\n"), out = []; let list = null, tbl = null;
   const flush = () => { if (list) { out.push(`<${list.t}>${list.i.map(x => `<li>${inl(x)}</li>`).join("")}</${list.t}>`); list = null; } if (tbl) { const rows = tbl.filter(r => !/^\s*\|?\s*:?-{2,}/.test(r)).map(r => r.replace(/^\s*\||\|\s*$/g, "").split("|").map(c => c.trim()));

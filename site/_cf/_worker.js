@@ -234,6 +234,9 @@ HOW TO ANSWER
 - Style: professional research-desk tone, plain English, Markdown with short headings (###), **bold** labels, bullets, a small table when comparing. 120–280 words unless asked for depth. No emojis. Indian number format.
 - ANALYST PLAYBOOK (use what fits the question): top-down first (global cues → Indian market regime and breadth → sector strength → the stock). For a stock, check in order: trend and moving averages, relative strength vs Nifty, volume and delivery (smart money), F&O open interest build-up, option-chain levels, news catalysts and upcoming results, valuation/quality if the data has it, then risk. Give a short bull case and bear case, the key level that changes the view, and position sizing from DESK CALCULATIONS. For portfolio questions think about concentration, sector overlap and stop discipline.
 - General market or concept questions (e.g. "what is PCR", "how does the RBI rate affect banks"): answer from your own knowledge like a senior analyst, clearly and practically, with an Indian-market example; do not invent live numbers.
+- FORMAT RULES (strict): plain text and simple Markdown only (### headings, **bold**, "- " bullets, at most ONE small table of 2–3 columns and up to 8 rows). Use normal hyphens "-" and normal spaces; no LaTeX, no $…$, no HTML tags, no emojis, no code blocks, no long unbroken strings. Keep lines short.
+- NUMBERS (strict): every price, stop, target, share count, risk amount and percentage must come from LIVE QUOTES, DESK CALCULATIONS or the research files. Never compute alternatives yourself (no "if you prefer 2% risk…" maths) — if the desk gives two sizes, copy both lines exactly.
+- CONSISTENCY: your rating must agree with the evidence and the site view; if the site view is negative and the trend is down, do not call it a Buy — say "Wait / Avoid until …" and give the level that would change your mind.
 - End with: "Information only, not investment advice."
 - After that, on the very last line, write exactly: FOLLOW_UPS: question 1 | question 2 | question 3 — three short, specific follow-up questions the user is likely to ask next (in the user's voice).`;
 const PLAN_SYSTEM = `You are the planning step of a stock-market research agent for Indian stocks (NSE). Read the conversation and the latest user message and decide what data to fetch.
@@ -287,6 +290,22 @@ function deskFor(sym, doc, price, cap, given) {
   const view = (doc.match(/SITE VIEW: ([^|\n]+)\| overall score (-?\d+)/) || []);
   const size = [1, 2].map(r => { const raw = Math.floor(cap * r / 100 / risk), q = Math.max(0, Math.min(raw, Math.floor(cap * 0.25 / price))); return `${r}% risk (₹${Math.round(cap * r / 100).toLocaleString("en-IN")}) → ${q} shares ≈ ₹${Math.round(q * price).toLocaleString("en-IN")}, loss if stopped ≈ ₹${Math.round(q * risk).toLocaleString("en-IN")}${q < raw ? " (capped at 25% of capital)" : ""}`; }).join(" | ");
   return { sym, rating: view[1] ? `site view: ${view[1].trim()}` : "", score: view[2] || "", entry: r2(price), stop: r2(stop), target: r2(target), size };
+}
+// tidy model output: odd unicode, LaTeX, stray HTML, runaway tables
+function cleanAnswer(t) {
+  t = String(t || "")
+    .replace(/[\u2010\u2011\u2012\u2013\u2212\u2043\uFE63\uFF0D]/g, "-").replace(/\u2014/g, " - ")
+    .replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, " ").replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
+    .replace(/[\u2018\u2019\u201A\u2032]/g, "'").replace(/[\u201C\u201D\u201E\u2033]/g, '"').replace(/\u2026/g, "...")
+    .replace(/\$\$?([^$\n]{1,80})\$\$?/g, "$1").replace(/\\(?:text|mathrm|mathbf)\{([^}]*)\}/g, "$1")
+    .replace(/\\times/g, "×").replace(/\\approx/g, "≈").replace(/\\(?:le|leq)\b/g, "≤").replace(/\\(?:ge|geq)\b/g, "≥").replace(/\\%/g, "%").replace(/\\rightarrow|\\to\b/g, "→").replace(/\\[a-zA-Z]+/g, "")
+    .replace(/<\/?(?:br|p|div|span|b|strong|i|em|sup|sub)[^>]*>/gi, m => /br/i.test(m) ? "\n" : "")
+    .replace(/```[a-z]*\n?/gi, "")
+    .replace(/\s*\((?:copy(?:ied)?|taken|numbers?) from (?:the )?desk calculations?\)/gi, "").replace(/\b(?:the |our )?desk calculations?\b/gi, "our calculations")
+    .replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  // break any word longer than 40 characters (URLs, ids) so it cannot push the layout
+  t = t.replace(/\S{41,}/g, w => w.match(/.{1,40}/g).join(" "));
+  return t;
 }
 async function agent(request, env) {
   const c = agentCors(request);
@@ -354,7 +373,7 @@ async function agent(request, env) {
   try {
     const out = await runAI(env, BIG, [{ role: "system", content: AGENT_SYSTEM }, { role: "system", content: "DATA:\n" + ctx }, ...hist, { role: "user", content: q }], 1100);
     step("Answer written");
-    let text = out.text, follow = [];
+    let text = cleanAnswer(out.text), follow = [];
     const fm = text.match(/\n?\s*\**FOLLOW[_ -]?UPS\**\s*:?\**\s*(.+)\s*$/i);
     if (fm) { follow = fm[1].split("|").map(x => x.replace(/^[\s\-*•\d.)]+|[\s*]+$/g, "").trim()).filter(x => x.length > 4 && x.length < 140).slice(0, 3); text = text.slice(0, fm.index).trim(); }
     return J({ answer: text, follow_ups: follow, model: out.model.split("/").pop(), symbols: plan.symbols, live, news: lnews, steps, ms: Date.now() - t0 });

@@ -879,3 +879,16 @@ button.gtile{text-align:left;font:inherit;color:inherit;cursor:pointer}button.gt
 @media(max-width:640px){.gtiles{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:8px;padding-bottom:4px;scrollbar-width:thin}.gtiles .gtile{flex:0 0 142px;scroll-snap-align:start}}
 .ask-voice[data-state="rec"]{border-color:var(--down)}
 .ask-voice[data-state="done"]{border-color:var(--up)}
+/* Ask AI: nothing may overflow the panel */
+.ask-log>*{min-width:0}
+.ask-a,.ask-q{overflow-wrap:anywhere;word-break:normal}
+.ask-a{overflow:hidden}
+.ask-a .pa-ai{font-family:var(--body,inherit)}
+.ask-a .pa-ai *{max-width:100%}
+.ask-a .pa-t{display:table;width:100%;table-layout:fixed;font-size:12.5px;overflow:visible}
+.ask-a .pa-t td,.ask-a .pa-t th{overflow-wrap:anywhere;vertical-align:top;text-align:left}
+.ask-a .pa-t th{background:var(--paper2)}
+.ask-a code{white-space:normal;overflow-wrap:anywhere}
+.ask-a .pa-live{white-space:normal;overflow-wrap:anywhere;font-size:12px}
+.ask-a .pa-news-live li{overflow-wrap:anywhere}
+.ask-voice .vengine{font-size:11.5px;color:var(--muted);padding:1px 8px;border:1px solid var(--line);border-radius:999px}
