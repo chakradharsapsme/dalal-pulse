@@ -1616,53 +1616,127 @@ const G_IMPACT = [
   ["vix", "US VIX", x => x.price > 25 ? ["High global fear: expect volatile, risk-off trading", "down"] : x.price < 15 ? ["Calm global markets: supportive for equities", "up"] : ["Normal global nerves", ""],
     [["High-beta stocks", ["ADANIENT", "TATAMOTORS", "TMPV", "BAJFINANCE"], -1]]],
 ];
-const G_TABS = [["overview", "Overview"], ["commod", "Commodities & currencies"], ["world", "World markets"], ["impact", "Sector impact"], ["news", "News & money flows"]];
+const G_TABS = [["overview", "Overview"], ["world", "World markets"], ["commod", "Commodities & currencies"], ["impact", "Sector impact"], ["news", "News & money flows"]];
 const G_NEWS = [["india", "Indian market"], ["commod", "Gold, crude & commodities"], ["fed", "US Fed & rates"], ["rbi", "RBI"], ["govt", "Government of India"], ["global", "Global cues"]];
+const G_ICON = { inr: "₹", dollar: "$", yield: "🏦", fed: "🏛️", eurinr: "€", gold: "🥇", silver: "🥈", crude: "🛢️", wti: "🛢️", natgas: "🔥", copper: "🔶", alu: "⚙️", vix: "🌡️", ivix: "📊", btc: "₿" };
+const G_CC = n => /S&P|Dow|Nasdaq|Russell/.test(n) ? "US" : /Brazil/.test(n) ? "BR" : /UK/.test(n) ? "UK" : /Germany/.test(n) ? "DE" : /France/.test(n) ? "FR" : /Euro/.test(n) ? "EU" : /Japan/.test(n) ? "JP" : /Hong Kong/.test(n) ? "HK" : /China/.test(n) ? "CN" : /Korea/.test(n) ? "KR" : /Taiwan/.test(n) ? "TW" : /Singapore/.test(n) ? "SG" : /Australia/.test(n) ? "AU" : /India/.test(n) ? "IN" : "";
+const G_SHORT = n => n.replace(/^(India|Japan|Hong Kong|China|Korea|UK|Germany|France|Singapore|Australia|Brazil) /, "");
+const GW_PER = [["change_pct", "Today", 2], ["w1", "1W", 4], ["m1", "1M", 8], ["m3", "3M", 15], ["y1", "1Y", 30]];
+ui.gwper = ui.gwper || "change_pct";
+// trading sessions in IST (regular hours; local holidays not included)
+const G_SESS = [["Tokyo", "Asia/Tokyo", 540, 930], ["Hong Kong", "Asia/Hong_Kong", 570, 960], ["India", "Asia/Kolkata", 555, 930], ["London", "Europe/London", 480, 990], ["New York", "America/New_York", 570, 960]];
+function gLocal(tz, d = new Date()) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", weekday: "short", hourCycle: "h23" }).formatToParts(d).map(x => [x.type, x.value]));
+  return { min: (+p.hour % 24) * 60 + +p.minute, wd: p.weekday };
+}
+function gSessions() {
+  const now = new Date(), ist = gLocal("Asia/Kolkata", now), nowPos = ist.min / 1440 * 100;
+  const rows = G_SESS.map(([name, tz, o, c]) => {
+    const l = gLocal(tz, now); let off = l.min - ist.min; if (off > 720) off -= 1440; if (off <= -720) off += 1440;
+    const so = ((o - off) % 1440 + 1440) % 1440, sc = ((c - off) % 1440 + 1440) % 1440;
+    const isOpen = !/Sat|Sun/.test(l.wd) && l.min >= o && l.min < c;
+    const seg = so < sc ? [[so, sc]] : [[so, 1440], [0, sc]];
+    const hm = m => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+    return `<div class="gsr"><span class="gsn">${esc(name)}<i class="${isOpen ? "on" : ""}">${isOpen ? "open" : "closed"}</i></span><span class="gst">${seg.map(([a, b]) => `<b class="${name === "India" ? "in" : ""}${isOpen ? " on" : ""}" style="left:${(a / 14.4).toFixed(2)}%;width:${((b - a) / 14.4).toFixed(2)}%" data-tip="${esc(name)}: ${hm(so)}–${hm(sc)} IST"></b>`).join("")}</span></div>`;
+  }).join("");
+  return `<div class="gsess"><div class="gsax"><span></span><span class="gst">${[0, 6, 12, 18].map(h => `<em style="left:${h / 24 * 100}%">${String(h).padStart(2, "0")}:00</em>`).join("")}<em style="left:100%;transform:translateX(-100%)">24:00</em></span></div>${rows}
+    <div class="gsnow" style="left:calc(var(--gsl) + (100% - var(--gsl)) * ${(nowPos / 100).toFixed(4)})"><em>now ${ist.min >= 0 ? `${String(Math.floor(ist.min / 60)).padStart(2, "0")}:${String(ist.min % 60).padStart(2, "0")}` : ""} IST</em></div></div>`;
+}
+// what each global factor means for India right now: good / bad / mixed / neutral
+function gFactors(W) {
+  const mac = W.macro || [], M = k => mac.find(x => x.key === k), I = n => (W.indices || []).find(x => x.name === n);
+  const avg = a => { const L = a.filter(v => v != null); return L.length ? L.reduce((x, y) => x + y, 0) / L.length : null; };
+  const us = ["S&P 500", "Nasdaq", "Dow Jones"].map(I).filter(Boolean), asia = (W.indices || []).filter(x => x.region === "Asia");
+  const F = [];
+  const usd = avg(us.map(x => x.change_pct)), usm = avg(us.map(x => x.m1));
+  if (us.length) F.push({ id: "us", icon: "US", name: "US markets", val: pct(usd), sub: `1M ${pct(usm)}`, tone: usd > 0.3 ? "good" : usd < -0.3 ? "bad" : "neutral", why: usd > 0.3 ? "Wall Street closed higher: positive lead" : usd < -0.3 ? "Wall Street fell: weak start likely" : "No strong lead from the US", tab: "world", spark: I("S&P 500")?.spark });
+  const ad = avg(asia.map(x => x.change_pct));
+  if (asia.length) F.push({ id: "asia", icon: "AS", name: "Asian markets", val: pct(ad), sub: `${asia.filter(x => x.change_pct > 0).length}/${asia.length} up`, tone: ad > 0.3 ? "good" : ad < -0.3 ? "bad" : "neutral", why: ad > 0.3 ? "Region is risk-on" : ad < -0.3 ? "Region is risk-off" : "Region mixed", tab: "world", spark: I("Japan Nikkei 225")?.spark });
+  const add = (k, rule) => { const x = M(k); if (!x) return; const [tone, why] = rule(x); F.push({ id: k, icon: G_ICON[k] || "•", name: x.name.replace(/ \(.*\)/, ""), val: `${x.unit === "$" ? "$" : x.unit === "₹" ? "₹" : ""}${fmt(x.price, x.price > 1000 ? 0 : 2)}${x.unit === "%" ? "%" : ""}`, sub: `1M ${pct(x.m1)}`, tone, why, tab: "commod", spark: x.spark, x }); };
+  add("crude", x => x.m1 > 4 ? ["bad", "Costlier oil: India imports ~85% of its oil"] : x.m1 < -4 ? ["good", "Cheaper oil eases inflation"] : ["neutral", "Oil steady"]);
+  add("dollar", x => x.m1 > 1.5 ? ["bad", "Strong dollar pulls money from emerging markets"] : x.m1 < -1.5 ? ["good", "Weaker dollar helps flows into India"] : ["neutral", "Dollar steady"]);
+  add("yield", x => x.m1 > 4 ? ["bad", "Rising US yields pull foreign money out"] : x.m1 < -4 ? ["good", "Falling US yields support flows"] : ["neutral", "US yields steady"]);
+  add("inr", x => x.m1 > 1 ? ["mixed", "Rupee weaker: good for IT & pharma, bad for importers"] : x.m1 < -1 ? ["good", "Rupee stronger: foreign money coming in"] : ["neutral", "Rupee stable"]);
+  add("gold", x => x.m1 > 4 ? ["mixed", "Gold rising: investors seek safety"] : x.m1 < -4 ? ["good", "Gold falling: risk appetite returning"] : ["neutral", "Gold steady"]);
+  add("vix", x => x.price > 25 ? ["bad", "High global fear"] : x.price < 15 ? ["good", "Calm global markets"] : ["neutral", "Normal global nerves"]);
+  add("ivix", x => x.price > 20 ? ["bad", "Expect big swings in Indian stocks"] : x.price < 12 ? ["good", "Calm Indian market"] : ["neutral", "Normal volatility in India"]);
+  const fii = (D.fii_dii || []).find(f => /FII|FPI/.test(f.category));
+  if (fii) F.push({ id: "fii", icon: "FII", name: "Foreign investors", val: `${fii.net >= 0 ? "+" : "−"}₹${fmt(Math.abs(fii.net), 0)} cr`, sub: fii.date || "", tone: fii.net > 500 ? "good" : fii.net < -500 ? "bad" : "neutral", why: fii.net > 500 ? "FIIs were net buyers" : fii.net < -500 ? "FIIs were net sellers" : "FIIs roughly flat", tab: "news" });
+  return F;
+}
+function gGauge(score, label) {
+  const v = Math.max(-8, Math.min(8, score || 0)), ang = Math.PI * (1 - (v + 8) / 16), cx = 110, cy = 104, r = 84;
+  const arc = (a0, a1, col) => { const p = a => [cx + r * Math.cos(Math.PI * (1 - a)), cy - r * Math.sin(Math.PI * (1 - a))]; const [x0, y0] = p(a0), [x1, y1] = p(a1); return `<path d="M${x0.toFixed(1)} ${y0.toFixed(1)} A${r} ${r} 0 0 1 ${x1.toFixed(1)} ${y1.toFixed(1)}" stroke="${col}" stroke-width="16" fill="none"/>`; };
+  const nx = cx + (r - 10) * Math.cos(ang), ny = cy - (r - 10) * Math.sin(ang);
+  return `<svg viewBox="0 0 220 124" class="ggauge" role="img" aria-label="Global cues: ${esc(label || "")}">${arc(0, 0.33, "var(--down)")}${arc(0.34, 0.66, "var(--warn)")}${arc(0.67, 1, "var(--up)")}
+    <line x1="${cx}" y1="${cy}" x2="${nx.toFixed(1)}" y2="${ny.toFixed(1)}" stroke="var(--ink)" stroke-width="4" stroke-linecap="round"/><circle cx="${cx}" cy="${cy}" r="7" fill="var(--ink)"/>
+    <text x="20" y="122" class="gga">Negative</text><text x="200" y="122" text-anchor="end" class="gga">Supportive</text></svg>`;
+}
+function gSpark(a, w = 160, h = 40, inv) {
+  const L = (a || []).filter(v => v != null); if (L.length < 2) return "";
+  const lo = Math.min(...L), hi = Math.max(...L), X = i => i / (L.length - 1) * w, Y = v => h - 3 - (v - lo) / ((hi - lo) || 1) * (h - 6);
+  const up = L[L.length - 1] >= L[0], col = (inv ? !up : up) ? "var(--up)" : "var(--down)", d = L.map((v, i) => (i ? "L" : "M") + X(i).toFixed(1) + " " + Y(v).toFixed(1)).join("");
+  return `<svg class="gsp2" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><path d="${d}L${w} ${h}L0 ${h}Z" fill="${col}" opacity=".12"/><path d="${d}" fill="none" stroke="${col}" stroke-width="1.8" vector-effect="non-scaling-stroke"/><circle cx="${X(L.length - 1).toFixed(1)}" cy="${Y(L[L.length - 1]).toFixed(1)}" r="2.6" fill="${col}"/></svg>`;
+}
 function globalView() {
   const W = D.world;
   if (!W || !(W.indices || []).length) return `<div class="fade"><h1 class="page">Global 360</h1><div class="empty"><b>Global data is on its way</b>It appears after the next data refresh (a few minutes).</div></div>`;
-  const tab = ui.gtab || "overview", mac = W.macro || [], M = k => mac.find(x => x.key === k), I = n => (W.indices || []).find(x => x.name === n);
+  const tab = ui.gtab || "overview", mac = W.macro || [], M = k => mac.find(x => x.key === k);
   const cues = W.cues || {}, cc = cues.label === "Supportive" ? "up" : cues.label === "Negative" ? "down" : "warn";
   const val = x => `${x.unit === "$" ? "$" : x.unit === "₹" ? "₹" : ""}${fmt(x.price, x.price > 1000 ? 0 : 2)}${x.unit === "%" ? "%" : ""}`;
-  const cg = (x, v) => `<span class="num ${x.key && G_INV.has(x.key) ? cls(-(v || 0)) : cls(v)}">${pct(v)}</span>`;
+  const inv = x => x.key && G_INV.has(x.key), cg = (x, v) => `<span class="num ${inv(x) ? cls(-(v || 0)) : cls(v)}">${pct(v)}</span>`;
   const chip = sym => { const s = S[sym]; return s ? `<button class="gimp" data-go="${esc(sym)}">${esc(sym)} <b class="${cls(s.change_pct)}">${pct(s.change_pct)}</b></button>` : ""; };
-  // compact table: one row per instrument
-  const trow = (x, name) => `<tr><td class="l"><b>${esc(name || x.name)}</b>${x.trend ? `<span class="gtr ${x.trend === "Uptrend" ? "up" : x.trend === "Downtrend" ? "down" : ""}">${esc(x.trend)}</span>` : ""}</td><td class="num">${x.key ? val(x) : fmt(x.price, x.price > 1000 ? 0 : 2)}</td><td class="num"><b>${cg(x, x.change_pct)}</b></td><td class="num gh">${cg(x, x.w1)}</td><td class="num">${cg(x, x.m1)}</td><td class="num gh">${cg(x, x.y1)}</td><td class="gsp">${sparkSvg(x.spark, 90, 22)}</td></tr>`;
-  const thead = `<thead><tr><th class="l">Name</th><th>Price</th><th>Today</th><th class="gh">1W</th><th>1M</th><th class="gh">1Y</th><th>60 days</th></tr></thead>`;
-  const table = (groups) => `<div class="card"><div class="tblwrap"><table class="tbl gtbl">${thead}${groups.map(([title, rows]) => rows.length ? `<tbody><tr class="ggrp"><td colspan="7">${esc(title)}</td></tr>${rows.join("")}</tbody>` : "").join("")}</table></div></div>`;
-  const impactRows = (n) => G_IMPACT.map(([k, lab, read, secs]) => { const x = M(k); if (!x) return null; const [msg, tone] = read(x); return { x, lab, msg, tone, secs, strong: tone && tone !== "" }; }).filter(Boolean).sort((a, b) => b.strong - a.strong).slice(0, n)
-    .map(r => `<div class="gimpr"><div class="gimph"><b>${esc(r.lab)}</b> <span class="muted">${val(r.x)} · today ${pct(r.x.change_pct)} · 1M ${pct(r.x.m1)}</span><span class="gmsg ${r.tone}">${esc(r.msg)}</span></div>
-      ${r.secs.map(([nm, syms, dir]) => { const c = syms.map(chip).filter(Boolean).join(""); return c ? `<div class="gsec"><span class="muted">${dir > 0 ? "▲ helped" : dir < 0 ? "▼ hurt" : "◆ watch"} · ${esc(nm)}</span> ${c}</div>` : ""; }).join("")}</div>`).join("");
   const india = [...(D.news || [])].filter(n => !n.official).sort((a, b) => (b.published || "").localeCompare(a.published || ""));
   const nlist = (L, n) => L.slice(0, n).map(i => `<a href="${esc(safeUrl(i.link))}" target="_blank" rel="noopener" class="wn"><span class="tdot ${i.tone || "neutral"}"></span><span>${esc(i.title)}<em class="muted"> · ${esc(i.source || "")} · ${ago(i.published)}</em></span></a>`).join("") || '<div class="muted">No fresh stories.</div>';
-  const fl = D.fii_dii || [], mx = Math.max(1, ...fl.map(f => Math.abs(f.net)));
-  const flows = fl.length ? fl.map(f => `<div class="gflow"><span>${esc(f.category)}</span><div class="gfbar"><i class="${f.net >= 0 ? "pos" : "neg"}" style="width:${(Math.abs(f.net) / mx * 100).toFixed(0)}%"></i></div><b class="num ${cls(f.net)}">${f.net >= 0 ? "+" : "−"}₹${fmt(Math.abs(f.net), 0)} cr</b></div>`).join("") + `<div class="muted" style="font-size:11.5px;margin-top:4px">${esc(fl[0].date || "")} · net buying (+) / selling (−) in the cash market</div>` : '<div class="muted">FII/DII data unavailable.</div>';
-  const tile = (x, label) => x ? `<button class="gtile" data-gtab="${x.key ? "commod" : "world"}"><div class="muted">${esc(label || x.name)}</div><div class="num gtv">${x.key ? val(x) : fmt(x.price, x.price > 1000 ? 0 : 2)}</div><div>${x.key ? cg(x, x.change_pct) : `<span class="num ${cls(x.change_pct)}">${pct(x.change_pct)}</span>`} <span class="muted" style="font-size:11px">1M ${pct(x.m1)}</span></div>${sparkSvg(x.spark, 100, 22)}</button>` : "";
-  let body = "";
-  if (tab === "overview") {
-    body = `<div class="gtiles">${[[I("India Nifty 50"), "Nifty 50"], [I("S&P 500")], [I("Nasdaq")], [I("Japan Nikkei 225"), "Nikkei"], [M("gold")], [M("crude")], [M("inr")], [M("yield")], [M("ivix")], [M("btc"), "Bitcoin"]].map(([x, l]) => tile(x, l)).join("")}</div>
-      <div class="ggrid2"><div class="card"><div class="hd"><h2>Biggest global effects on Indian sectors</h2><button class="linkbtn" data-gtab="impact">All 7 →</button></div><div class="bd">${impactRows(3)}</div></div>
-        <div class="gcol"><div class="card"><div class="hd"><h2>Latest Indian share news</h2><button class="linkbtn" data-gtab="news">More →</button></div><div class="bd wnews">${nlist(india, 5)}</div></div>
-          <div class="card"><div class="hd"><h2>Money flows</h2></div><div class="bd">${flows}</div></div></div></div>`;
-  } else if (tab === "commod") {
-    const groups = [...new Set(mac.map(x => x.group).filter(Boolean))];
-    body = table(groups.map(g => [g, mac.filter(x => x.group === g).map(x => trow(x))])) + `<p class="muted gnote">Colours on the rupee, dollar, US yields, crude, gas and fear gauges are from India's point of view: a rise is usually bad, so it shows red. The US 3-month T-bill yield tracks where markets expect the Fed's policy rate.</p>`;
-  } else if (tab === "world") {
-    body = table(["India", "Americas", "Europe", "Asia"].map(r => [r, (W.indices || []).filter(x => x.region === r).map(x => trow(x))])) + `<p class="muted gnote">Closing or latest prices from each exchange (may be delayed up to 15 minutes). Asian markets trade before India opens; US markets after India closes.</p>`;
-  } else if (tab === "impact") {
-    body = `<div class="card"><div class="bd">${impactRows(99)}</div></div><p class="muted gnote">Typical relationships between global prices and Indian sectors, not certainties. Tap a stock to open it.</p>`;
-  } else {
-    const nt = ui.gnews || "india", L = nt === "india" ? india : (W.news?.[nt]?.items || []);
-    body = `<div class="ggrid2"><div class="card"><div class="hd gnewshd"><div class="seg gseg">${G_NEWS.map(([k, l]) => `<button data-gnews="${k}" class="${nt === k ? "on" : ""}">${l}</button>`).join("")}</div></div><div class="bd wnews">${nlist(L, 12)}</div></div>
-      <div class="gcol"><div class="card"><div class="hd"><h2>Money flows</h2></div><div class="bd">${flows}</div></div></div></div>`;
-  }
-  return `<div class="fade"><div class="ghead2"><div><h1 class="page" style="margin-bottom:2px">Global 360</h1><p class="sub" style="margin:0">World markets, rupee & rates, gold, crude & commodities, sector effects, money flows and news · data ${ago(W.updated)}</p></div>
+  const fl = D.fii_dii || [], fmx = Math.max(1, ...fl.map(f => Math.abs(f.net)));
+  const flows = fl.length ? `<div class="gflw">${fl.map(f => `<div class="gflr"><span>${esc(f.category)}</span><div class="gflt"><i class="${f.net >= 0 ? "pos" : "neg"}" style="${f.net >= 0 ? "left:50%" : `right:50%`};width:${(Math.abs(f.net) / fmx * 50).toFixed(1)}%"></i></div><b class="num ${cls(f.net)}">${f.net >= 0 ? "+" : "−"}₹${fmt(Math.abs(f.net), 0)} cr</b></div>`).join("")}<div class="gflax"><span>← selling</span><span>buying →</span></div></div><div class="muted" style="font-size:11.5px;margin-top:6px">${esc(fl[0].date || "")} · net buying (+) / selling (−) in the cash market</div>` : '<div class="muted">FII/DII data unavailable.</div>';
+  const F = gFactors(W), TONE = { bad: ["Headwind", "down"], mixed: ["Mixed", "warn"], good: ["Tailwind", "up"], neutral: ["Neutral", "neutral"] };
+  const fcard = f => `<button class="gfc ${f.tone}" data-gjump="g-${f.tab === "news" ? "news" : f.tab}" data-tip="${esc(f.name + ": " + f.why)}"><span class="gfi">${esc(f.icon)}</span><span class="gfn">${esc(f.name)}</span><span class="gfv num">${esc(f.val)}</span><span class="gfs muted">${esc(f.sub)}</span><span class="gfp ${TONE[f.tone][1]}">${TONE[f.tone][0]}</span><span class="gfw">${esc(f.why)}</span></button>`;
+  const per = GW_PER.find(p => p[0] === ui.gwper) || GW_PER[0], [pk, pl, psc] = per;
+  const tileW = x => `<button class="gwt" style="${heat(x[pk], psc)}" data-tip="${esc(x.name + "\n" + pl + " " + pct(x[pk]) + " · 1M " + pct(x.m1) + " · 1Y " + pct(x.y1) + (x.trend ? "\n" + x.trend : ""))}"><span class="gwc">${G_CC(x.name)}</span><b>${esc(G_SHORT(x.name))}</b><span class="num">${pct(x[pk])}</span>${gSpark(x.spark, 100, 20)}</button>`;
+  const regions = ["Asia", "India", "Europe", "Americas"].map(r => [r, (W.indices || []).filter(x => x.region === r)]).filter(([, L]) => L.length);
+  const board = `<div class="gwb">${regions.map(([r, L]) => `<div class="gwr"><div class="gwrh">${esc(r)}<span class="num ${cls(L.reduce((a, x) => a + (x[pk] || 0), 0) / L.length)}">${pct(L.reduce((a, x) => a + (x[pk] || 0), 0) / L.length)}</span></div>${L.map(tileW).join("")}</div>`).join("")}</div>`;
+  const perSeg = `<div class="seg">${GW_PER.map(([k, l]) => `<button data-gwper="${k}" class="${pk === k ? "on" : ""}">${l}</button>`).join("")}</div>`;
+  const order = { bad: 0, mixed: 1, good: 2, neutral: 3 }, Fs = [...F].sort((a, b) => order[a.tone] - order[b.tone]);
+  const nb = F.filter(f => f.tone === "bad").length, ng = F.filter(f => f.tone === "good").length;
+  // 1) world ranking
+  const all = [...(W.indices || [])].filter(x => x[pk] != null).sort((a, b) => b[pk] - a[pk]), mx = Math.max(1, ...all.map(x => Math.abs(x[pk])));
+  const bars = all.map(x => `<div class="gbr${x.region === "India" ? " in" : ""}" data-tip="${esc(x.name + " · " + pl + " " + pct(x[pk]))}"><span class="gbl"><i class="gwc">${G_CC(x.name)}</i>${esc(G_SHORT(x.name))}</span><span class="gbt"><i class="${x[pk] >= 0 ? "pos" : "neg"}" style="${x[pk] >= 0 ? "left:50%" : "right:50%"};width:${(Math.abs(x[pk]) / mx * 50).toFixed(1)}%"></i></span><b class="num ${cls(x[pk])}">${pct(x[pk])}</b></div>`).join("");
+  // 2) commodities & currencies: one grid
+  const fmap = Object.fromEntries(F.map(f => [f.id, f]));
+  const ccard = x => { const f = fmap[x.key]; return `<div class="gcc"><div class="gcch"><span class="gfi">${esc(G_ICON[x.key] || "•")}</span><b>${esc(x.name.replace(/ \(.*\)/, ""))}<small class="muted">${esc(x.group || "")}</small></b>${x.trend ? `<span class="gtr ${x.trend === "Uptrend" ? (inv(x) ? "down" : "up") : x.trend === "Downtrend" ? (inv(x) ? "up" : "down") : ""}">${esc(x.trend)}</span>` : ""}</div>
+    <div class="gccv"><span class="num">${val(x)}</span>${cg(x, x.change_pct)}<span class="muted">today</span></div>${gSpark(x.spark, 200, 40, inv(x))}
+    <div class="gccp">${[["1W", x.w1, 4], ["1M", x.m1, 8], ["1Y", x.y1, 30]].map(([l, v, sc]) => `<span style="${heat(inv(x) ? -(v ?? 0) : v, sc)}"><em>${l}</em>${pct(v)}</span>`).join("")}</div>
+    ${f ? `<div class="gccf ${TONE[f.tone][1]}"><b>${TONE[f.tone][0]}:</b> ${esc(f.why)}</div>` : ""}</div>`; };
+  // 3) sector impact
+  const irows = G_IMPACT.map(([k, lab, read, secs]) => { const x = M(k); if (!x) return null; const [msg, tone] = read(x); return { k, x, lab, msg, tone, secs }; }).filter(Boolean).sort((a, b) => (b.tone ? 1 : 0) - (a.tone ? 1 : 0));
+  const impact = irows.map(r => `<div class="card gifl ti-${r.tone || "neutral"}"><div class="gif1"><span class="gfi">${esc(G_ICON[r.k] || "•")}</span><div><b>${esc(r.lab)}</b><div class="num">${val(r.x)}</div><div class="muted" style="font-size:12px">today ${pct(r.x.change_pct)} · 1M ${cg(r.x, r.x.m1)}</div></div></div>
+    <div class="gif2"><span class="gifa">→</span><span class="gmsg ${r.tone}">${esc(r.msg)}</span><span class="gifa">→</span></div>
+    <div class="gif3">${r.secs.map(([nm, syms, dir]) => { const c = syms.map(chip).filter(Boolean).join(""); return c ? `<div class="gsec2 ${dir > 0 ? "h" : dir < 0 ? "x" : "w"}"><span>${dir > 0 ? "▲ helps" : dir < 0 ? "▼ hurts" : "◆ watch"} · ${esc(nm)}</span><div>${c}</div></div>` : ""; }).join("")}</div></div>`).join("");
+  // 4) news
+  const nt = ui.gnews || "india", NL = nt === "india" ? india : (W.news?.[nt]?.items || []);
+  const SEC = [["g-cues", "Global cues"], ["g-factors", "Tailwinds & headwinds"], ["g-world", "World markets"], ["g-commod", "Commodities & currencies"], ["g-impact", "Sector impact"], ["g-news", "News & money flows"]];
+  const sh = (id, title, extra = "") => `<div class="gsech" id="${id}"><h2>${title}</h2>${extra}</div>`;
+  return `<div class="fade g1p"><div class="ghead2"><div><h1 class="page" style="margin-bottom:2px">Global 360</h1><p class="sub" style="margin:0">Everything that moves Indian stocks from outside, on one page · data ${ago(W.updated)}</p></div>
       <button class="btn sm" data-gask="1">Ask AI what this means for my stocks</button></div>
-    <div class="card gcuebar"><div class="gcuev ${cc}"><span class="muted">Global cues for India</span><b>${esc(cues.label || "–")}</b></div><ul class="gcuel${ui.gcues ? " open" : ""}">${(cues.lines || []).map(l => `<li>${esc(l)}</li>`).join("")}</ul>${(cues.lines || []).length > 3 ? `<button class="linkbtn" data-gcues="1">${ui.gcues ? "Show less" : `Show all ${(cues.lines || []).length} reasons`}</button>` : ""}</div>
-    <div class="gtabs" role="tablist">${G_TABS.map(([k, l]) => `<button role="tab" data-gtab="${k}" class="${tab === k ? "on" : ""}" aria-selected="${tab === k}">${l}</button>`).join("")}</div>
-    ${body}
+    <nav class="gtabs gjump" aria-label="Jump to section">${SEC.map(([id, l]) => `<button data-gjump="${id}">${l}</button>`).join("")}</nav>
+    <div class="ghero" id="g-cues"><div class="card gcue2"><div class="hd"><h2>Global cues for India</h2></div><div class="bd"><div class="gcuew">${gGauge(cues.score, cues.label)}<div class="gcuel2 ${cc}">${esc(cues.label || "–")}</div><div class="gtw"><span class="up">▲ ${ng} tailwind${ng === 1 ? "" : "s"}</span><span class="down">▼ ${nb} headwind${nb === 1 ? "" : "s"}</span></div></div>
+        <ul class="gcuel${ui.gcues ? " open" : ""}">${(cues.lines || []).map(l => `<li>${esc(l)}</li>`).join("")}</ul>${(cues.lines || []).length > 3 ? `<button class="linkbtn" data-gcues="1">${ui.gcues ? "Show less" : `All ${(cues.lines || []).length} reasons`}</button>` : ""}</div></div>
+      <div class="card"><div class="hd"><h2>Who is trading now</h2><span class="muted" style="font-size:12px">market hours in Indian time</span></div><div class="bd">${gSessions()}</div></div></div>
+    ${sh("g-factors", "Tailwinds and headwinds for Indian stocks", '<span class="muted">red = hurts Indian stocks, green = helps</span>')}<div class="gfcs">${Fs.map(fcard).join("")}</div>
+    ${sh("g-world", `World markets · ${pl}`, perSeg)}<div class="gwgrid">${board}<div class="card"><div class="hd"><h2>Ranking · ${pl}</h2><span class="muted" style="font-size:12px">India highlighted</span></div><div class="bd gbars">${bars}</div></div></div>
+    <p class="muted gnote">Asian markets trade before India opens; US markets after India closes, so their move shows up in India the next morning. Prices may be delayed up to 15 minutes.</p>
+    ${sh("g-commod", "Commodities, currencies & rates", '<span class="muted">colours from India’s point of view</span>')}<div class="gccs">${mac.map(ccard).join("")}</div>
+    <p class="muted gnote">For the rupee, dollar, US yields, crude, gas and fear gauges a rise is usually bad for India, so it shows red. The US 3-month T-bill tracks where markets expect the Fed's policy rate.</p>
+    ${sh("g-impact", "Sector impact: what the global moves mean for Indian stocks")}<div class="gimp2">${impact}</div>
+    <p class="muted gnote">Typical relationships, not certainties. Tap a stock to open it.</p>
+    ${sh("g-news", "News & money flows")}<div class="ggrid2" style="margin-top:0"><div class="card"><div class="hd gnewshd"><div class="seg gseg">${G_NEWS.map(([k, l]) => `<button data-gnews="${k}" class="${nt === k ? "on" : ""}">${l}</button>`).join("")}</div></div><div class="bd wnews">${nlist(NL, 10)}</div></div>
+      <div class="card"><div class="hd"><h2>Money flows</h2></div><div class="bd">${flows}</div></div></div>
     <p class="muted" style="font-size:12px;margin-top:10px">Information only, not investment advice.</p></div>`;
 }
+document.addEventListener("click", e => { const j = e.target.closest("[data-gjump]"); if (!j) return; const el = document.getElementById(j.dataset.gjump); if (!el) return;
+  const off = (document.querySelector(".mast")?.offsetHeight || 64) + (document.querySelector(".gjump")?.offsetHeight || 48) + 12; window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - off, behavior: reduced ? "auto" : "smooth" }); });
+document.addEventListener("click", e => { const g = e.target.closest("[data-gwper]"); if (g) { ui.gwper = g.dataset.gwper; render(); } });
 // ---------- MARKET MAP: size-weighted heatmap, who moved Nifty, sector rotation, returns grid, market health ----------
 const MM_TABS = [["map", "Market map"], ["movers", "Who moved Nifty"], ["rotation", "Sector rotation"], ["returns", "Returns heat grid"], ["health", "Market health"]];
 const MM_P = { d1: ["Today", s => s.change_pct, 3], w1: ["1 week", s => s.tech?.ret_1w, 6], m1: ["1 month", s => s.tech?.ret_1m, 12], m3: ["3 months", s => s.tech?.ret_3m, 20], y1: ["1 year", s => s.tech?.ret_1y, 40] };
@@ -2135,18 +2209,46 @@ function alertsView() {
       <form id="alForm" autocomplete="off">
         <label class="allab">Stock or index</label><div class="alsearch"><input class="field" id="alSym" placeholder="Type a name or symbol, e.g. Reliance, TCS, Nifty" value="${esc(f.symbol || "")}" aria-label="Stock or index"><div class="sugg" id="alSugg" hidden></div></div>
         <div id="alInfo" class="alinfo">${alFormInfo(f.symbol)}</div>
-        <label class="allab">Alert me when</label><div class="alline"><select class="field" id="alType">${opts}</select><input class="field num" id="alVal" type="number" step="0.05" min="0.05" placeholder="${(f.type || "above").endsWith("pct") ? "%" : "₹ price"}" value="${f.price ?? ""}" aria-label="Alert value"></div>
+        <div class="alhint">Add as many levels as you like, separated by commas, e.g. <b>1250, 1300, 1350</b>. Fill one box or all three.</div>
+        <label class="allab" for="alUp"><span class="up">▲</span> Price rises to (targets)</label><input class="field num" id="alUp" inputmode="decimal" placeholder="₹ e.g. 1250, 1300" value="${f.type === "above" ? f.price : ""}">
+        <label class="allab" for="alDn"><span class="down">▼</span> Price falls to (stop-loss / buy zone)</label><input class="field num" id="alDn" inputmode="decimal" placeholder="₹ e.g. 1150, 1100" value="${f.type === "below" ? f.price : ""}">
+        <label class="allab" for="alPct">Moves today by (%)</label><div class="alline"><input class="field num" id="alPct" inputmode="decimal" placeholder="% e.g. 3" value="${f.type && f.type.endsWith("pct") ? f.price : ""}"><select class="field" id="alPctDir"><option value="either">up or down</option><option value="up"${f.type === "up_pct" ? " selected" : ""}>up</option><option value="down"${f.type === "down_pct" ? " selected" : ""}>down</option></select></div>
         <label class="allab">Note (optional)</label><input class="field" id="alNote" maxlength="80" placeholder="e.g. buy zone, book profit, stop-loss" value="${esc(f.note || "")}">
         <label class="alchk"><input type="checkbox" id="alRep"${f.repeat ? " checked" : ""}> Repeat: alert me every time it crosses again (otherwise only once)</label>
-        <button class="btn primary" type="submit">${ed ? "Save changes" : "Create alert"}</button>
+        <button class="btn primary" type="submit">${ed ? "Save changes" : "Create alerts"}</button>
       </form></div></div>
-      <div class="card"><div class="hd"><h2>Active alerts <span class="muted">${act.length}</span></h2>${act.length ? '<span class="muted" style="font-size:12px">closest to trigger first</span>' : ""}</div><div class="bd alist">${act.map(row).join("") || `<div class="empty"><b>No alerts yet</b>Create one on the left, or use “Set alert” on any stock page.</div>`}</div></div></div>
+      <div class="card"><div class="hd"><h2>Active alerts <span class="muted">${act.length} on ${new Set(act.map(x => x.a.symbol)).size} ${new Set(act.map(x => x.a.symbol)).size === 1 ? "stock" : "stocks"}</span></h2>${act.length ? '<span class="muted" style="font-size:12px">closest to trigger first</span>' : ""}</div><div class="bd alist">${alGroups(act) || `<div class="empty"><b>No alerts yet</b>Create one on the left, or use “Set alert” on any stock page.</div>`}</div></div></div>
+    ${alBulkCard()}
     ${hist.length ? `<div class="card" style="margin-top:14px"><div class="hd"><h2>Triggered</h2><button class="sy" id="alclear">Clear finished</button></div><div class="bd">${hist.slice(0, 30).map(a => `<div class="alhist"><span class="muted">${new Date(a.hit).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span><b>${esc(a.symbol)}</b><span>${esc(alDesc(a))}</span><span class="num">hit at ${px(a.hitPrice)}</span>${a.count > 1 ? `<span class="muted">${a.count}×</span>` : ""}<span class="alhb">${a.repeat ? '<span class="badge">still active</span>' : `<button class="sy" data-alrearm="${a.id}">Alert me again</button>`}<button class="sy" data-adel="${a.id}">Delete</button></span></div>`).join("")}</div></div>` : ""}
     <p class="muted" style="font-size:12.5px;margin-top:12px">Alerts are saved privately in this browser and are checked while Dalal Pulse is open in any tab (it can be minimised). Prices come live from the exchange feed with a short delay. Information only, not investment advice.</p></div>`;
 }
+// active alerts grouped per stock, with a price ladder showing where each level sits vs the live price
+function alGroups(act) {
+  const by = new Map(); for (const x of act) { if (!by.has(x.a.symbol)) by.set(x.a.symbol, []); by.get(x.a.symbol).push(x); }
+  return [...by.entries()].map(([sym, L]) => ({ sym, L, g: Math.min(...L.map(x => x.g ?? 1e9)) })).sort((a, b) => a.g - b.g).map(({ sym, L }) => {
+    const p = alPx(sym), lv = L.filter(x => !x.a.type.endsWith("pct")), pc = L.filter(x => x.a.type.endsWith("pct"));
+    let ladder = "";
+    if (p != null && lv.length) {
+      const vals = [p, ...lv.map(x => +x.a.price)], lo = Math.min(...vals), hi = Math.max(...vals), pad = (hi - lo) * 0.08 || p * 0.01, a0 = lo - pad, a1 = hi + pad, pos = v => ((v - a0) / (a1 - a0) * 100).toFixed(2);
+      const ups = lv.filter(x => x.a.type === "above").map(x => +x.a.price), dns = lv.filter(x => x.a.type === "below").map(x => +x.a.price);
+      ladder = `<div class="alld" aria-hidden="true"><div class="alldl"></div>
+        ${dns.length ? `<div class="alldz d" style="left:${pos(Math.min(...dns))}%;width:${pos(p) - pos(Math.min(...dns))}%"></div>` : ""}${ups.length ? `<div class="alldz u" style="left:${pos(p)}%;width:${pos(Math.max(...ups)) - pos(p)}%"></div>` : ""}
+        ${lv.map(x => `<span class="alldm ${x.a.type === "above" ? "u" : "d"}${x.g != null && x.g <= 1 ? " near" : ""}" style="left:${pos(+x.a.price)}%" data-tip="${esc(alDesc(x.a) + (x.g != null ? " · " + Math.max(0, x.g).toFixed(2) + "% away" : ""))}"><i></i><em>${fmt(+x.a.price, +x.a.price >= 1000 ? 0 : 2)}</em></span>`).join("")}
+        <span class="alldp" style="left:${pos(p)}%"><i></i><em>now ${fmt(p, p >= 1000 ? 0 : 2)}</em></span></div>`;
+    }
+    const chip = ({ a, g }) => { const up = a.type === "above" || a.type === "up_pct", near = g != null && g <= 1;
+      return `<div class="allv${near ? " near" : ""}${a.wait ? " wait" : ""}"><span class="${up ? "up" : "down"}">${up ? "▲" : "▼"}</span><b>${a.type.endsWith("pct") ? (+a.price).toFixed(2) + "% " + (up ? "up" : "down") + " today" : px(+a.price)}</b>
+        <span class="muted">${a.wait ? "re-arming" : g == null ? "" : g <= 0 ? "at target" : g.toFixed(2) + (a.type.endsWith("pct") ? " pts" : "%") + " away"}</span>${a.repeat ? '<span class="badge">repeats</span>' : ""}${a.note ? `<span class="alnote muted">“${esc(a.note)}”</span>` : ""}
+        <span class="allvb"><button class="sy" data-aledit="${a.id}" aria-label="Edit">Edit</button><button class="sy" data-adel="${a.id}" aria-label="Delete">✕</button></span></div>`; };
+    const ord = a => a.type === "above" ? 0 : a.type.endsWith("pct") ? 1 : 2, sorted = [...L].sort((x, y) => ord(x.a) - ord(y.a) || y.a.price - x.a.price);
+    return `<div class="algp"><div class="algh"><button class="sy alsym" ${S[sym] ? `data-go="${esc(sym)}"` : ""}>${esc(sym)}</button><span class="muted alnm">${esc(alName(sym))}</span>
+      <span class="num" data-allive="${esc(sym)}">${px(p)} <small class="${cls(alChg(sym))}">${pct(alChg(sym))}</small></span><span class="alghb"><button class="sy" data-aladd="${esc(sym)}">+ level</button><button class="sy" data-aldelall="${esc(sym)}">Delete all</button></span></div>
+      ${ladder}<div class="allvs">${sorted.map(chip).join("")}</div></div>`;
+  }).join("");
+}
 // update just the live numbers without redrawing the form the user may be typing in
 function alRefreshLive() {
-  if (document.activeElement?.closest?.("#alForm")) { document.querySelectorAll("[data-allive]").forEach(el => { const s = el.dataset.allive; el.innerHTML = `${px(alPx(s))} <small class="${cls(alChg(s))}">${pct(alChg(s))}</small>`; }); const st = $(".alstat"); if (st && AL.last) st.querySelector("span:nth-child(2)").textContent = (alMarketOpen() ? "Market open · checking live prices every 30 seconds" : "Market closed · alerts check again when trading starts") + ` · last check ${new Date(AL.last).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`; return; }
+  if (document.activeElement?.closest?.("#alForm, .albulk")) { document.querySelectorAll("[data-allive]").forEach(el => { const s = el.dataset.allive; el.innerHTML = `${px(alPx(s))} <small class="${cls(alChg(s))}">${pct(alChg(s))}</small>`; }); const st = $(".alstat"); if (st && AL.last) st.querySelector("span:nth-child(2)").textContent = (alMarketOpen() ? "Market open · checking live prices every 30 seconds" : "Market closed · alerts check again when trading starts") + ` · last check ${new Date(AL.last).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`; return; }
   render();
 }
 async function alPick(sym) {
@@ -2158,7 +2260,7 @@ async function alPick(sym) {
       if (v && v.price) AL.live[sym] = { ...v, at: Date.now() }; } catch {}
     if ($("#alSym")?.value.trim().toUpperCase() === sym) $("#alInfo").innerHTML = alPx(sym) != null ? alFormInfo(sym) : `<span class="down">Couldn't find a live price for “${esc(sym)}”. Use the NSE symbol (e.g. RELIANCE, HDFCBANK, TATAMOTORS).</span>`;
   }
-  $("#alVal")?.focus();
+  $("#alUp")?.focus();
 }
 document.addEventListener("input", e => {
   if (e.target.id !== "alSym") return;
@@ -2168,23 +2270,69 @@ document.addEventListener("input", e => {
 });
 document.addEventListener("change", e => { if (e.target.id === "alType") { const v = $("#alVal"); if (v) v.placeholder = e.target.value.endsWith("pct") ? "%" : "₹ price"; } });
 document.addEventListener("keydown", e => { if (e.target.id === "alSym" && e.key === "Enter") { e.preventDefault(); const first = $("#alSugg [data-alpick]"); alPick(first ? first.dataset.alpick : e.target.value); } });
+const alVals = str => [...new Set(String(str || "").split(/[,;\s]+/).map(x => +x.replace(/[₹%]/g, "")).filter(v => v > 0))];
+// create alerts for one stock: {above:[..], below:[..], up_pct:[..], down_pct:[..]}
+function alCreate(sym, sets, note, repeat) {
+  const p = alPx(sym); let n = 0, crossed = 0;
+  for (const [type, vals] of Object.entries(sets)) for (const v of vals) {
+    if (my.alerts.some(a => a.symbol === sym && a.type === type && +a.price === v && (!a.hit || a.repeat))) continue;   // no duplicates
+    if (p != null && ((type === "above" && v <= p) || (type === "below" && v >= p))) crossed++;
+    my.alerts.push({ id: Math.random().toString(36).slice(2, 9), symbol: sym, type, price: v, note, repeat, created: new Date().toISOString(), base: p }); n++;
+  }
+  if (n && S[sym] && !isMine(sym)) my.watch.push(sym);
+  return [n, crossed];
+}
+function alDone(n, crossed, what) {
+  saveMy(); alBadge(); toast(n ? `${n} alert${n > 1 ? "s" : ""} set${what ? " · " + what : ""}${crossed ? ` · ${crossed} already reached, so ${crossed > 1 ? "they pop" : "it pops"} up now` : ""}` : "Nothing new to add (those alerts already exist)");
+  render(); alEvaluate(); alTick(true); alSchedule();
+}
 document.addEventListener("submit", e => {
   if (e.target.id !== "alForm") return; e.preventDefault();
-  const sym = $("#alSym").value.trim().toUpperCase(), type = $("#alType").value, v = +$("#alVal").value, note = $("#alNote").value.trim(), repeat = $("#alRep").checked;
+  const sym = $("#alSym").value.trim().toUpperCase(), note = $("#alNote").value.trim(), repeat = $("#alRep").checked;
   if (!/^[A-Z0-9&_^.-]{1,24}$/.test(sym)) { toast("Pick a stock first"); $("#alSym").focus(); return; }
-  if (!(v > 0)) { toast(type.endsWith("pct") ? "Enter the % move" : "Enter the alert price"); $("#alVal").focus(); return; }
-  const p = alPx(sym);
-  if (p != null && !type.endsWith("pct") && ((type === "above" && v <= p) || (type === "below" && v >= p)) && !confirm(`${sym} is already ${type === "above" ? "above" : "below"} ${px(v)} (now ${px(p)}). Save anyway? It will pop up straight away.`)) return;
+  const pc = alVals($("#alPct").value), dir = $("#alPctDir").value;
+  const sets = { above: alVals($("#alUp").value), below: alVals($("#alDn").value), up_pct: dir !== "down" ? pc : [], down_pct: dir !== "up" ? pc : [] };
+  if (!Object.values(sets).some(a => a.length)) { toast("Enter at least one price or % level"); $("#alUp").focus(); return; }
   if (ui.aEdit) my.alerts = my.alerts.filter(a => a.id !== ui.aEdit);
-  my.alerts.push({ id: Math.random().toString(36).slice(2, 9), symbol: sym, type, price: v, note, repeat, created: new Date().toISOString(), base: p });
-  if (S[sym] && !isMine(sym)) my.watch.push(sym);
-  saveMy(); ui.aEdit = null; AL.pend = null; toast(`Alert set: ${sym} · ${alDesc({ type, price: v })}`); render(); alBadge(); alEvaluate(); alTick(true); alSchedule();
+  const [n, crossed] = alCreate(sym, sets, note, repeat);
+  ui.aEdit = null; AL.pend = null; alDone(n, crossed, sym);
 });
+// ---- several stocks at once ----
+AL.bulk = store.get("dp-albulk", null) || [{ sym: "", up: "", dn: "", note: "" }, { sym: "", up: "", dn: "", note: "" }, { sym: "", up: "", dn: "", note: "" }];
+const alBulkSave = () => store.set("dp-albulk", AL.bulk);
+function alBulkCard() {
+  const opts = [...Object.keys(AL_IDX), ...D.stocks.map(s => s.symbol)];
+  return `<div class="card albulk" style="margin-top:14px"><div class="hd"><h2>Several stocks at once</h2><span class="muted" style="font-size:12.5px">fill a row per stock · commas for more levels</span></div><div class="bd">
+    <datalist id="alDL">${opts.map(o => `<option value="${esc(o)}">${esc(AL_IDX[o] || S[o]?.name || "")}</option>`).join("")}</datalist>
+    <div class="albt"><div class="albh"><span>Stock</span><span>Now</span><span><span class="up">▲</span> Rises to</span><span><span class="down">▼</span> Falls to</span><span>Note</span><span></span></div>
+    ${AL.bulk.map((r, i) => { const sy = (r.sym || "").trim().toUpperCase(), p = sy ? alPx(sy) : null; return `<div class="albr"><input class="field" list="alDL" data-bk="${i}|sym" value="${esc(r.sym)}" placeholder="e.g. TCS" aria-label="Stock ${i + 1}"><span class="num albp">${p != null ? px(p) : sy ? "…" : ""}</span><input class="field num" inputmode="decimal" data-bk="${i}|up" value="${esc(r.up)}" placeholder="₹ target(s)" aria-label="Rises to"><input class="field num" inputmode="decimal" data-bk="${i}|dn" value="${esc(r.dn)}" placeholder="₹ stop-loss" aria-label="Falls to"><input class="field" data-bk="${i}|note" value="${esc(r.note)}" maxlength="60" placeholder="optional" aria-label="Note"><button type="button" class="sy" data-bkdel="${i}" aria-label="Remove row">✕</button></div>`; }).join("")}</div>
+    <div class="albf"><button class="sy" id="bkadd">+ Add row</button>${my.watch.length ? `<button class="sy" id="bkwatch">+ Add my watchlist (${my.watch.length})</button>` : ""}<button class="sy" id="bkclear">Clear rows</button><label class="alchk" style="margin:0"><input type="checkbox" id="bkRep"> Repeat</label><button class="btn primary sm" id="bkgo">Create all alerts</button></div>
+  </div></div>`;
+}
+document.addEventListener("input", e => { const k = e.target.dataset?.bk; if (!k) return; const [i, f] = k.split("|"); AL.bulk[+i][f] = e.target.value; alBulkSave(); });
+document.addEventListener("change", async e => { const k = e.target.dataset?.bk; if (!k || !k.endsWith("|sym")) return; const i = +k.split("|")[0], sy = e.target.value.trim().toUpperCase(); e.target.value = sy; AL.bulk[i].sym = sy; alBulkSave();
+  const cell = e.target.parentElement.querySelector(".albp"); if (!sy) { cell.textContent = ""; return; }
+  if (alPx(sy) == null) { cell.textContent = "…"; try { const j = await fetch("/quote?s=" + encodeURIComponent(sy), { cache: "no-store", signal: AbortSignal.timeout(8000) }).then(r => r.json()); const v = j.quotes?.[sy]; if (v && v.price) AL.live[sy] = { ...v, at: Date.now() }; } catch {} }
+  cell.textContent = alPx(sy) != null ? px(alPx(sy)) : "not found"; });
 document.addEventListener("click", async e => {
   const t = e.target;
   const pk = t.closest("[data-alpick]"); if (pk) { alPick(pk.dataset.alpick); return; }
   if (!t.closest(".alsearch") && $("#alSugg")) $("#alSugg").hidden = true;
-  const q = t.closest("[data-alquick]"); if (q) { const [ty, v] = q.dataset.alquick.split("|"); $("#alType").value = ty; $("#alVal").value = v; $("#alVal").placeholder = ty.endsWith("pct") ? "%" : "₹ price"; $("#alNote").focus(); return; }
+  const q = t.closest("[data-alquick]"); if (q) { const [ty, v] = q.dataset.alquick.split("|"), box = ty === "above" ? $("#alUp") : ty === "below" ? $("#alDn") : $("#alPct");
+    if (ty.endsWith("pct")) { box.value = v; $("#alPctDir").value = ty === "up_pct" ? "up" : "down"; } else { const cur = alVals(box.value); if (!cur.includes(+v)) cur.push(+v); box.value = cur.sort((a, b) => ty === "above" ? a - b : b - a).join(", "); }
+    q.classList.add("on"); return; }
+  const aa = t.closest("[data-aladd]"); if (aa) { ui.aEdit = null; AL.pend = { symbol: aa.dataset.aladd }; render(); window.scrollTo({ top: 0, behavior: "smooth" }); setTimeout(() => $("#alUp")?.focus(), 300); return; }
+  const dall = t.closest("[data-aldelall]"); if (dall) { const sy = dall.dataset.aldelall, n = my.alerts.filter(a => a.symbol === sy && (!a.hit || a.repeat)).length; my.alerts = my.alerts.filter(a => !(a.symbol === sy && (!a.hit || a.repeat))); saveMy(); render(); toast(`Deleted ${n} alert${n > 1 ? "s" : ""} on ${sy}`); return; }
+  const bd = t.closest("[data-bkdel]"); if (bd) { AL.bulk.splice(+bd.dataset.bkdel, 1); if (!AL.bulk.length) AL.bulk.push({ sym: "", up: "", dn: "", note: "" }); alBulkSave(); render(); return; }
+  if (t.id === "bkadd") { AL.bulk.push({ sym: "", up: "", dn: "", note: "" }); alBulkSave(); render(); return; }
+  if (t.id === "bkclear") { AL.bulk = [{ sym: "", up: "", dn: "", note: "" }]; alBulkSave(); render(); return; }
+  if (t.id === "bkwatch") { const have = new Set(AL.bulk.map(r => (r.sym || "").toUpperCase())); AL.bulk = AL.bulk.filter(r => r.sym || r.up || r.dn); for (const w of my.watch) if (!have.has(w)) AL.bulk.push({ sym: w, up: "", dn: "", note: "" }); alBulkSave(); render(); return; }
+  if (t.id === "bkgo") { let n = 0, crossed = 0, bad = []; const rep = $("#bkRep")?.checked;
+    for (const r of AL.bulk) { const sy = (r.sym || "").trim().toUpperCase(), up = alVals(r.up), dn = alVals(r.dn); if (!sy || (!up.length && !dn.length)) continue;
+      if (!/^[A-Z0-9&_^.-]{1,24}$/.test(sy)) { bad.push(sy); continue; } const [a, c] = alCreate(sy, { above: up, below: dn }, (r.note || "").trim(), rep); n += a; crossed += c; }
+    if (!n && !bad.length) { toast("Fill a stock and at least one level in a row"); return; }
+    AL.bulk = [{ sym: "", up: "", dn: "", note: "" }, { sym: "", up: "", dn: "", note: "" }, { sym: "", up: "", dn: "", note: "" }]; alBulkSave();
+    alDone(n, crossed, bad.length ? "skipped " + bad.join(", ") : ""); return; }
   const ae = t.closest("[data-aledit]"); if (ae) { ui.aEdit = ae.dataset.aledit; AL.pend = null; render(); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
   const rr = t.closest("[data-alrearm]"); if (rr) { const a = my.alerts.find(x => x.id === rr.dataset.alrearm); if (a) { a.hit = null; a.wait = false; saveMy(); toast(`${a.symbol} alert is active again`); if (view === "alerts") render(); alBadge(); alSchedule(); } }
   if (t.closest("[data-alclose]")) { const el = t.closest(".alpop"); if (el) el.remove(); }
